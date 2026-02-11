@@ -1,3 +1,6 @@
 # Ignore build dir and binaries
 build/
 *.bin
+
+# MacOS Debug Symbols
+*.dSYM
