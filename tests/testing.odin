@@ -4,7 +4,7 @@ import tinylane "../src"
 import "core:testing"
 
 @(test)
-test_gds_file_creation :: proc(_: ^testing.T) {
+test_oasis_file_creation :: proc(_: ^testing.T) {
 	tinylane.main()
-	tinylane.write_gds_file("artifacts/testfile.gds", {10})
+	tinylane.write_oasis_file("artifacts/testfile.oas", {})
 }

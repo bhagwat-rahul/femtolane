@@ -5,12 +5,11 @@ import "core:os/os2"
 import "core:path/slashpath"
 
 main :: proc() {
-	fmt.println("hellope, this is tinylane, an RTL to GDS compiler!")
-	// Just write an empty line rn
-	write_gds_file("artifacts/testfile.gds", {0})
+	fmt.println("hellope, this is tinylane, an RTL to OASIS compiler!")
+	write_oasis_file("artifacts/testfile.oas", {}) // Write empty byte
 }
 
-write_gds_file :: proc(filepath: string, data_to_be_written: []byte) {
+write_oasis_file :: proc(filepath: string, data_to_be_written: []byte) {
 	directory, filename := slashpath.split(filepath)
 	error: os2.Error = os2.make_directory_all(directory)
 	if error != nil {
@@ -18,6 +17,6 @@ write_gds_file :: proc(filepath: string, data_to_be_written: []byte) {
 	}
 	error = os2.write_entire_file_from_bytes(filepath, data_to_be_written)
 	if error != nil {
-		fmt.println("Failed to write GDS file:", filename, "Error:", error)
+		fmt.println("Failed to write oasis file:", filename, "Error:", error)
 	}
 }
