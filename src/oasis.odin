@@ -1,4 +1,4 @@
-package tinylane
+package femtolane
 
 import "core:fmt"
 import "core:os/os2"
