@@ -8,6 +8,7 @@ import "core:io"
 import "core:os/os2"
 import "core:path/filepath"
 import "core:path/slashpath"
+import "core:time"
 
 /** Print a prompt, get yes/no user input and return a bool based on input */
 read_yes_no :: proc(prompt: string) -> bool {
@@ -36,18 +37,24 @@ create_file_and_dir :: proc(filepath: string, data: []byte) {
 	if os2.exists(filepath) {
 		overwrite := read_yes_no("File exists, overwrite? (y/n):")
 		if !overwrite {
+			fmt.println("Cancelling file write")
 			return
 		}
 	}
 	if !os2.exists(directory) {
-		error: os2.Error = os2.make_directory_all(directory)
-		if error != nil {
+		if os2.make_directory_all(directory) != nil {
 			panic("Failed to create directory")
 		}
 	}
-	// Handle overwriting currently panics
-	file_written: os2.Error = os2.write_entire_file(filepath, data)
-	if file_written != nil {
-		panic("Failed to write file")
+	// TODO(rahul): If we see this being a hotpath, optimise writes and remove the atomic temp write replace
+	// Atomic write
+	temp := fmt.tprintf("%s.%d.tmp", filepath, time.Microsecond)
+	if os2.write_entire_file(temp, data) != nil {
+		panic("Temp write failed during explicit overwrite")
 	}
+	if os2.rename(temp, filepath) != nil {
+		os2.remove(temp)
+		panic("Rename failed after explicit overwrite")
+	}
+	os2.remove(temp)
 }
