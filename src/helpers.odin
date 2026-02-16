@@ -31,7 +31,6 @@ read_yes_no :: proc(prompt: string) -> bool {
 /** Create a file with intervening directories, ask to overwrite if exists,
 	provide filepath and data in bytes to be stored */
 create_file_and_dir :: proc(filepath: string, data: [dynamic]byte) {
-	directory, filename := slashpath.split(filepath)
 	if os.exists(filepath) {
 		overwrite := read_yes_no("File exists, overwrite? (y/n):")
 		if !overwrite {
@@ -39,6 +38,8 @@ create_file_and_dir :: proc(filepath: string, data: [dynamic]byte) {
 			return // TODO(rahul): Don't want to use early returns
 		}
 	}
+
+	directory, filename := slashpath.split(filepath)
 	if (!os.exists(directory) && directory != "") {
 		if os.make_directory_all(directory) != nil {
 			panic("Failed to create directory")
