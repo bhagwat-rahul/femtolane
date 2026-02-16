@@ -24,12 +24,12 @@ OASIS_UNIT :: []byte{0x00} // Unit (microns, etc.)
 OASIS_END :: []byte{0x02} // End bit
 
 // Currently makes a corrupted file, we need to make this ULEB128 encoded (Unsigned Little Endian Base 128)
-create_oasis_data :: proc() -> (data: []byte) {
-	buf: [dynamic]byte = make([dynamic]byte, 0)
+create_oasis_data :: proc() -> (buf: [dynamic]byte) {
+	buf = make([dynamic]byte, 0)
 	append(&buf, ..OASIS_FILE_START)
 	append(&buf, ..OASIS_START)
 	append(&buf, ..OASIS_VERSION)
 	append(&buf, ..OASIS_UNIT)
 	append(&buf, ..OASIS_END)
-	return buf[:]
+	return buf
 }

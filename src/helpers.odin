@@ -4,16 +4,14 @@ package femtolane
 
 import "core:bufio"
 import "core:fmt"
-import "core:io"
-import "core:os/os2"
-import "core:path/filepath"
+import "core:os"
 import "core:path/slashpath"
 import "core:time"
 
 /** Print a prompt, get yes/no user input and return a bool based on input */
 read_yes_no :: proc(prompt: string) -> bool {
 	reader: bufio.Reader
-	bufio.reader_init(&reader, os2.to_stream(os2.stdin))
+	bufio.reader_init(&reader, os.to_stream(os.stdin))
 	defer bufio.reader_destroy(&reader)
 
 	for {
@@ -32,29 +30,28 @@ read_yes_no :: proc(prompt: string) -> bool {
 
 /** Create a file with intervening directories, ask to overwrite if exists,
 	provide filepath and data in bytes to be stored */
-create_file_and_dir :: proc(filepath: string, data: []byte) {
+create_file_and_dir :: proc(filepath: string, data: [dynamic]byte) {
 	directory, filename := slashpath.split(filepath)
-	if os2.exists(filepath) {
+	if os.exists(filepath) {
 		overwrite := read_yes_no("File exists, overwrite? (y/n):")
 		if !overwrite {
 			fmt.println("Cancelling file write")
-			return
+			return // TODO(rahul): Don't want to use early returns
 		}
 	}
-	if !os2.exists(directory) {
-		if os2.make_directory_all(directory) != nil {
+	if (!os.exists(directory) && directory != "") {
+		if os.make_directory_all(directory) != nil {
 			panic("Failed to create directory")
 		}
 	}
-	// TODO(rahul): If we see this being a hotpath, optimise writes and remove the atomic temp write replace
-	// Atomic write
+	// TODO(rahul): If we later bufio into the file no need to do this tempfile/swap
 	temp := fmt.tprintf("%s.%d.tmp", filepath, time.Microsecond)
-	if os2.write_entire_file(temp, data) != nil {
+	if os.write_entire_file(temp, data[:]) != nil {
 		panic("Temp write failed during explicit overwrite")
 	}
-	if os2.rename(temp, filepath) != nil {
-		os2.remove(temp)
+	if os.rename(temp, filepath) != nil {
+		os.remove(temp)
 		panic("Rename failed after explicit overwrite")
 	}
-	os2.remove(temp)
+	os.remove(temp)
 }
