@@ -33,25 +33,16 @@ create_file_and_dir :: proc(filepath: string, data: []byte) {
 	if os.exists(filepath) {
 		overwrite := read_yes_no("File exists, overwrite? (y/n):")
 		if !overwrite {
-			fmt.println("Cancelling file write")
-			return // TODO(rahul): Don't want to use early returns
+			fmt.println("Cancelling file write"); return // TODO(rahul): Maybe don't do early returns
 		}
 	}
 
 	directory, filename := slashpath.split(filepath)
 	if (!os.exists(directory) && directory != "") {
-		if os.make_directory_all(directory) != nil {
-			panic("Failed to create directory")
-		}
+		ensure(os.make_directory_all(directory) == nil, "Failed to create directory")
 	}
 	// TODO(rahul): If we later bufio into the file no need to do this tempfile/swap
-	temp := fmt.tprintf("%s.%d.tmp", filepath, time.Microsecond)
-	if os.write_entire_file(temp, data[:]) != nil {
-		panic("Temp write failed during explicit overwrite")
-	}
-	if os.rename(temp, filepath) != nil {
-		os.remove(temp)
-		panic("Rename failed after explicit overwrite")
-	}
-	os.remove(temp)
+	tmp := fmt.tprintf("%s.%d.tmp", filepath, time.Microsecond)
+	ensure(os.write_entire_file(tmp, data[:]) == nil, "Temp file-write fail"); defer os.remove(tmp)
+	ensure(os.rename(tmp, filepath) == nil, "Tempfile re-write fail")
 }
