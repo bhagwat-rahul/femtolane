@@ -8,15 +8,14 @@ import "core:os"
 import "core:path/slashpath"
 import "core:time"
 
-/** Print a prompt, get yes/no user input and return a bool based on input */
-read_yes_no :: proc(prompt: string) -> bool {
-	reader: bufio.Reader
+/** Print a prompt, get yes/no user input and return a bool based on input, default false */
+read_yes_no :: proc(prompt: string) -> (answer: bool = false) {
+	reader: bufio.Reader; defer bufio.reader_destroy(&reader)
 	bufio.reader_init(&reader, os.to_stream(os.stdin))
-	defer bufio.reader_destroy(&reader)
-
 	for {
 		fmt.println(prompt)
-		user_input, err := bufio.reader_read_string(&reader, cast(byte)'\n')
+		user_input, _ := bufio.reader_read_string(&reader, byte('\n'))
+		defer delete(user_input)
 		switch user_input[0] {
 		case 'y', 'Y':
 			return true
