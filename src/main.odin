@@ -22,7 +22,7 @@ main :: proc() {
 
 run_flow_command :: proc(args: Tool_Args) {
 	infile_path, outfile_path: string = args.input_file, args.output_file
-	create_file_and_dir(outfile_path, create_oasis_data())
+	create_file_and_dir("this.oas", create_oasis_data())
 }
 
 run_help_command :: proc(args: Tool_Args) {

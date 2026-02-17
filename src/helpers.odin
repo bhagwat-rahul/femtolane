@@ -30,7 +30,7 @@ read_yes_no :: proc(prompt: string) -> bool {
 
 /** Create a file with intervening directories, ask to overwrite if exists,
 	provide filepath and data in bytes to be stored */
-create_file_and_dir :: proc(filepath: string, data: [dynamic]byte) {
+create_file_and_dir :: proc(filepath: string, data: []byte) {
 	if os.exists(filepath) {
 		overwrite := read_yes_no("File exists, overwrite? (y/n):")
 		if !overwrite {
