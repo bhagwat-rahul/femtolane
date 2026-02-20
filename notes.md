@@ -1,9 +1,10 @@
-<!--General notes about things i learn, discover and decide as i build this.
-This is an informal doc only meant for myself as a scratchpad during development.
-Some of these ideas will make their way into the project, some things will be documented
-in the README.
--->
+# Notes
 
+> General notes about things i learn, discover and decide as i build this.
+This is an informal doc only meant for myself as a scratchpad during development.
+Some of these ideas will make their way into the project, some things will be documented in the README.
+
+## Aim:
 We want to build an rtl → oasis flow.
 Usually the way these work is, we load tech.LEF and stdcell LEF files
 which are the physical rules and cell geometry needed for doing place and route on the chip.
@@ -29,7 +30,8 @@ and it can also write out that config in the form of a script
 (should be able to load script into GUI and vice versa (Python/Tcl)).
 Tool should be SIMD by default, first pass CPU parallel then make GPU parallel.
 
-Discoveries:-
+
+## Discoveries:
 
 1. The system-verilog -> netlist step will take months to implement.
 i.e the subset of it used in asic's directly (not testbench or fpga constructs)
@@ -43,7 +45,7 @@ heuristics benchmarks). Eg. Finding best for 50 cells takes minutes, 100 (hours-
 and compare with our heuristics -> if good use same heuristics on full block.
 Implementing a synthesizable SystemVerilog → netlist frontend sufficient for real ASIC RTL (excluding simulation-only constructs) is a months-long effort due to elaboration, typing, and process scheduling semantics.
 
-Decision:-
+## Decision:
 
 1. Don't spend too much time atm doing things like rtl->netlist->ir & ir(db)/def->oas
 just use libs for all of this for now. Focus on accelerating the main step, PnR.
@@ -51,3 +53,14 @@ Once that is done, we want to make sure we have great infra to be able to onboar
 and be able to go from PDK access -> people being able to use it for rtl->oas, < 1 week.
 To be able to do that we need to define a clean interface step (can look like an IR or something else)
 for our pnr tool so we can adapt to opendb, etc. or our own parsers and oasis writers down the road.
+
+
+### Discoveries during running yosys for getting an rtl-netlist:
+
+yosys doesn't run it's own tcl interpreter.
+we need to pass certain flags to convert things in rtl when things
+don't directly map to stdcells.
+
+### Misc.
+Frontend RTL -> Netlist flow is called logic synthesis (Frontend (FE))
+& Netlist -> GDS(OASIS) flow is called physical design (Place and Route, Backend (BE))
