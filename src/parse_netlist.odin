@@ -51,3 +51,9 @@ parse_wires_from_netlist :: proc(filepath: string) {
 	fmt.println(netlist_read_err)
 	ensure(netlist_read_err == nil && netlist_data != nil, "Netlist read errored or empty data")
 }
+
+// NOTE(rahul): Compiler directives, netlist has compiler directives like src
+// which let us know where a module comes from (what part of parent rtl, filename & line)
+// We need to keep as much (all) of this/other info as we lower rtl for debug purposes.
+// Store this either directly or in the form of relationships/graphs etc. Explore the design
+// space to see what makes sense and look at other implementations.
