@@ -9,6 +9,9 @@ For PnR, use a more computation friendly layout with id's & no strings/pointer c
 These structs still need to be a good starting ground to lower down into PnR db structs but be desiged for good parse/ast-building of netlist.
 */
 
+
+// TODO(rahul): We don't want to build an ast, rather build a hypergraph
+
 AstNet :: struct {
 	name:     string,
 	pins:     [dynamic]AstPinRef,
@@ -57,3 +60,21 @@ parse_wires_from_netlist :: proc(filepath: string) {
 // We need to keep as much (all) of this/other info as we lower rtl for debug purposes.
 // Store this either directly or in the form of relationships/graphs etc. Explore the design
 // space to see what makes sense and look at other implementations.
+
+/** Parser Grammar:-
+module     ::= "module" ident '(' portlist ')' ';'
+               { item }
+               "endmodule"
+
+item       ::= wire_decl
+             | inst
+             | alias
+
+inst       ::= ident ident '(' pinlist ')' ';'
+
+pinlist    ::= pinconn { ',' pinconn }
+
+pinconn    ::= '.' ident '(' ident ')'
+
+alias      ::= "assign" ident '=' ident ';'
+*/

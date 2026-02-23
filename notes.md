@@ -55,12 +55,18 @@ To be able to do that we need to define a clean interface step (can look like an
 for our pnr tool so we can adapt to opendb, etc. or our own parsers and oasis writers down the road.
 
 
-### Discoveries during running yosys for getting an rtl-netlist:
+## Discoveries during running yosys for getting an rtl-netlist:
 
 yosys doesn't run it's own tcl interpreter.
 we need to pass certain flags to convert things in rtl when things
 don't directly map to stdcells.
 
-### Misc.
+## Misc.
 Frontend RTL -> Netlist flow is called logic synthesis (Frontend (FE))
 & Netlist -> GDS(OASIS) flow is called physical design (Place and Route, Backend (BE))
+
+Language parsing is pretty much a solved problem using recursive descent/lookahead parsing, etc.
+We don't want to build an entire AST and hence don't need to do recursive descent.
+Don't want AST since we're not doing any verification, etc. of the lang.
+We want to build a graph (hypergraph), for which a simple lexing step should suffice.
+This hypergraph approach is way more performant and the correct approach for PnR use-cases.
