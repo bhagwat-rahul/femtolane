@@ -1,0 +1,8 @@
+# Yosys Synth script, string replace all {{}}
+
+read_liberty {{liberty_filename}}
+read_verilog {{input_filename}}
+hierarchy -check -top top; # {{design_top}}
+proc; opt; fsm; opt; memory; opt; techmap;
+clean;
+write_verilog {{output_filename}}
