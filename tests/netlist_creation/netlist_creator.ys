@@ -1,8 +1,8 @@
-# Yosys Synth script, string replace all {{}}
+# Yosys Synth script, pass vars with -D
 
-read_liberty {{liberty_filename}}
-read_verilog {{input_filename}}
-hierarchy -check -top top; # {{design_top}}
+read_liberty $liberty_filename
+read_verilog $input_filename # or directory/project-files
+hierarchy -check -top top;
 proc; opt; fsm; opt; memory; opt; techmap;
 clean;
-write_verilog {{output_filename}}
+write_verilog $outfile # or folder
