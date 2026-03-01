@@ -13,12 +13,9 @@ Lexer :: struct {
 	buf:  [dynamic]byte,
 }
 
-// distinct 32 bit generic string id
-StringId32 :: distinct u32
-// distinct 32 bit vertex id
-VertexID32 :: distinct u32
-// distinct 32 bit net id
-NetID32 :: distinct u32
+StringId32 :: distinct u32 // distinct 32 bit generic string id
+VertexID32 :: distinct u32 // distinct 32 bit vertex id
+NetID32 :: distinct u32 // distinct 32 bit net id
 
 Vertex :: struct {
 	name: StringId32,
@@ -32,7 +29,7 @@ BuilderPin :: struct {
 }
 
 Pin :: struct {
-	vertex: VertexID32, // instance id
+	vertex: VertexID32,
 	port:   StringId32,
 }
 
