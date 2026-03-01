@@ -13,7 +13,12 @@ Lexer :: struct {
 	buf:  [dynamic]byte,
 }
 
+// distinct 32 bit generic string id
 StringId32 :: distinct u32
+// distinct 32 bit vertex id
+VertexID32 :: distinct u32
+// distinct 32 bit net id
+NetID32 :: distinct u32
 
 Vertex :: struct {
 	name: StringId32,
@@ -21,7 +26,7 @@ Vertex :: struct {
 }
 
 Pin :: struct {
-	vertex: u32, // instance id
+	vertex: VertexID32, // instance id
 	port:   StringId32,
 }
 
@@ -31,11 +36,19 @@ Net :: struct {
 	pin_count: u32,
 }
 
-NetHyperGraph :: struct {
+// net hypergraph builder for fast writes, this has net_lookup to dedupe while building
+NetHyperGraphBuilder :: struct {
 	vertices:   [dynamic]Vertex,
 	nets:       [dynamic]Net,
 	pins:       [dynamic]Pin,
-	net_lookup: map[StringId32]u32,
+	net_lookup: map[StringId32]NetID32,
+}
+
+// Final net hypergraph post build phase for fast reads, SIMD'able
+NetHyperGraph :: struct {
+	vertices: #soa[dynamic]Vertex,
+	nets:     #soa[dynamic]Net,
+	pins:     #soa[dynamic]Pin,
 }
 
 // Advance the lexer struct, move current and next (peek) char by a byte, handling EOF
