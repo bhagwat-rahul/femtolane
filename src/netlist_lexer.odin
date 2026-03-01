@@ -39,7 +39,7 @@ NetHyperGraph :: struct {
 }
 
 // Advance the lexer struct, move current and next (peek) char by a byte, handling EOF
-advance :: #force_inline proc(l: ^Lexer) {
+advance :: proc(l: ^Lexer) {
 	l.curr = l.peek
 	b, err := bufio.reader_read_byte(l.r)
 	l.peek = 0 if err == .EOF else b
@@ -53,7 +53,7 @@ init_lexer :: proc(r: ^bufio.Reader) -> (l: Lexer) {
 }
 
 // Skip whitespaces
-skip_whitespace :: #force_inline proc(l: ^Lexer) {
+skip_whitespace :: proc(l: ^Lexer) {
 	for unicode.is_space(rune(l.curr)) {advance(l)}
 }
 
@@ -76,7 +76,7 @@ skip_comments :: proc(l: ^Lexer) {
 	}
 }
 
-is_identifier :: #force_inline proc(c: byte) -> bool {
+is_identifier :: proc(c: byte) -> bool {
 	return unicode.is_letter(rune(c)) || unicode.is_digit(rune(c)) || c == '_' || c == '$'
 }
 
