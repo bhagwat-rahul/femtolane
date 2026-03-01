@@ -25,6 +25,12 @@ Vertex :: struct {
 	cell: StringId32,
 }
 
+BuilderPin :: struct {
+	net:    NetID32,
+	vertex: VertexID32,
+	port:   StringId32,
+}
+
 Pin :: struct {
 	vertex: VertexID32, // instance id
 	port:   StringId32,
@@ -40,7 +46,7 @@ Net :: struct {
 NetHyperGraphBuilder :: struct {
 	vertices:   [dynamic]Vertex,
 	nets:       [dynamic]Net,
-	pins:       [dynamic]Pin,
+	pins:       [dynamic]BuilderPin,
 	net_lookup: map[StringId32]NetID32,
 }
 
@@ -115,5 +121,63 @@ expect :: proc(l: ^Lexer, c: byte) {
 	advance(l)
 }
 
-parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph) {
+freezeHyperGraph :: proc(b: ^NetHyperGraphBuilder) -> NetHyperGraph {
+	hg: NetHyperGraph
+	// Copy vertices (AoS → SoA)
+	resize(&hg.vertices, len(b.vertices))
+	for i in 0 ..< len(b.vertices) {
+		hg.vertices[i] = b.vertices[i]
+	}
+	// Copy nets (AoS → SoA)
+	resize(&hg.nets, len(b.nets))
+	for i in 0 ..< len(b.nets) {
+		hg.nets[i] = b.nets[i]
+	}
+	// ---- CSR BUILD START ----
+	// 1. Count pins per net
+	counts := make([]u32, len(b.nets))
+	for p in b.pins {
+		counts[int(p.net)] += 1
+	}
+	// 2. Prefix sum → first_pin
+	offsets := make([]u32, len(b.nets))
+	running: u32 = 0
+	for i in 0 ..< len(b.nets) {
+		offsets[i] = running
+		hg.nets[i].first_pin = running
+		hg.nets[i].pin_count = counts[i]
+		running += counts[i]
+	}
+	// 3. Allocate SoA pins
+	resize(&hg.pins, len(b.pins))
+	// 4. Scatter pins into CSR order
+	next := make([]u32, len(b.nets))
+	copy(next, offsets)
+	for p in b.pins {
+		idx := next[int(p.net)]
+
+		hg.pins[idx] = Pin {
+			vertex = p.vertex,
+			port   = p.port,
+		}
+
+		next[int(p.net)] += 1
+	}
+	// ---- CSR BUILD END ----
+	return hg
+}
+
+parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraphBuilder) {
+}
+
+parse_netlist :: proc(r: ^bufio.Reader) -> NetHyperGraph {
+	l := init_lexer(r)
+	builder := NetHyperGraphBuilder{}
+	for {
+		skip_whitespace(&l)
+		skip_comments(&l)
+		if l.curr == 0 {break}
+		parse_instance_and_emit_graph(&l, &builder)
+	}
+	return freezeHyperGraph(&builder)
 }
