@@ -92,8 +92,14 @@ skip_comments :: proc(l: ^Lexer) {
 	}
 }
 
-is_identifier :: proc(c: byte) -> bool {
-	return unicode.is_letter(rune(c)) || unicode.is_digit(rune(c)) || c == '_' || c == '$'
+is_identifier :: proc(byte: byte) -> bool {
+	is_id :=
+		(byte >= 'a' && byte <= 'z') ||
+		(byte >= 'A' && byte <= 'Z') ||
+		(byte >= '0' && byte <= '9') ||
+		byte == '_' ||
+		byte == '$'
+	return is_id
 }
 
 read_identifier :: proc(l: ^Lexer) -> []byte {
