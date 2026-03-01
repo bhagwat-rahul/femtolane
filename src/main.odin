@@ -9,7 +9,6 @@ main :: proc() {
 		"hellope, this is femtolane, an RTL to OASIS compiler! For more info run 'femtolane help'",
 	)
 	args := parse_args(os.args)
-	fmt.println(args)
 	switch args.command {
 	case .help:
 		run_help_command(args)
