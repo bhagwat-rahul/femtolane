@@ -150,8 +150,13 @@ freezeHyperGraph :: proc(b: ^NetHyperGraphBuilder) -> NetHyperGraph {
 	// ---- CSR BUILD START ----
 	// 1. Count pins per net
 	resize(&b.counts, len(b.nets))
+	for i in 0 ..< len(b.counts) {
+		b.counts[i] = 0
+	}
 	for p in b.pins {
-		b.counts[int(p.net)] += 1
+		net_idx := int(p.net)
+		ensure(net_idx < len(b.nets), "builder pin net index out of range")
+		b.counts[net_idx] += 1
 	}
 	// 2. Prefix sum → first_pin
 	resize(&b.offsets, len(b.nets))
@@ -162,19 +167,22 @@ freezeHyperGraph :: proc(b: ^NetHyperGraphBuilder) -> NetHyperGraph {
 		hg.nets[i].pin_count = b.counts[i]
 		running += b.counts[i]
 	}
+	ensure(running == u32(len(b.pins)), "pin count mismatch while freezing hypergraph")
 	// 3. Allocate SoA pins
 	resize(&hg.pins, len(b.pins))
 	// 4. Scatter pins into CSR order
 	resize(&b.next, len(b.nets))
 	copy(b.next[:], b.offsets[:])
 	for p in b.pins {
-		idx := b.next[int(p.net)]
+		net_idx := int(p.net)
+		idx := b.next[net_idx]
+		ensure(int(idx) < len(hg.pins), "pin scatter index out of range")
 
 		hg.pins[idx] = Pin {
 			vertex = p.vertex,
 			port   = p.port,
 		}
-		b.next[int(p.net)] += 1
+		b.next[net_idx] += 1
 	}
 	// ---- CSR BUILD END ----
 	return hg
