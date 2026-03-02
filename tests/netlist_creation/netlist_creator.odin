@@ -14,20 +14,17 @@ run_yosys :: proc(filepath: string, liberty_file: string) {
 	outfile := fmt.tprintf("%s.%s.netlist.v", directory, strings.trim_suffix(filename, ".v"))
 	yosys_cmd := fmt.tprintf(
 		`
-		read_liberty -lib -ignore_miss_dir -setattr blackbox %s;
 		read_verilog %s;
-		hierarchy -check -top top;
-		proc; opt; fsm; opt;memory; opt; techmap;
+		hierarchy -auto-top;
+		proc; opt; fsm; opt; memory; opt; techmap;
+		read_liberty -ignore_miss_func %s;
 		dfflibmap -liberty %s;
-		abc       -liberty %s;
+		abc;
 		setundef -zero;
-		hilomap \
-		-hicell gf180mcu_fd_sc_mcu7t5v0__tieh  Y \
-		-locell gf180mcu_fd_sc_mcu7t5v0__tiel  Y;
 		clean;
+		stat;
 		write_verilog -noattr -noexpr %s
 		`,
-		liberty_file,
 		filepath,
 		liberty_file,
 		liberty_file,
@@ -39,11 +36,16 @@ run_yosys :: proc(filepath: string, liberty_file: string) {
 		env         = nil,
 	}
 	state, stdout, stderr, err := os.process_exec(yosys_proc, os.heap_allocator())
-	if err != nil {fmt.println("yosys spawn failed, Error:", err)}
+	fmt.println("EXIT:", state)
+	fmt.println("YOSYS STDOUT:\n", string(stdout))
+	fmt.println("YOSYS STDERR:\n", string(stderr))
+	if err != nil {
+		fmt.println("SPAWN ERROR:", err)
+	}
 }
 
 main :: proc() {
 	// From args/user input, get pdk_path (or path to relevant files), using this, gen dotfile netlists
 	liberty_file :: "/Users/rahulbhagwat/Documents/git/explorations/gf180mcu-pdk/libraries/gf180mcu_fd_sc_mcu7t5v0/latest/liberty/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib"
-	run_yosys("gcd/gcd.v", liberty_file)
+	run_yosys("adder/adder.v", liberty_file)
 }
