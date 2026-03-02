@@ -14,6 +14,8 @@ main :: proc() {
 		run_help_command(args)
 	case .flow:
 		run_flow_command(args)
+	case .parse_netlist:
+		run_parse_netlist_and_visualise_command(args)
 	case:
 		run_help_command(args)
 	}
@@ -29,4 +31,15 @@ run_help_command :: proc(args: Tool_Args) {
 	fmt.println("Name:        ", command_info[cmd].name)
 	fmt.println("Description: ", command_info[cmd].description)
 	fmt.println("Usage:       ", command_info[cmd].usage)
+}
+
+run_parse_netlist_and_visualise_command :: proc(args: Tool_Args) {
+	data, err := os.read_entire_file(args.input_file, context.allocator)
+	ensure(err == nil, "netlist read error")
+	hg := parse_netlist(data)
+	fmt.println("vertices:", len(hg.vertices))
+	fmt.println("nets:", len(hg.nets))
+	fmt.println("pins:", len(hg.pins))
+	fmt.println(hg)
+	draw_net_hg(&hg)
 }
