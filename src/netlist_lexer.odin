@@ -1,12 +1,11 @@
 package femtolane
 
-import "core:bufio"
-
 // TODO(rahul): Optimize helper func's and review all structs for a good single pass lex -> instance hypergraph emit step
 
 // Parsing, advancing, etc. all get a pointer to this struct
 Lexer :: struct {
-	r:    ^bufio.Reader,
+	src:  []byte,
+	pos:  int,
 	curr: byte,
 	peek: byte,
 	buf:  [dynamic]byte,
@@ -59,13 +58,17 @@ NetHyperGraph :: struct {
 // Advance the lexer struct, move current and next (peek) char by a byte, handling EOF
 advance :: proc(l: ^Lexer) {
 	l.curr = l.peek
-	b, err := bufio.reader_read_byte(l.r)
-	l.peek = 0 if err == .EOF else b
+	if l.pos < len(l.src) {
+		l.peek = l.src[l.pos]
+		l.pos += 1
+	} else {
+		l.peek = 0
+	}
 }
 
 // Initialise the lexer struct
-init_lexer :: proc(r: ^bufio.Reader) -> (l: Lexer) {
-	l.r = r
+init_lexer :: proc(src: []byte) -> (l: Lexer) {
+	l.src = src
 	advance(&l); advance(&l)
 	return l
 }
@@ -180,8 +183,8 @@ freezeHyperGraph :: proc(b: ^NetHyperGraphBuilder) -> NetHyperGraph {
 parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraphBuilder) {
 }
 
-parse_netlist :: proc(r: ^bufio.Reader) -> NetHyperGraph {
-	l := init_lexer(r)
+parse_netlist :: proc(src: []byte) -> NetHyperGraph {
+	l := init_lexer(src)
 	builder := NetHyperGraphBuilder{}
 	for {
 		skip_whitespace(&l)
