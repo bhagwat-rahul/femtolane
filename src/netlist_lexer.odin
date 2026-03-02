@@ -1,7 +1,6 @@
 package femtolane
 
 import "core:bufio"
-import "core:unicode"
 
 // TODO(rahul): Optimize helper func's and review all structs for a good single pass lex -> instance hypergraph emit step
 
@@ -45,6 +44,9 @@ NetHyperGraphBuilder :: struct {
 	nets:       [dynamic]Net,
 	pins:       [dynamic]BuilderPin,
 	net_lookup: map[StringId32]NetID32,
+	counts:     [dynamic]u32,
+	offsets:    [dynamic]u32,
+	next:       [dynamic]u32,
 }
 
 // Final net hypergraph post build phase for fast reads, SIMD'able
@@ -68,9 +70,14 @@ init_lexer :: proc(r: ^bufio.Reader) -> (l: Lexer) {
 	return l
 }
 
+is_space :: proc(c: rune) -> (is_space: bool) {
+	is_space = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+	return is_space
+}
+
 // Skip whitespaces
 skip_whitespace :: proc(l: ^Lexer) {
-	for unicode.is_space(rune(l.curr)) {advance(l)}
+	for is_space(rune(l.curr)) {advance(l)}
 }
 
 // Once you see the start of a comment, keep going till end of line or */ if multi-line comment
@@ -111,7 +118,7 @@ read_identifier :: proc(l: ^Lexer) -> []byte {
 read_escaped_identifier :: proc(l: ^Lexer) -> []byte {
 	advance(l) // skip '\'
 	clear(&l.buf)
-	for !unicode.is_space(rune(l.curr)) {
+	for !is_space(rune(l.curr)) {
 		append(&l.buf, l.curr)
 		advance(l)
 	}
@@ -124,6 +131,7 @@ expect :: proc(l: ^Lexer, c: byte) {
 	advance(l)
 }
 
+// TODO(rahul): Review/Fix, LLM coded
 freezeHyperGraph :: proc(b: ^NetHyperGraphBuilder) -> NetHyperGraph {
 	hg: NetHyperGraph
 	// Copy vertices (AoS → SoA)
@@ -138,33 +146,32 @@ freezeHyperGraph :: proc(b: ^NetHyperGraphBuilder) -> NetHyperGraph {
 	}
 	// ---- CSR BUILD START ----
 	// 1. Count pins per net
-	counts := make([]u32, len(b.nets))
+	resize(&b.counts, len(b.nets))
 	for p in b.pins {
-		counts[int(p.net)] += 1
+		b.counts[int(p.net)] += 1
 	}
 	// 2. Prefix sum → first_pin
-	offsets := make([]u32, len(b.nets))
+	resize(&b.offsets, len(b.nets))
 	running: u32 = 0
 	for i in 0 ..< len(b.nets) {
-		offsets[i] = running
+		b.offsets[i] = running
 		hg.nets[i].first_pin = running
-		hg.nets[i].pin_count = counts[i]
-		running += counts[i]
+		hg.nets[i].pin_count = b.counts[i]
+		running += b.counts[i]
 	}
 	// 3. Allocate SoA pins
 	resize(&hg.pins, len(b.pins))
 	// 4. Scatter pins into CSR order
-	next := make([]u32, len(b.nets))
-	copy(next, offsets)
+	resize(&b.next, len(b.nets))
+	copy(b.next[:], b.offsets[:])
 	for p in b.pins {
-		idx := next[int(p.net)]
+		idx := b.next[int(p.net)]
 
 		hg.pins[idx] = Pin {
 			vertex = p.vertex,
 			port   = p.port,
 		}
-
-		next[int(p.net)] += 1
+		b.next[int(p.net)] += 1
 	}
 	// ---- CSR BUILD END ----
 	return hg
