@@ -1,8 +1,8 @@
-# Yosys Synth script, pass vars with -D
-
+# Yosys synth-script template, vars replaced by env defines
 read_liberty $liberty_filename
 read_verilog $input_filename # or directory/project-files
-hierarchy -check -top top;
-proc; opt; fsm; opt; memory; opt; techmap;
-clean;
-write_verilog $outfile # or folder
+hierarchy -auto-top;
+dfflibmap -liberty $liberty_filename;
+abc;
+clean; stat;
+write_verilog -noattr -noexpr $netlist_outfile # or folder
