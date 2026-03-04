@@ -42,9 +42,9 @@ draw_net_hg :: proc(hg: ^fl_lex.NetHyperGraph) {
 	rl.SetTargetFPS(HGWINDOWFPS)
 
 	top: f32 = 60
-	bottom: f32 = f32(HGWINDOWHEIGHT) - 60
+	bottom: f32 = HGWINDOWHEIGHT - top
 	left_x: f32 = 220
-	right_x: f32 = f32(HGWINDOWWIDTH) - 220
+	right_x: f32 = HGWINDOWWIDTH - left_x
 
 	layout_col(len(hg.vertices), left_x, top, bottom, &vertex_pos)
 	layout_col(len(hg.nets), right_x, top, bottom, &net_pos)

@@ -1,5 +1,7 @@
 package femtolane_lexer
 
+import "core:strings"
+
 // TODO(rahul): Optimize helper func's and review all structs for a good single pass lex -> instance hypergraph emit step
 
 //TODO(rahul): IMPORTANT!!! Lot's of func's here made with codex 5.2, review and re-write
@@ -13,7 +15,7 @@ Lexer :: struct {
 	buf:       [dynamic]byte, // reusable scratch buffer to add tokens we need to capture till fully constructed
 }
 
-StringId32 :: distinct u32 // distinct 32 bit generic string id
+StringId32 :: distinct u32 // distinct 32 bit generic string id (interned; collision-free)
 VertexID32 :: distinct u32 // distinct 32 bit vertex id
 NetID32 :: distinct u32 // distinct 32 bit net id
 
@@ -41,15 +43,18 @@ Net :: struct {
 
 // net hypergraph builder for fast writes, this has net_lookup to dedupe while building
 NetHyperGraphBuilder :: struct {
-	vertices:   [dynamic]Vertex,
-	nets:       [dynamic]Net,
-	pins:       [dynamic]BuilderPin,
-	net_lookup: map[StringId32]NetID32,
+	vertices:         [dynamic]Vertex,
+	nets:             [dynamic]Net,
+	pins:             [dynamic]BuilderPin,
+	net_lookup:       map[StringId32]NetID32,
+	string_id_lookup: map[string]StringId32,
+	interned_strings: [dynamic]string,
+	next_string_id:   u32,
 
 	// counts, offsets, & next are a part of the builder struct so we don't end up with allocations during hg freeze
-	counts:     [dynamic]u32,
-	offsets:    [dynamic]u32,
-	next:       [dynamic]u32,
+	counts:           [dynamic]u32,
+	offsets:          [dynamic]u32,
+	next:             [dynamic]u32,
 }
 
 // Final net hypergraph post build phase for fast reads, SIMD'able
@@ -168,22 +173,27 @@ expect :: proc(l: ^Lexer, expected_byte: byte) {
 	advance(l)
 }
 
-bytes_equal_string :: proc(bytes: []byte, string: string) -> bool {
-	if len(bytes) != len(string) {return false}
-	for i in 0 ..< len(bytes) {
-		if bytes[i] != string[i] {return false}
+internal_string_id :: proc(b: ^NetHyperGraphBuilder, data: []byte) -> StringId32 {
+	view := string(data)
+	if id, ok := b.string_id_lookup[view]; ok {
+		return id
 	}
-	return true
+	ensure(b.next_string_id < 0xFFFF_FFFF, "string id overflow")
+	stable := strings.clone(view)
+	b.next_string_id += 1
+	new_id := StringId32(b.next_string_id)
+	b.string_id_lookup[stable] = new_id
+	append(&b.interned_strings, stable)
+	return new_id
 }
 
-// Hash identifier bytes into a compact 32-bit FNV-1a id (fast, non-cryptographic, with 0 reserved).
-hash_string_id :: proc(data: []byte) -> StringId32 {
-	hash: u32 = 2166136261
-	for b in data {
-		hash = (hash ~ u32(b)) * 16777619
+destroy_builder_interning :: proc(b: ^NetHyperGraphBuilder) {
+	for s in b.interned_strings {
+		delete(s)
 	}
-	if hash == 0 {hash = 1}
-	return StringId32(hash)
+	delete(b.interned_strings)
+	delete(b.string_id_lookup)
+	delete(b.net_lookup)
 }
 
 is_skip_statement_keyword :: proc(id: []byte) -> bool {
@@ -378,6 +388,7 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 		skip_to_statement_end(l)
 		return
 	}
+	cell_id := internal_string_id(resulting_graph, cell_or_kw)
 
 	skip_trivia(l)
 	if l.curr_byte == '#' {
@@ -403,7 +414,11 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 		return
 	}
 
-	vertex_id := add_vertex(resulting_graph, hash_string_id(inst_name), hash_string_id(cell_or_kw))
+	vertex_id := add_vertex(
+		resulting_graph,
+		internal_string_id(resulting_graph, inst_name),
+		cell_id,
+	)
 
 	advance(l) // skip opening paren of connection list
 	positional_idx: u32 = 0
@@ -426,7 +441,7 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 				skip_to_statement_end(l)
 				return
 			}
-			port_name = hash_string_id(read_name(l))
+			port_name = internal_string_id(resulting_graph, read_name(l))
 			skip_trivia(l)
 			if l.curr_byte != '(' {
 				skip_to_statement_end(l)
@@ -440,7 +455,12 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 
 		net_token := read_connection_target(l)
 		if len(net_token) > 0 {
-			emit_pin(resulting_graph, vertex_id, port_name, hash_string_id(net_token))
+			emit_pin(
+				resulting_graph,
+				vertex_id,
+				port_name,
+				internal_string_id(resulting_graph, net_token),
+			)
 		}
 
 		skip_trivia(l)
@@ -478,8 +498,10 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 parse_netlist :: proc(src: []byte) -> NetHyperGraph {
 	l := init_lexer(src)
 	builder := NetHyperGraphBuilder {
-		net_lookup = make(map[StringId32]NetID32),
+		net_lookup       = make(map[StringId32]NetID32),
+		string_id_lookup = make(map[string]StringId32),
 	}
+	defer destroy_builder_interning(&builder)
 	for {
 		skip_trivia(&l)
 		if l.curr_byte == 0 {break}
