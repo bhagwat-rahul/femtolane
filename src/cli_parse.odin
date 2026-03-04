@@ -1,4 +1,4 @@
-package femtolane
+package femtolane_main
 
 import "core:strings"
 

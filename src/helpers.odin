@@ -1,6 +1,6 @@
 // For things like take user input, create files and dirs, etc
 
-package femtolane
+package femtolane_main
 
 import "core:bufio"
 import "core:fmt"

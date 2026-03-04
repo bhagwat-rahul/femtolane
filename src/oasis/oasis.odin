@@ -1,6 +1,4 @@
-package femtolane
-
-import "core:encoding/varint"
+package femtolane_oasis
 
 // Oasis file creation according to the oasis spec,
 // some things need to be written as raw bytes,

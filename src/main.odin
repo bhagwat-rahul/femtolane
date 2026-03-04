@@ -1,7 +1,10 @@
-package femtolane
+package femtolane_main
 
 import "core:fmt"
 import "core:os"
+import fl_gui "gui"
+import fl_lex "lexer"
+import fl_oas "oasis"
 
 // The program should currently take a verilog/system-verilog file (eventually a project) and return an OASIS file
 main :: proc() {
@@ -23,7 +26,7 @@ main :: proc() {
 
 run_flow_command :: proc(args: Tool_Args) {
 	infile_path, outfile_path: string = args.input_file, args.output_file
-	create_file_and_dir("this.oas", create_oasis_data())
+	create_file_and_dir("this.oas", fl_oas.create_oasis_data())
 }
 
 run_help_command :: proc(args: Tool_Args) {
@@ -36,10 +39,10 @@ run_help_command :: proc(args: Tool_Args) {
 run_parse_netlist_and_visualise_command :: proc(args: Tool_Args) {
 	data, err := os.read_entire_file(args.input_file, context.allocator)
 	ensure(err == nil, "netlist read error")
-	hg := parse_netlist(data)
+	hg := fl_lex.parse_netlist(data)
 	fmt.println("vertices:", len(hg.vertices))
 	fmt.println("nets:", len(hg.nets))
 	fmt.println("pins:", len(hg.pins))
 	fmt.println(hg)
-	draw_net_hg(&hg)
+	fl_gui.draw_net_hg(&hg)
 }

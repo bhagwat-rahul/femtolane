@@ -1,6 +1,7 @@
 // TODO(rahul): IMPORTANT!!! Made with codex 5.2, review and re-write
-package femtolane
+package femtolane_gui
 
+import fl_lex "../lexer"
 import rl "vendor:raylib"
 
 HGWINDOWWIDTH :: 1280
@@ -20,7 +21,7 @@ layout_col :: proc(count: int, x, top, bottom: f32, out: ^[dynamic]rl.Vector2) {
 }
 
 // Visualise net hypergraph, pass pointer to graph to avoid passing large graph struct
-draw_net_hg :: proc(hg: ^NetHyperGraph) {
+draw_net_hg :: proc(hg: ^fl_lex.NetHyperGraph) {
 	vertex_pos := make([dynamic]rl.Vector2, 0, len(hg.vertices))
 	net_pos := make([dynamic]rl.Vector2, 0, len(hg.nets))
 	vertex_degree := make([dynamic]int, len(hg.vertices))

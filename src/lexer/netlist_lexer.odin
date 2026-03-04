@@ -1,4 +1,4 @@
-package femtolane
+package femtolane_lexer
 
 // TODO(rahul): Optimize helper func's and review all structs for a good single pass lex -> instance hypergraph emit step
 
@@ -6,11 +6,11 @@ package femtolane
 
 // Parsing, advancing, etc. all get a pointer to this struct
 Lexer :: struct {
-	src:  []byte,
-	pos:  int,
-	curr: byte,
-	peek: byte,
-	buf:  [dynamic]byte,
+	src:       []byte, // bytes from netlist source file
+	pos:       int, // byte position that the lexer is currently processing
+	curr_byte: byte, // current byte being processed
+	peek_byte: byte, // lookahead byte (which will become current once advanced)
+	buf:       [dynamic]byte, // reusable scratch buffer to add tokens we need to capture till fully constructed
 }
 
 StringId32 :: distinct u32 // distinct 32 bit generic string id
@@ -45,6 +45,8 @@ NetHyperGraphBuilder :: struct {
 	nets:       [dynamic]Net,
 	pins:       [dynamic]BuilderPin,
 	net_lookup: map[StringId32]NetID32,
+
+	// counts, offsets, & next are a part of the builder struct so we don't end up with allocations during hg freeze
 	counts:     [dynamic]u32,
 	offsets:    [dynamic]u32,
 	next:       [dynamic]u32,
@@ -57,14 +59,14 @@ NetHyperGraph :: struct {
 	pins:     #soa[dynamic]Pin,
 }
 
-// Advance the lexer struct, move current and next (peek) char by a byte, handling EOF
+// Advance lexer state by one byte: current takes prior peek, peek loads next input byte
 advance :: proc(l: ^Lexer) {
-	l.curr = l.peek
+	l.curr_byte = l.peek_byte
 	if l.pos < len(l.src) {
-		l.peek = l.src[l.pos]
+		l.peek_byte = l.src[l.pos]
 		l.pos += 1
 	} else {
-		l.peek = 0
+		l.peek_byte = 0
 	}
 }
 
@@ -82,45 +84,48 @@ is_space :: proc(c: rune) -> (is_space: bool) {
 
 // Skip whitespaces
 skip_whitespace :: proc(l: ^Lexer) {
-	for is_space(rune(l.curr)) {advance(l)}
+	for is_space(rune(l.curr_byte)) {advance(l)}
 }
 
 skip_comments :: proc(l: ^Lexer) {
-	if l.curr == '/' && l.peek == '/' {
-		for l.curr != 0 && l.curr != '\n' {advance(l)}
+	if l.curr_byte == '/' && l.peek_byte == '/' {
+		for l.curr_byte != 0 && l.curr_byte != '\n' {advance(l)}
 		return
 	}
-	if l.curr == '/' && l.peek == '*' {
+	if l.curr_byte == '/' && l.peek_byte == '*' {
 		advance(l); advance(l)
-		for l.curr != 0 && !(l.curr == '*' && l.peek == '/') {
+		for l.curr_byte != 0 && !(l.curr_byte == '*' && l.peek_byte == '/') {
 			advance(l)
 		}
-		if l.curr != 0 {
+		if l.curr_byte != 0 {
 			advance(l); advance(l)
 		}
 	}
 }
 
+// TODO(rahul): We don't want to skip attributes, map these later for original source info and traceability
 skip_attributes :: proc(l: ^Lexer) {
-	if l.curr == '(' && l.peek == '*' {
+	if l.curr_byte == '(' && l.peek_byte == '*' {
 		advance(l); advance(l)
-		for l.curr != 0 && !(l.curr == '*' && l.peek == ')') {
+		for l.curr_byte != 0 && !(l.curr_byte == '*' && l.peek_byte == ')') {
 			advance(l)
 		}
-		if l.curr != 0 {
+		if l.curr_byte != 0 {
 			advance(l); advance(l)
 		}
 	}
 }
 
+// Skip tokens that don't affect connectivity parsing (trivia is a compiler term)
 skip_trivia :: proc(l: ^Lexer) {
 	for {
 		skip_whitespace(l)
-		start_curr := l.curr
-		start_peek := l.peek
+		start_current_byte := l.curr_byte
+		start_peek_byte := l.peek_byte
 		skip_comments(l)
 		skip_attributes(l)
-		if l.curr == start_curr && l.peek == start_peek {
+		// Check similarity post comment and attribute skip
+		if l.curr_byte == start_current_byte && l.peek_byte == start_peek_byte {
 			break
 		}
 	}
@@ -138,39 +143,40 @@ is_identifier :: proc(byte: byte) -> bool {
 
 read_identifier :: proc(l: ^Lexer) -> []byte {
 	clear(&l.buf)
-	for is_identifier(l.curr) {append(&l.buf, l.curr); advance(l)}
+	for is_identifier(l.curr_byte) {append(&l.buf, l.curr_byte); advance(l)}
 	return l.buf[:]
 }
 
 read_escaped_identifier :: proc(l: ^Lexer) -> []byte {
 	advance(l) // skip '\'
 	clear(&l.buf)
-	for l.curr != 0 && !is_space(rune(l.curr)) {
-		append(&l.buf, l.curr)
+	for l.curr_byte != 0 && !is_space(rune(l.curr_byte)) {
+		append(&l.buf, l.curr_byte)
 		advance(l)
 	}
 	return l.buf[:]
 }
 
 read_name :: proc(l: ^Lexer) -> []byte {
-	if l.curr == '\\' {return read_escaped_identifier(l)}
+	if l.curr_byte == '\\' {return read_escaped_identifier(l)}
 	return read_identifier(l)
 }
 
-expect :: proc(l: ^Lexer, c: byte) {
+expect :: proc(l: ^Lexer, expected_byte: byte) {
 	skip_trivia(l)
-	ensure(l.curr == c, "parse_error")
+	ensure(l.curr_byte == expected_byte, "parse_error")
 	advance(l)
 }
 
-bytes_equal_string :: proc(data: []byte, s: string) -> bool {
-	if len(data) != len(s) {return false}
-	for i in 0 ..< len(data) {
-		if data[i] != s[i] {return false}
+bytes_equal_string :: proc(bytes: []byte, string: string) -> bool {
+	if len(bytes) != len(string) {return false}
+	for i in 0 ..< len(bytes) {
+		if bytes[i] != string[i] {return false}
 	}
 	return true
 }
 
+// Hash identifier bytes into a compact 32-bit FNV-1a id (fast, non-cryptographic, with 0 reserved).
 hash_string_id :: proc(data: []byte) -> StringId32 {
 	hash: u32 = 2166136261
 	for b in data {
@@ -181,49 +187,55 @@ hash_string_id :: proc(data: []byte) -> StringId32 {
 }
 
 is_skip_statement_keyword :: proc(id: []byte) -> bool {
-	return(
-		bytes_equal_string(id, "module") ||
-		bytes_equal_string(id, "input") ||
-		bytes_equal_string(id, "output") ||
-		bytes_equal_string(id, "inout") ||
-		bytes_equal_string(id, "wire") ||
-		bytes_equal_string(id, "reg") ||
-		bytes_equal_string(id, "logic") ||
-		bytes_equal_string(id, "assign") ||
-		bytes_equal_string(id, "parameter") ||
-		bytes_equal_string(id, "localparam") ||
-		bytes_equal_string(id, "supply0") ||
-		bytes_equal_string(id, "supply1") ||
-		bytes_equal_string(id, "tri") ||
-		bytes_equal_string(id, "wand") ||
-		bytes_equal_string(id, "wor") \
-	)
+	switch string(id) {
+	case "module",
+	     "input",
+	     "output",
+	     "inout",
+	     "wire",
+	     "reg",
+	     "logic",
+	     "assign",
+	     "parameter",
+	     "localparam",
+	     "supply0",
+	     "supply1",
+	     "tri",
+	     "wand",
+	     "wor":
+		return true
+	case:
+		return false
+	}
 }
 
 is_block_end_keyword :: proc(id: []byte) -> bool {
-	return bytes_equal_string(id, "endmodule") || bytes_equal_string(id, "endgenerate")
+	switch string(id) {
+	case "endmodule", "endgenerate":
+		return true
+	case:
+		return false
+	}
 }
 
 skip_to_statement_end :: proc(l: ^Lexer) {
-	for l.curr != 0 && l.curr != ';' {
-		advance(l)
-	}
-	if l.curr == ';' {advance(l)}
+	for l.curr_byte != 0 && l.curr_byte != ';' {advance(l)}
+	if l.curr_byte == ';' {advance(l)}
 }
 
 skip_to_end_of_line :: proc(l: ^Lexer) {
-	for l.curr != 0 && l.curr != '\n' {
+	for l.curr_byte != 0 && l.curr_byte != '\n' {
 		advance(l)
 	}
 }
 
 skip_balanced :: proc(l: ^Lexer, open, close: byte) {
-	ensure(l.curr == open, "parse_error")
+	ensure(l.curr_byte == open, "parse_error")
 	depth := 0
-	for l.curr != 0 {
-		if l.curr == open {
+	for l.curr_byte != 0 {
+		if l.curr_byte == open {
 			depth += 1
-		} else if l.curr == close {
+		} else if l.curr_byte == close {
 			depth -= 1
 			if depth == 0 {
 				advance(l)
@@ -235,27 +247,27 @@ skip_balanced :: proc(l: ^Lexer, open, close: byte) {
 }
 
 read_connection_target :: proc(l: ^Lexer) -> []byte {
-	if l.curr == '\\' {return read_escaped_identifier(l)}
+	if l.curr_byte == '\\' {return read_escaped_identifier(l)}
 	clear(&l.buf)
 	bracket_depth := 0
 	brace_depth := 0
-	for l.curr != 0 {
-		if bracket_depth == 0 && brace_depth == 0 && (l.curr == ')' || l.curr == ',') {
+	for l.curr_byte != 0 {
+		if bracket_depth == 0 && brace_depth == 0 && (l.curr_byte == ')' || l.curr_byte == ',') {
 			break
 		}
-		if is_space(rune(l.curr)) && bracket_depth == 0 && brace_depth == 0 {
+		if is_space(rune(l.curr_byte)) && bracket_depth == 0 && brace_depth == 0 {
 			break
 		}
-		if l.curr == '[' {
+		if l.curr_byte == '[' {
 			bracket_depth += 1
-		} else if l.curr == ']' && bracket_depth > 0 {
+		} else if l.curr_byte == ']' && bracket_depth > 0 {
 			bracket_depth -= 1
-		} else if l.curr == '{' {
+		} else if l.curr_byte == '{' {
 			brace_depth += 1
-		} else if l.curr == '}' && brace_depth > 0 {
+		} else if l.curr_byte == '}' && brace_depth > 0 {
 			brace_depth -= 1
 		}
-		append(&l.buf, l.curr)
+		append(&l.buf, l.curr_byte)
 		advance(l)
 	}
 	return l.buf[:]
@@ -343,17 +355,17 @@ freezeHyperGraph :: proc(b: ^NetHyperGraphBuilder) -> NetHyperGraph {
 
 parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraphBuilder) {
 	skip_trivia(l)
-	if l.curr == 0 {return}
-	if l.curr == '`' {
+	if l.curr_byte == 0 {return}
+	if l.curr_byte == '`' {
 		skip_to_end_of_line(l)
 		return
 	}
-	if l.curr == ';' {
+	if l.curr_byte == ';' {
 		advance(l)
 		return
 	}
 
-	if !(l.curr == '\\' || is_identifier(l.curr)) {
+	if !(l.curr_byte == '\\' || is_identifier(l.curr_byte)) {
 		skip_to_statement_end(l)
 		return
 	}
@@ -368,10 +380,10 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 	}
 
 	skip_trivia(l)
-	if l.curr == '#' {
+	if l.curr_byte == '#' {
 		advance(l)
 		skip_trivia(l)
-		if l.curr != '(' {
+		if l.curr_byte != '(' {
 			skip_to_statement_end(l)
 			return
 		}
@@ -379,14 +391,14 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 		skip_trivia(l)
 	}
 
-	if !(l.curr == '\\' || is_identifier(l.curr)) {
+	if !(l.curr_byte == '\\' || is_identifier(l.curr_byte)) {
 		skip_to_statement_end(l)
 		return
 	}
 
 	inst_name := read_name(l)
 	skip_trivia(l)
-	if l.curr != '(' {
+	if l.curr_byte != '(' {
 		skip_to_statement_end(l)
 		return
 	}
@@ -397,32 +409,30 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 	positional_idx: u32 = 0
 	for {
 		skip_trivia(l)
-		if l.curr == ')' {
+		if l.curr_byte == ')' {
 			advance(l)
 			break
 		}
-		if l.curr == 0 {
+		if l.curr_byte == 0 {
 			break
 		}
 
 		port_name: StringId32
 		named_connection := false
-		if l.curr == '.' {
+		if l.curr_byte == '.' {
 			named_connection = true
-			advance(l)
-			skip_trivia(l)
-			if !(l.curr == '\\' || is_identifier(l.curr)) {
+			advance(l); skip_trivia(l)
+			if !(l.curr_byte == '\\' || is_identifier(l.curr_byte)) {
 				skip_to_statement_end(l)
 				return
 			}
 			port_name = hash_string_id(read_name(l))
 			skip_trivia(l)
-			if l.curr != '(' {
+			if l.curr_byte != '(' {
 				skip_to_statement_end(l)
 				return
 			}
-			advance(l)
-			skip_trivia(l)
+			advance(l); skip_trivia(l)
 		} else {
 			positional_idx += 1
 			port_name = StringId32(0x8000_0000 | positional_idx)
@@ -435,23 +445,22 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 
 		skip_trivia(l)
 		if named_connection {
-			if l.curr != ')' {
+			if l.curr_byte != ')' {
 				skip_to_statement_end(l)
 				return
 			}
-			advance(l)
-			skip_trivia(l)
+			advance(l); skip_trivia(l)
 		}
 
-		if l.curr == ',' {
+		if l.curr_byte == ',' {
 			advance(l)
 			continue
 		}
-		if l.curr == ')' {
+		if l.curr_byte == ')' {
 			advance(l)
 			break
 		}
-		if l.curr == 0 {
+		if l.curr_byte == 0 {
 			break
 		}
 		skip_to_statement_end(l)
@@ -459,7 +468,7 @@ parse_instance_and_emit_graph :: proc(l: ^Lexer, resulting_graph: ^NetHyperGraph
 	}
 
 	skip_trivia(l)
-	if l.curr == ';' {
+	if l.curr_byte == ';' {
 		advance(l)
 	} else {
 		skip_to_statement_end(l)
@@ -473,7 +482,7 @@ parse_netlist :: proc(src: []byte) -> NetHyperGraph {
 	}
 	for {
 		skip_trivia(&l)
-		if l.curr == 0 {break}
+		if l.curr_byte == 0 {break}
 		parse_instance_and_emit_graph(&l, &builder)
 	}
 	return freezeHyperGraph(&builder)
