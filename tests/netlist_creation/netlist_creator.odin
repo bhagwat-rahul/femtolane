@@ -15,16 +15,14 @@ run_yosys :: proc(filepath: string, liberty_file: string) {
 		working_dir = "",
 		command     = {"yosys", "-p", string(synth_script)},
 		env         = {
-			"liberty_filename=/Users/rahulbhagwat/Documents/git/explorations/gf180mcu-pdk/libraries/gf180mcu_fd_sc_mcu7t5v0/latest/liberty/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.lib",
+			fmt.tprintf("liberty_filename=%s", liberty_file),
+			fmt.tprintf("netlist_outfile=%s", outfile),
 		},
 	}
 	state, stdout, stderr, err := os.process_exec(yosys_proc, context.allocator)
-	fmt.println("EXIT:", state)
-	fmt.println("YOSYS STDOUT:\n", string(stdout))
-	fmt.println("YOSYS STDERR:\n", string(stderr))
-	if err != nil {
-		fmt.println("SPAWN ERROR:", err)
-	}
+	fmt.println("STDOUT\n", string(stdout))
+	ensure(err == nil, fmt.tprintf("SPAWN ERROR:%s", err))
+	ensure(stderr == nil, fmt.tprintf("RUN ERROR:%s", err))
 }
 
 main :: proc() {
