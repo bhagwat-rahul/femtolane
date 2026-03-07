@@ -1,4 +1,4 @@
-package femtolane_oasis
+package main
 
 // Oasis file creation according to the oasis spec,
 // some things need to be written as raw bytes,
