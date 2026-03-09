@@ -70,3 +70,27 @@ We don't want to build an entire AST and hence don't need to do recursive descen
 Don't want AST since we're not doing any verification, etc. of the lang.
 We want to build a graph (hypergraph), for which a simple lexing step should suffice.
 This hypergraph approach is way more performant and the correct approach for PnR use-cases.
+
+### (from htamas presentation in TinyTapeout)
+Synthesis (frontend rtl to gl netlist) does:
+
+1. Parsing      : Read and convert to AST
+2. Bit Blasting : Split everything into single bit units
+3. Elaboration  : Convert always blocks into logic gates
+4. Techmapping  : Convert logic gates to stdcells
+5. Exporting    : Writing out (GL) gate level netlist
+
+Then implementation stage does:
+
+1. Floorplanning : Setup layout database (die area, pins, grids, PDN (Power Delivery Network))
+2. Placement     : Assign stdcells to grid locations
+3. Routing       : Draw physical wires between terminals connected in netlist
+4. Patching      : Fix DRC violations by adding small pieces of metal
+5. Streamout     : Export the internal database as a GDS/OASIS file along with a LEF file
+
+## More notes from using yosys to do the frontend
+
+Due to how different PDKs are shipped and the assumptions yosys/other tools make, significant tcl scripting maybe needed
+Eg. The structure of gf180 isn't very yosys-abc friendly so it takes a ton of scripting for it to work
+To fix this problem there is also [OpenPDK](https://github.com/RTimothyEdwards/open_pdks) by Tim Edwards which installs the PDKs in a format oss flows can use
+Can be a good idea to look at OpenPDK and try to implement some kind of similar pdk parse and normalise layer, not sure how many hacks it will need to support open/closed pdks
