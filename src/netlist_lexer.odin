@@ -8,3 +8,26 @@ This has to be performant, not just in runtime but in the way that we represent 
 */
 
 package main
+import "core:fmt"
+import "core:os"
+
+// TODO(rahul): Learn more about hypergraphs and look at some gate level netlists before attempting this to find best fit
+BlockId :: distinct u32
+
+Block :: struct {
+	blockId:    BlockId, // to dedupe and fast compare
+	name:       string, // readable name
+	attributes: map[string]int, // Where did this block come from in orig source for debug
+}
+
+Lexer :: struct {
+	source: []byte,
+	curr:   u32,
+}
+
+lexNetlist :: proc(gate_netlist_path: string) {
+	lexer: Lexer
+	data, err := os.read_entire_file_from_path(gate_netlist_path, context.allocator)
+	defer delete(data)
+	ensure(err == nil, fmt.tprintf("Error: %v", err))
+}
