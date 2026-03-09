@@ -31,3 +31,8 @@ lexNetlist :: proc(gate_netlist_path: string) {
 	defer delete(data)
 	ensure(err == nil, fmt.tprintf("Error: %v", err))
 }
+
+// returns true if cell type is not tech-mapped and generic like $and (panic when true since useless to do PnR otherwise)
+checkGenericCell :: #force_inline proc(cell: string) -> bool {
+	return len(cell) > 0 && cell[0] == '$'
+}
