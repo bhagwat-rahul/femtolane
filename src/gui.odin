@@ -1,4 +1,6 @@
 package main
+import "core:fmt"
+import "core:strings"
 import rl "vendor:raylib"
 
 Window :: struct {
@@ -10,13 +12,17 @@ Window :: struct {
 }
 
 run_gui :: proc() {
-	window := Window{"Femtolane", 1024, 1024, 240, rl.ConfigFlags{.WINDOW_RESIZABLE}}
+	window := Window{"Femtolane", 1024, 1024, 0, rl.ConfigFlags{.WINDOW_RESIZABLE}}
 	rl.SetConfigFlags(window.control_flags)
 	rl.SetTargetFPS(window.fps)
 	rl.InitWindow(window.width, window.height, window.name)
 	for !rl.WindowShouldClose() {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.WHITE)
+		rl.GuiLabel(
+			{100, 100, 500, 300},
+			strings.clone_to_cstring(fmt.tprintf("FPS=%v", rl.GetFPS())),
+		)
 		rl.EndDrawing()
 	}
 }
