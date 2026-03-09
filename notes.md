@@ -94,3 +94,15 @@ Due to how different PDKs are shipped and the assumptions yosys/other tools make
 Eg. The structure of gf180 isn't very yosys-abc friendly so it takes a ton of scripting for it to work
 To fix this problem there is also [OpenPDK](https://github.com/RTimothyEdwards/open_pdks) by Tim Edwards which installs the PDKs in a format oss flows can use
 Can be a good idea to look at OpenPDK and try to implement some kind of similar pdk parse and normalise layer, not sure how many hacks it will need to support open/closed pdks
+
+## PDK standardisation
+
+A PDK doesnt just contain files to be read, it also contains executable rule logic for drc checks, drc v lvs, and signoff on final oas/gds.
+These rules are usually shipped as interpreted scripts to be run by proprietary synopsys/cadence programs etc.
+So you could do PnR yourself for a lot of these but have to use prop software for signoff.
+Since signoff and drc rules are encoded within the rule-deck and there's tons of them it's not practical to run own pnr and proprietaery signoff in a loop;
+as your pnr tool will keep producing drc violations if it doesn't have all the info.
+this is a good problem to think about and fix when it comes to proprietary pdk support
+
+Something that tools do is run simplified approximations of the drc during pnr since pnr needs super quick feedback (microseconds)
+Then during final signoff you can run full drc. The approximations come from the simplified tech descriptions provided by pdk (tlef, lef)
