@@ -21,17 +21,19 @@ Block :: struct {
 }
 
 Lexer :: struct {
-	source: []byte,
-	curr:   u32,
+	source:        []byte,
+	curr_byte_idx: u32,
 }
 
 // Main lexer function to single pass lex -> convert netlist to hypergraph
 lexGraphNetlist :: proc(gate_netlist_path: string) {
-	lexer: Lexer
 	data, err := os.read_entire_file_from_path(gate_netlist_path, context.allocator)
 	ensure(err == nil, fmt.tprintf("FileReadError: %v", err))
 	defer delete(data) // TODO(rahul): idk yet if this delete is needed i need to learn more about allocations
-
+	lexer: Lexer = {
+		source        = data, // gl netlist file contents
+		curr_byte_idx = 0, // start from byte 1
+	}
 }
 
 
