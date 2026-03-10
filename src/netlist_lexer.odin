@@ -33,6 +33,10 @@ lexNetlist :: proc(gate_netlist_path: string) {
 }
 
 // returns true if cell type is not tech-mapped and generic like $and (panic when true since useless to do PnR otherwise)
+/*
+TODO(rahul): Generic cells are fine during lex->hypergraph so we don't want to panic now, but can't have any during PnR
+so we can work on the lexer step for now until the GL netlist creator is sorted with yosys.
+*/
 checkGenericCell :: #force_inline proc(cell: string) -> bool {
 	return len(cell) > 0 && cell[0] == '$'
 }
