@@ -45,7 +45,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 
 		switch lexer.source[i] {
 		case:
-			fmt.println("Unhandled char")
+			panic(fmt.tprintf("Unhandled char: %v", rune(lexer.source[i])))
 		}
 
 	}
