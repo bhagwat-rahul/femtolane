@@ -22,20 +22,42 @@ Block :: struct {
 
 Lexer :: struct {
 	source:        []byte,
-	curr_byte_idx: u32,
+	curr_byte_idx: u32, // u32 works upto a ~4GB source file
 }
 
-// Main lexer function to single pass lex -> convert netlist to hypergraph
+// Main lexer function to single pass lex -> convert netlist to hypergraph,
+// use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
+// That is what makes this 'single pass' and O(n) where n = len(src_bytes)
+// also use lookup-tables instead of branch heavy code for predictable memacc's
 lexGraphNetlist :: proc(gate_netlist_path: string) {
 	data, err := os.read_entire_file_from_path(gate_netlist_path, context.allocator)
 	ensure(err == nil, fmt.tprintf("FileReadError: %v", err))
 	defer delete(data) // TODO(rahul): idk yet if this delete is needed i need to learn more about allocations
+
 	lexer: Lexer = {
 		source        = data, // gl netlist file contents
 		curr_byte_idx = 0, // start from byte 1
 	}
+
+	for int(lexer.curr_byte_idx); int(lexer.curr_byte_idx) < len(lexer.source); {
+
+		i := lexer.curr_byte_idx
+
+		switch lexer.source[i] {
+		case:
+			fmt.println("Unhandled char")
+		}
+
+	}
+
 }
 
+handle_attribute :: proc(l: ^Lexer) {
+}
+
+handle_ident :: proc(l: ^Lexer) {
+
+}
 
 /*
 TODO(rahul): Generic cells are fine during lex->hypergraph so we don't want to panic now, but can't have any during PnR
