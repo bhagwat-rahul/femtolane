@@ -25,17 +25,20 @@ Lexer :: struct {
 	curr:   u32,
 }
 
-lexNetlist :: proc(gate_netlist_path: string) {
+// Main lexer function to single pass lex -> convert netlist to hypergraph
+lexGraphNetlist :: proc(gate_netlist_path: string) {
 	lexer: Lexer
 	data, err := os.read_entire_file_from_path(gate_netlist_path, context.allocator)
-	defer delete(data)
-	ensure(err == nil, fmt.tprintf("Error: %v", err))
+	ensure(err == nil, fmt.tprintf("FileReadError: %v", err))
+	defer delete(data) // TODO(rahul): idk yet if this delete is needed i need to learn more about allocations
+
 }
 
-// returns true if cell type is not tech-mapped and generic like $and (panic when true since useless to do PnR otherwise)
+
 /*
 TODO(rahul): Generic cells are fine during lex->hypergraph so we don't want to panic now, but can't have any during PnR
 so we can work on the lexer step for now until the GL netlist creator is sorted with yosys.
+returns true if cell type is not tech-mapped and generic like $and (panic when true since useless to do PnR otherwise)
 */
 checkGenericCell :: #force_inline proc(cell: string) -> bool {
 	return len(cell) > 0 && cell[0] == '$'
