@@ -19,10 +19,7 @@ run_gui :: proc() {
 	for !rl.WindowShouldClose() {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.WHITE)
-		rl.GuiLabel(
-			{100, 100, 500, 300},
-			strings.clone_to_cstring(fmt.tprintf("FPS=%v", rl.GetFPS())),
-		)
+		rl.GuiLabel({100, 100, 500, 300}, strings.clone_to_cstring(fmt.tprintf("FPS=%v", rl.GetFPS())))
 		rl.EndDrawing()
 	}
 }

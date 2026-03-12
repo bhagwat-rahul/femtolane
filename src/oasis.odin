@@ -6,21 +6,7 @@ package main
 // like the file_start magic string, etc.
 // others need to be encoded with varint/uleb128
 
-OASIS_FILE_START :: []byte {
-	0x25,
-	0x53,
-	0x45,
-	0x4D,
-	0x49,
-	0x2D,
-	0x4F,
-	0x41,
-	0x53,
-	0x49,
-	0x53,
-	0x0D,
-	0x0A,
-} // corresponds to string "%SEMI-OASIS\r\n" which all oasis files start with
+OASIS_FILE_START :: []byte{0x25, 0x53, 0x45, 0x4D, 0x49, 0x2D, 0x4F, 0x41, 0x53, 0x49, 0x53, 0x0D, 0x0A} // corresponds to string "%SEMI-OASIS\r\n" which all oasis files start with
 
 OASIS_START :: []byte{0x01} // Start bit
 OASIS_VERSION :: []byte{0x03, 0x31, 0x2E, 0x30} // Version of oasis used

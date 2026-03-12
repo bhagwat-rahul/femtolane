@@ -31,14 +31,8 @@ main :: proc() {
 		"%v/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib",
 		SKY130A_PDK_ROOT,
 	) // Typical corner at 25C and 1.8V
-	sky130a_lef := fmt.tprintf(
-		"%v/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef",
-		SKY130A_PDK_ROOT,
-	)
-	sky130a_tlef := fmt.tprintf(
-		"%v/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef",
-		SKY130A_PDK_ROOT,
-	)
+	sky130a_lef := fmt.tprintf("%v/libs.ref/sky130_fd_sc_hd/lef/sky130_fd_sc_hd.lef", SKY130A_PDK_ROOT)
+	sky130a_tlef := fmt.tprintf("%v/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef", SKY130A_PDK_ROOT)
 	ensure(os.exists(sky130a_liberty), "liberty file not found")
 	ensure(os.exists(sky130a_lef), "lef file not found")
 	ensure(os.exists(sky130a_tlef), "tlef file not found")
