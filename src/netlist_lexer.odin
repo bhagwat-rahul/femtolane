@@ -10,6 +10,7 @@ This has to be performant, not just in runtime but in the way that we represent 
 package main
 import "core:fmt"
 import "core:os"
+import "core:simd"
 
 // TODO(rahul): Learn more about hypergraphs and look at some gate level netlists before attempting this to find best fit
 BlockId :: distinct u32
@@ -20,9 +21,19 @@ Block :: struct {
 	attributes: map[string]int, // Where did this block come from in orig source for debug
 }
 
+Keyword :: enum {
+	IDENT,
+	INPUT,
+	OUTPUT,
+	WIRE,
+	ASSIGN,
+	MODULE,
+	ENDMODULE,
+}
+
 Lexer :: struct {
 	source:        []byte,
-	curr_byte_idx: u32, // u32 works upto a ~4GB source file
+	curr_byte_idx: int, // 64 bit int on 64 bit system (not u32 to prevent casts everywhere when indexing)
 }
 
 // Main lexer function to single pass lex -> convert netlist to hypergraph,
@@ -42,21 +53,55 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	for int(lexer.curr_byte_idx); int(lexer.curr_byte_idx) < len(lexer.source); {
 
 		i := lexer.curr_byte_idx
+		next := i + 1
 
 		switch lexer.source[i] {
-		case:
-			panic(fmt.tprintf("Unhandled char: %v", rune(lexer.source[i])))
+		case '/': lexer.curr_byte_idx += skip_comment(&lexer)
+		case '(': switch next {
+				case '*': handle_attribute_simd(&lexer)
+				case:
+				// This could either be a module or an instantiation
+				}
+
+		case: panic(fmt.tprintf("Unhandled char: %v", rune(lexer.source[i])))
 		}
 
 	}
 
 }
 
-handle_attribute :: proc(l: ^Lexer) {
+handle_attribute_simd :: proc(l: ^Lexer) {
 }
 
 handle_ident :: proc(l: ^Lexer) {
 
+}
+
+@(require_results)
+skip_comment :: proc(l: ^Lexer) -> int {
+	src, curr, next := l.source, l.curr_byte_idx, l.curr_byte_idx + 1
+	delim: byte = (src[next] == '/' ? '\n' : '*') // single-line vs multi-line comment
+	curr += 2
+	delim_lane: #simd[16]u8 = {
+		0 ..< 16 = delim,
+	}
+	for curr < len(src) - 16 {
+		src_lane: #simd[16]u8 = simd.from_slice(simd.u8x16, src[curr:curr + 16])
+		jmp := simd.count_trailing_zeros(simd.lanes_eq(src_lane, delim_lane))
+	}
+	return curr
+}
+
+keyword_lookup :: proc(s: string) -> Keyword {
+	switch s {
+	case "input": return .INPUT
+	case "output": return .OUTPUT
+	case "wire": return .WIRE
+	case "assign": return .ASSIGN
+	case "module": return .MODULE
+	case "endmodule": return .ENDMODULE
+	case: return .IDENT
+	}
 }
 
 /*
