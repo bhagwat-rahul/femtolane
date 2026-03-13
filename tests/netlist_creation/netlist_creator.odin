@@ -12,10 +12,10 @@ run_yosys :: proc(filepath: string, lib_files: string, top_module: string) {
 	yosys_proc: os.Process_Desc = {
 		command = {"yosys", "-c", YosysScriptFile},
 		env     = {
-			fmt.tprintf("INPUT_RTL_FILE=%s", filepath),
-			fmt.tprintf("TOP_MODULE=%s", top_module),
-			fmt.tprintf("LIB_FILES=%s", lib_files),
-			fmt.tprintf("OUTPUT_NETLIST=%s", outfile),
+			fmt.tprintf("INPUT_RTL_FILE=%v", filepath),
+			fmt.tprintf("TOP_MODULE=%v", top_module),
+			fmt.tprintf("LIB_FILES=%v", lib_files),
+			fmt.tprintf("OUTPUT_NETLIST=%v", outfile),
 		},
 	}
 	state, stdout, stderr, err := os.process_exec(yosys_proc, context.allocator)
