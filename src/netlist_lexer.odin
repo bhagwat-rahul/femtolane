@@ -44,38 +44,23 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	data, err := os.read_entire_file_from_path(gate_netlist_path, context.allocator)
 	ensure(err == nil, fmt.tprintf("FileReadError: %v", err))
 	defer delete(data) // TODO(rahul): idk yet if this delete is needed i need to learn more about allocations
-
-	lexer: Lexer = {
-		source        = data, // gl netlist file contents
-		curr_byte_idx = 0, // start from byte 1
-	}
+	lexer: Lexer = {data, 0} // gl netlist data, start from byte 0
 
 	for int(lexer.curr_byte_idx); int(lexer.curr_byte_idx) < len(lexer.source); {
-
 		i := lexer.curr_byte_idx
 		next := i + 1
 
 		switch lexer.source[i] {
 		case '/': lexer.curr_byte_idx += skip_comment(&lexer)
-		case '(': switch next {
-				case '*': handle_attribute_simd(&lexer)
-				case:
-				// This could either be a module or an instantiation
-				}
-
+		case '(': if (next < len(lexer.source) && lexer.source[next] == '*') { handle_attribute(&lexer) }
 		case: panic(fmt.tprintf("Unhandled char: %v", rune(lexer.source[i])))
 		}
-
 	}
-
 }
 
-handle_attribute_simd :: proc(l: ^Lexer) {
-}
+handle_attribute :: proc(l: ^Lexer) {  }
 
-handle_ident :: proc(l: ^Lexer) {
-
-}
+handle_ident :: proc(l: ^Lexer) {  }
 
 @(require_results)
 skip_comment :: proc(l: ^Lexer) -> int {
@@ -109,6 +94,4 @@ TODO(rahul): Generic cells are fine during lex->hypergraph so we don't want to p
 so we can work on the lexer step for now until the GL netlist creator is sorted with yosys.
 returns true if cell type is not tech-mapped and generic like $and (panic when true since useless to do PnR otherwise)
 */
-checkGenericCell :: #force_inline proc(cell: string) -> bool {
-	return len(cell) > 0 && cell[0] == '$'
-}
+checkGenericCell :: #force_inline proc(cell: string) -> bool { return len(cell) > 0 && cell[0] == '$' }
