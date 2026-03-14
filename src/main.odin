@@ -14,8 +14,6 @@ main :: proc() {
 			gl_netlist_path := args[2] // Gate level netlist
 			fmt.println("Converting netlist:-", gl_netlist_path, "to hypergraph")
 			lexGraphNetlist(gl_netlist_path)
-		} else {
-			fmt.println("TODO(rahul): You entered an unsupported arg, this should show help menu")
-		}
+		} else { fmt.println("TODO(rahul): Unsupported arg, this should show help menu") }
 	}
 }
