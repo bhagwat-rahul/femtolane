@@ -4,5 +4,5 @@
 	"tabs": true,
 	"tabs_width": 4,
 	"space_single_line_blocks": true,
-	"inline_single_stmt_case": true,
+	"inline_single_stmt_case": true
 }
