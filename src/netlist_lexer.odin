@@ -42,7 +42,7 @@ Lexer :: struct {
 // also use lookup-tables instead of branch heavy code for predictable memacc's
 lexGraphNetlist :: proc(gate_netlist_path: string) {
 	data, err := os.read_entire_file_from_path(gate_netlist_path, context.allocator)
-	ensure(err == nil, fmt.tprintf("FileReadError: %v", err))
+	ensure(err == nil, fmt.tprintfln("FileReadError: %v", err))
 	defer delete(data) // TODO(rahul): idk yet if this delete is needed i need to learn more about allocations
 	lexer: Lexer = {data, 0} // gl netlist data, start from byte 0
 
@@ -53,7 +53,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		switch lexer.source[i] {
 		case '/': lexer.curr_byte_idx += skip_comment(&lexer)
 		case '(': if (next < len(lexer.source) && lexer.source[next] == '*') { handle_attribute(&lexer) }
-		case: panic(fmt.tprintf("Unhandled char: %v", rune(lexer.source[i])))
+		case: panic(fmt.tprintfln("Unhandled char: %v", lexer.source[i]))
 		}
 	}
 }
