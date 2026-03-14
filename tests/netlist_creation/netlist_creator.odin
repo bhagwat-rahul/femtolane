@@ -5,7 +5,7 @@ import "core:os"
 import "core:path/slashpath"
 import "core:strings"
 
-run_yosys :: proc(filepath: string, lib_files: string, top_module: string) {
+run_yosys :: proc(filepath: string, lib_file: string, top_module: string) {
 	YosysScriptFile :: "netlist_creator.tcl"
 	directory, filename := slashpath.split(filepath)
 	outfile := fmt.tprintf("%s.%s.netlist.v", directory, strings.trim_suffix(filename, ".v"))
@@ -14,7 +14,7 @@ run_yosys :: proc(filepath: string, lib_files: string, top_module: string) {
 		env     = {
 			fmt.tprintf("INPUT_RTL_FILE=%v", filepath),
 			fmt.tprintf("TOP_MODULE=%v", top_module),
-			fmt.tprintf("LIB_FILES=%v", lib_files),
+			fmt.tprintf("LIB_FILE=%v", lib_file),
 			fmt.tprintf("OUTPUT_NETLIST=%v", outfile),
 		},
 	}
