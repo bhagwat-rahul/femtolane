@@ -13,12 +13,36 @@ import "core:os"
 import "core:simd"
 
 // TODO(rahul): Learn more about hypergraphs and look at some gate level netlists before attempting this to find best fit
-BlockId :: distinct u32
 
-Block :: struct {
-	blockId:    BlockId, // to dedupe and fast compare
-	name:       string, // readable name
-	attributes: map[string]int, // Where did this block come from in orig source for debug
+// What cell is this from the stdcell lib / pdk for debug purposes
+Cell :: struct {
+	name: string,
+}
+
+// Instances of cells in the actual design and their metadata
+Instance :: struct {
+	name:        string,
+	id:          u32,
+	parent_cell: ^Cell,
+}
+
+PortType :: enum {
+	INPUT,
+	OUTPUT,
+	INOUT,
+}
+
+Port :: struct {
+	parent_instance: ^Instance,
+	name:            string,
+	id:              u32,
+	type:            PortType,
+}
+
+// A net/wire is something that connects multiple instances of cells/instances (many-many)
+WireNet :: struct {
+	netId:       u32,
+	connections: []^Port,
 }
 
 Keyword :: enum {
