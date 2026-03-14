@@ -53,7 +53,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		switch lexer.source[i] {
 		case '/': lexer.curr_byte_idx += skip_comment(&lexer)
 		case '(': if (next < len(lexer.source) && lexer.source[next] == '*') { handle_attribute(&lexer) }
-		case: panic(fmt.tprintfln("Unhandled char: %v", lexer.source[i]))
+		case: panic(fmt.tprintfln("Unhandled char: %r", lexer.source[i]))
 		}
 	}
 }
