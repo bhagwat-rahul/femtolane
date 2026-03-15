@@ -106,3 +106,9 @@ this is a good problem to think about and fix when it comes to proprietary pdk s
 
 Something that tools do is run simplified approximations of the drc during pnr since pnr needs super quick feedback (microseconds)
 Then during final signoff you can run full drc. The approximations come from the simplified tech descriptions provided by pdk (tlef, lef)
+
+## From call with Tim Edwards (magic vlsi maintainer)
+
+LEF is usually enough for PnR DRC checks, a lot of the signoff drc checks don't have much to do with PnR
+So integrating an external PnR tool shouldn't be too difficult even for proprietary PDK since lef's standardised
+Challenges with standardising PDK distribution are more so political not technical.
