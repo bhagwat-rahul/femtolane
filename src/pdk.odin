@@ -10,6 +10,24 @@ PDK_ROOT :: "PDK_ROOT" // This is the env var that contains path to pdk root
 OPENPDK_REF :: "libs.ref" // Foundry IP
 OPENPDK_TECH :: "libs.tech" // Tool specific (probably won't need at all)
 
+pdk_status :: enum {
+	active,
+	inactive,
+}
+// Load from nodeinfo.json in .config for openpdk pdk's
+OPENPDK_METADATA :: struct {
+	foundry:      string,
+	foundry_name: string,
+	node:         string,
+	feature_size: string,
+	description:  string,
+	options:      string,
+	status:       pdk_status,
+	stdcells:     []string,
+	iocells:      []string,
+	version:      string,
+}
+
 /* TODO(rahul): Too many defer deletes across the project
  let's start allocating into buffers on stack whenever we can/should */
 
