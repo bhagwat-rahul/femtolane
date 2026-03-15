@@ -12,14 +12,38 @@ Window :: struct {
 }
 
 run_gui :: proc() {
-	window := Window{"Femtolane", 1024, 1024, 0, rl.WHITE, rl.ConfigFlags{.WINDOW_RESIZABLE}}
+	window := Window {
+		name          = "Femtolane",
+		width         = 0, // max
+		height        = 0, // max
+		fps           = 0, // max
+		bg_color      = rl.WHITE,
+		control_flags = rl.ConfigFlags{}, // resizable window causes weird layout issues
+	}
+
 	rl.SetConfigFlags(window.control_flags)
-	rl.SetTargetFPS(window.fps)
 	rl.InitWindow(window.width, window.height, window.name)
+	rl.SetTargetFPS(window.fps)
+	showMessage: bool = true
+
 	for !rl.WindowShouldClose() {
+		screen_width, screen_height := rl.GetScreenWidth(), rl.GetScreenHeight()
 		rl.BeginDrawing()
-		rl.ClearBackground(window.bg_color)
 		rl.SetWindowTitle(fmt.ctprint("Femtolane", rl.GetFPS(), "FPS"))
+		rl.ClearBackground(window.bg_color)
+
+		if showMessage == true {
+			msg_rect := rl.Rectangle{0, 0, 300, 100}
+			result := rl.GuiMessageBox(msg_rect, "Message Box", "Hi! This is a message!", "Nice;Cool")
+			if (result >= 0) { showMessage = false }
+		} else {
+			msg_rect := rl.Rectangle{0, 0, 300, 100}
+			result := rl.GuiMessageBox(msg_rect, "Non Message Box", "Hi! This is a non-message!", "Bleh;Blah")
+			if (result >= 0) { showMessage = true }
+		}
+
 		rl.EndDrawing()
 	}
+
+	rl.CloseWindow()
 }
