@@ -60,11 +60,16 @@ Lexer :: struct {
 	curr_byte_idx: int, // 64 bit int on 64 bit system (not u32 to prevent casts everywhere when indexing)
 }
 
+NetlistHyperGraph :: struct {
+	// This should contain the final graph rep that will be used for processing
+}
+
 // Main lexer function to single pass lex -> convert netlist to hypergraph,
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
 lexGraphNetlist :: proc(gate_netlist_path: string) {
+	hgr: NetlistHyperGraph = {}
 	data, err := os.read_entire_file_from_path(gate_netlist_path, context.allocator)
 	ensure(err == nil, fmt.tprintfln("FileReadError: %v", err))
 	defer delete(data) // TODO(rahul): idk yet if this delete is needed i need to learn more about allocations
@@ -80,6 +85,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		case: panic(fmt.tprintfln("Unhandled char: %r", lexer.source[i]))
 		}
 	}
+	flattenAndWriteHyperGraph(&hgr)
 }
 
 handle_attribute :: proc(l: ^Lexer) {  }
@@ -111,6 +117,12 @@ keyword_lookup :: proc(s: string) -> Keyword {
 	case "endmodule": return .ENDMODULE
 	case: return .IDENT
 	}
+}
+
+// Write out an hgr file for debug purposes
+flattenAndWriteHyperGraph :: proc(hgr: ^NetlistHyperGraph) {
+	flatHgrData: []byte = {'t', 'e', 's', 't'}
+	writeDataToFile("netlist_hypergraph.hgr", &flatHgrData)
 }
 
 /*
