@@ -14,36 +14,48 @@ import "core:simd"
 
 // TODO(rahul): Learn more about hypergraphs and look at some gate level netlists before attempting this to find best fit
 
-// What cell is this from the stdcell lib / pdk for debug purposes
-Cell :: struct {
-	name: string,
-}
+// IDs for fast lookup
+CellID :: distinct u32
+InstanceID :: distinct u32
+PortID :: distinct u32
+NetID :: distinct u32
 
-// Instances of cells in the actual design and their metadata
+Cell :: struct {
+	id:       CellID, // for fast lookup
+	name:     string, // human readable name from pdk
+	metadata: map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
+} // Metadata about a cell from the given pdk (stdcell lib, other ip, etc.)
+
 Instance :: struct {
-	name:        string,
-	id:          u32,
-	parent_cell: ^Cell,
-}
+	name:        string, // human readable name for debug
+	id:          InstanceID, // for fast lookup
+	parent_cell: ^Cell, // what cell is this an instance of from stdcells
+	ports:       []^Port, // ports belonging to this instance
+} // Instances of cells in the actual design and their metadata
 
 PortType :: enum {
 	INPUT,
 	OUTPUT,
 	INOUT,
-}
+} // Types of ports, input, output, or both
 
 Port :: struct {
-	parent_instance: ^Instance,
-	name:            string,
-	id:              u32,
-	type:            PortType,
-}
+	name:   string, // human readable name for debug
+	id:     PortID, // for fast lookup
+	type:   PortType, // input, output or inout
+	parent: ^Instance, // whom does this port belong to
+} // A port is something on an instance that wires can connect to
 
-// A net/wire is something that connects multiple instances of cells/instances (many-many)
-WireNet :: struct {
-	netId:       u32,
-	connections: []^Port,
-}
+Net :: struct {
+	name:        string, // human readable name for debug
+	id:          NetID, // for fast lookup
+	connections: []^Port, // ports that this connects
+} // A net(wire) connects many-many ports (thereby connecting the parent instances of those ports)
+
+Netlist :: struct {
+	instances: []^Instance, // all instances in the netlist
+	nets:      []^Net, // connections between the instances of the netlist
+} // Parent struct bringing ports,nets,wires together to represent an entire GL netlist
 
 Keyword :: enum {
 	IDENT,
