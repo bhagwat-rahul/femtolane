@@ -33,7 +33,7 @@ run_gui :: proc() {
 		height        = 0, // max
 		fps           = 0, // max
 		bg_color      = rl.WHITE,
-		control_flags = rl.ConfigFlags{}, // resizable window causes weird layout issues
+		control_flags = rl.ConfigFlags{.WINDOW_RESIZABLE},
 	}
 
 	rl.SetConfigFlags(window.control_flags)
