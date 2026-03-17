@@ -11,6 +11,21 @@ Window :: struct {
 	control_flags: rl.ConfigFlags,
 }
 
+PanelStyle :: struct {
+	bg_color:         rl.Color,
+	font:             rl.Font,
+	internal_padding: i32,
+	corner_rounding:  i32,
+}
+
+PanelID :: distinct u8 // upto 255 panels
+Panel :: struct {
+	id:     PanelID, // For lookup/re-render + if 2 panels have same name.
+	name:   cstring,
+	bounds: rl.Rectangle,
+	style:  PanelStyle,
+}
+
 run_gui :: proc() {
 	window := Window {
 		name          = "Femtolane",
