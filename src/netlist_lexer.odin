@@ -10,7 +10,6 @@ This has to be performant, not just in runtime but in the way that we represent 
 package main
 import "core:fmt"
 import "core:os"
-import "core:simd"
 
 // TODO(rahul): Learn more about hypergraphs and look at some gate level netlists before attempting this to find best fit
 
@@ -68,7 +67,7 @@ Keyword :: enum {
 }
 
 Lexer :: struct {
-	source:        []byte,
+	src:           []byte,
 	curr_byte_idx: int, // 64 bit int on 64 bit system (not u32 to prevent casts everywhere when indexing)
 }
 
@@ -86,39 +85,10 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	ensure(err == nil, fmt.tprintfln("FileReadError: %v", err))
 	defer delete(data) // TODO(rahul): idk yet if this delete is needed i need to learn more about allocations
 	lexer: Lexer = {data, 0} // gl netlist data, start from byte 0
-
-	for int(lexer.curr_byte_idx); int(lexer.curr_byte_idx) < len(lexer.source); {
-		i := lexer.curr_byte_idx
-		next := i + 1
-
-		switch lexer.source[i] {
-		case '/': lexer.curr_byte_idx += skip_comment(&lexer)
-		case '(': if (next < len(lexer.source) && lexer.source[next] == '*') { handle_attribute(&lexer) }
-		case: panic(fmt.tprintfln("Unhandled char: %r", lexer.source[i]))
-		}
-	}
 	flattenAndWriteHyperGraph(&hgr)
 }
 
-handle_attribute :: proc(l: ^Lexer) {  }
-
-handle_ident :: proc(l: ^Lexer) {  }
-
-@(require_results)
-skip_comment :: proc(l: ^Lexer) -> int {
-	src, curr, next := l.source, l.curr_byte_idx, l.curr_byte_idx + 1
-	delim: byte = (src[next] == '/' ? '\n' : '*') // single-line vs multi-line comment
-	curr += 2
-	delim_lane: #simd[16]u8 = {
-		0 ..< 16 = delim,
-	}
-	for curr < len(src) - 16 {
-		src_lane: #simd[16]u8 = simd.from_slice(simd.u8x16, src[curr:curr + 16])
-		jmp := simd.count_trailing_zeros(simd.lanes_eq(src_lane, delim_lane))
-	}
-	return curr
-}
-
+// Lookup valid (ASIC synthesizable) verilog keywords
 keyword_lookup :: proc(s: string) -> Keyword {
 	switch s {
 	case "input": return .INPUT
@@ -127,7 +97,7 @@ keyword_lookup :: proc(s: string) -> Keyword {
 	case "assign": return .ASSIGN
 	case "module": return .MODULE
 	case "endmodule": return .ENDMODULE
-	case: return .IDENT
+	case: return .IDENT // non keyword identifier
 	}
 }
 
