@@ -9,6 +9,8 @@ This has to be performant, not just in runtime but in the way that we represent 
 
 package main
 import "core:fmt"
+import "core:mem"
+import "core:mem/virtual"
 import "core:os"
 
 // TODO(rahul): Learn more about hypergraphs and look at some gate level netlists before attempting this to find best fit
@@ -46,9 +48,11 @@ Port :: struct {
 } // A port is something on an instance that wires can connect to
 
 Net :: struct {
-	name:        string, // human readable name for debug
-	id:          NetID, // for fast lookup
-	connections: []^Port, // ports that this connects
+	name:             ^string, // human readable name for debug
+	id:               NetID, // for fast lookup
+	connections:      []^Port, // ports that this connects
+	bus_len:          u32, // Is part of a bus like wire [7:0], if so len will be stored here, if not, then len 0
+	bus_msb, bus_lsb: u32, // most and least significant bit if part of bus, if not then both will be 0
 } // A net(wire) connects many-many ports (thereby connecting the parent instances of those ports)
 
 Netlist :: struct {
@@ -80,12 +84,49 @@ NetlistHyperGraph :: struct {
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
 lexGraphNetlist :: proc(gate_netlist_path: string) {
+	lexGraphArena: virtual.Arena
+	ensure(virtual.arena_init_growing(&lexGraphArena) == nil)
+	defer virtual.arena_destroy(&lexGraphArena)
+	arena_alloc := virtual.arena_allocator(&lexGraphArena)
 	hgr: NetlistHyperGraph = {}
-	data, err := os.read_entire_file_from_path(gate_netlist_path, context.allocator)
+	data, err := os.read_entire_file_from_path(gate_netlist_path, arena_alloc)
 	ensure(err == nil, fmt.tprintfln("FileReadError: %v", err))
-	defer delete(data) // TODO(rahul): idk yet if this delete is needed i need to learn more about allocations
-	lexer: Lexer = {data, 0} // gl netlist data, start from byte 0
+	l: Lexer = {data, 0} // gl netlist data, start from byte 0
+
+	for i := 0; i < len(l.src); i += 1 {
+		switch CharClass(l.src[i]) {
+		case .Alpha: handle_ident(&l, &hgr)
+		case .Num: handle_num(&l, &hgr)
+		case .Escaped: handle_escaped_identifier(&l, &hgr)
+		case .Slash: handle_comment(&l)
+		case .Whitespace: skip_whitespace(&l)
+		case .Unhandled: panic("Unhandled char")
+		case: panic("Unhandled char")
+		}
+	}
+
 	flattenAndWriteHyperGraph(&hgr)
+}
+
+handle_ident :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {  }
+handle_num :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {  }
+handle_escaped_identifier :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {  }
+handle_comment :: proc(l: ^Lexer) {  }
+skip_whitespace :: proc(l: ^Lexer) {  }
+
+CharClass :: enum {
+	Alpha,
+	Num,
+	Escaped,
+	Slash,
+	Whitespace,
+	Unhandled,
+}
+charClass: CharClass
+
+// TODO(rahul): Generate a table mapping of possible bytes (ASCII / UTF-8 ?) with CharClass
+genCharClass :: proc() {
+
 }
 
 // Lookup valid (ASIC synthesizable) verilog keywords
