@@ -20,8 +20,8 @@ run_yosys :: proc(filepath: string, lib_file: string, top_module: string) {
 	}
 	state, stdout, stderr, err := os.process_exec(yosys_proc, context.allocator)
 	fmt.println("STDOUT\n", string(stdout))
-	ensure(err == nil, fmt.tprintfln("SPAWN ERROR:%v", err))
-	ensure(state.exit_code == 0, fmt.tprintfln("YOSYS FAILED:\n%v", stderr))
+	ensure(err == nil, fmt.tprintfln("SPAWN ERROR: %s", err))
+	ensure(state.exit_code == 0, fmt.tprintfln("YOSYS FAILED:\n%s", stderr))
 }
 
 main :: proc() {
