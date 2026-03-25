@@ -60,16 +60,6 @@ Netlist :: struct {
 	nets:      []^Net, // connections between the instances of the netlist
 } // Parent struct bringing ports,nets,wires together to represent an entire GL netlist
 
-Keyword :: enum {
-	IDENT,
-	INPUT,
-	OUTPUT,
-	WIRE,
-	ASSIGN,
-	MODULE,
-	ENDMODULE,
-}
-
 Lexer :: struct {
 	src:           []byte,
 	curr_byte_idx: int, // 64 bit int on 64 bit system (not u32 to prevent casts everywhere when indexing)
@@ -93,53 +83,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	ensure(err == nil, fmt.tprintfln("FileReadError: %v", err))
 	l: Lexer = {data, 0} // gl netlist data, start from byte 0
 
-	for i := 0; i < len(l.src); i += 1 {
-		switch CharClass(l.src[i]) {
-		case .Alpha: handle_ident(&l, &hgr)
-		case .Num: handle_num(&l, &hgr)
-		case .Escaped: handle_escaped_identifier(&l, &hgr)
-		case .Slash: handle_comment(&l)
-		case .Whitespace: skip_whitespace(&l)
-		case .Unhandled: panic("Unhandled char")
-		case: panic("Unhandled char")
-		}
-	}
-
 	flattenAndWriteHyperGraph(&hgr)
-}
-
-handle_ident :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {  }
-handle_num :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {  }
-handle_escaped_identifier :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {  }
-handle_comment :: proc(l: ^Lexer) {  }
-skip_whitespace :: proc(l: ^Lexer) {  }
-
-CharClass :: enum {
-	Alpha,
-	Num,
-	Escaped,
-	Slash,
-	Whitespace,
-	Unhandled,
-}
-charClass: CharClass
-
-// TODO(rahul): Generate a table mapping of possible bytes (ASCII / UTF-8 ?) with CharClass
-genCharClass :: proc() {
-
-}
-
-// Lookup valid (ASIC synthesizable) verilog keywords
-keyword_lookup :: proc(s: string) -> Keyword {
-	switch s {
-	case "input": return .INPUT
-	case "output": return .OUTPUT
-	case "wire": return .WIRE
-	case "assign": return .ASSIGN
-	case "module": return .MODULE
-	case "endmodule": return .ENDMODULE
-	case: return .IDENT // non keyword identifier
-	}
 }
 
 // Write out an hgr file for debug purposes
