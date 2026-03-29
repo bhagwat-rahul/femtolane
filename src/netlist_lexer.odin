@@ -9,7 +9,6 @@ This has to be performant, not just in runtime but in the way that we represent 
 
 package main
 import "core:fmt"
-import "core:mem"
 import "core:mem/virtual"
 import "core:os"
 
