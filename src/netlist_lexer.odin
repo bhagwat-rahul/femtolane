@@ -82,7 +82,32 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	ensure(err == nil, fmt.tprintfln("FileReadError: %v", err))
 	l: Lexer = {data, 0} // gl netlist data, start from byte 0
 
+	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
+	for l.curr_byte_idx < len(l.src) {
+		switch l.src[l.curr_byte_idx] {
+
+		case '/': handleSingleAndMultiLineComments(&l)
+		case '\n': for l.src[l.curr_byte_idx] == '\n' { l.curr_byte_idx += 1 } 	// skipNewline
+		case ' ': for l.src[l.curr_byte_idx] == '\n' { l.curr_byte_idx += 1 } 	// skipWhiteSpace
+		case '(': // handleAttributes, instantiations and declarations/definitions + mathexpr
+		case: panic(fmt.tprintfln("Unhandled char %r at position %d", l.src[l.curr_byte_idx], l.curr_byte_idx))
+
+		}
+	}
+
 	flattenAndWriteHyperGraph(&hgr)
+}
+
+handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
+	if (l.src[l.curr_byte_idx] == '/' && l.src[l.curr_byte_idx + 1] == '/') {
+		l.curr_byte_idx += 2
+		for !(l.src[l.curr_byte_idx] == '\n') { l.curr_byte_idx += 1 }
+		l.curr_byte_idx += 2
+	} else if (l.src[l.curr_byte_idx] == '/' && l.src[l.curr_byte_idx + 1] == '*') {
+		l.curr_byte_idx += 2
+		for !(l.src[l.curr_byte_idx] == '*' && l.src[l.curr_byte_idx + 1] == '/') { l.curr_byte_idx += 1 }
+		l.curr_byte_idx += 2
+	} else { panic("Error in comment skip") }
 }
 
 // Write out an hgr file for debug purposes
