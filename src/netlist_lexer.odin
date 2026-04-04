@@ -68,6 +68,36 @@ NetlistHyperGraph :: struct {
 	// This should contain the final graph rep that will be used for processing
 }
 
+WHITESPACE :: ' '
+SLASH :: '/'
+NEWLINE :: '\n'
+LPAREN :: '('
+ESCAPE_SYMBOL :: '\\'
+
+IDENT_START, IDENT_CHAR: [256]bool
+
+@(init) // run this before main
+init_ident_tables :: proc "contextless" () {
+	// both true
+	for c in 'a' ..= 'z' { IDENT_START[c] = true; IDENT_CHAR[c] = true }
+	for c in 'A' ..= 'Z' { IDENT_START[c] = true; IDENT_CHAR[c] = true }
+	IDENT_START['_'] = true; IDENT_CHAR['_'] = true
+
+	// start not true only char true
+	for c in '0' ..= '9' { IDENT_CHAR[c] = true }
+	IDENT_CHAR['$'] = true
+}
+
+is_ident_start :: #force_inline proc(b: byte) -> bool { return IDENT_START[b] }
+is_ident_char :: #force_inline proc(b: byte) -> bool { return IDENT_CHAR[b] }
+
+scan_ident :: #force_inline proc(l: ^Lexer) -> string {
+	start := l.curr_byte_idx
+	for l.curr_byte_idx < len(l.src) && is_ident_char(l.src[l.curr_byte_idx]) { l.curr_byte_idx += 1 }
+	end := l.curr_byte_idx
+	return string(l.src[start:end])
+}
+
 // Main lexer function to single pass lex -> convert netlist to hypergraph,
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
@@ -84,19 +114,32 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
-		switch l.src[l.curr_byte_idx] {
-
-		case '/': handleSingleAndMultiLineComments(&l)
-		case '\n': for l.src[l.curr_byte_idx] == '\n' { l.curr_byte_idx += 1 } 	// skipNewline
-		case ' ': for l.src[l.curr_byte_idx] == '\n' { l.curr_byte_idx += 1 } 	// skipWhiteSpace
-		case '(': // handleAttributes, instantiations and declarations/definitions + mathexpr
-		case: panic(fmt.tprintfln("Unhandled char %r at position %d", l.src[l.curr_byte_idx], l.curr_byte_idx))
-
+		idx := l.curr_byte_idx
+		b := l.src[idx]
+		switch b {
+		case SLASH: handleSingleAndMultiLineComments(&l)
+		case NEWLINE: skipNewline(&l)
+		case WHITESPACE: skipWhiteSpace(&l)
+		case LPAREN: handleAttribute(&l)
+		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
+		case:
+			if is_ident_start(b) { handleIdent(&l) }
+				else { panic(fmt.tprintfln("Unhandled char %r at position %d", b, idx)) }
 		}
 	}
 
 	flattenAndWriteHyperGraph(&hgr)
 }
+
+skipNewline :: #force_inline proc(l: ^Lexer) {
+	for l.src[l.curr_byte_idx] == NEWLINE { l.curr_byte_idx += 1 }
+}
+
+skipWhiteSpace :: #force_inline proc(l: ^Lexer) {
+	for l.src[l.curr_byte_idx] == WHITESPACE { l.curr_byte_idx += 1 }
+}
+
+handleEscapedIdent :: proc(l: ^Lexer) {  }
 
 handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
 	if (l.src[l.curr_byte_idx] == '/' && l.src[l.curr_byte_idx + 1] == '/') {
@@ -108,6 +151,28 @@ handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
 		for !(l.src[l.curr_byte_idx] == '*' && l.src[l.curr_byte_idx + 1] == '/') { l.curr_byte_idx += 1 }
 		l.curr_byte_idx += 2
 	} else { panic("Error in comment skip") }
+}
+
+handleAttribute :: proc(l: ^Lexer) {
+	if l.src[l.curr_byte_idx] == '(' && l.src[l.curr_byte_idx + 1] == '*' {
+		attribute_start_idx := l.curr_byte_idx // index of (*
+		for l.src[l.curr_byte_idx] == '*' && l.src[l.curr_byte_idx + 1] == ')' { l.curr_byte_idx += 1 }
+		l.curr_byte_idx += 2
+		attribute_end_idx := l.curr_byte_idx // index of *)
+		emit_attribute := l.src[attribute_start_idx:attribute_end_idx] // TODO(rahul): map to source lines and handle attributes appropriately
+	} else { panic("Invalid attribute") }
+}
+
+handleIdent :: proc(l: ^Lexer) {
+	fmt.println("ident")
+	TOK_ASSIGN :: "assign"
+
+	ident := scan_ident(l)
+	switch ident {
+	case TOK_ASSIGN:
+	case:
+	}
+
 }
 
 // Write out an hgr file for debug purposes
