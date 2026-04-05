@@ -110,7 +110,10 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	hgr: NetlistHyperGraph = {}
 	data, err := os.read_entire_file_from_path(gate_netlist_path, arena_alloc)
 	ensure(err == nil, fmt.tprintfln("FileReadError: %v", err))
-	l: Lexer = {data, 0} // gl netlist data, start from byte 0
+	l: Lexer = {
+		src           = data,
+		curr_byte_idx = 0,
+	} // gl netlist data, start from byte 0
 
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
