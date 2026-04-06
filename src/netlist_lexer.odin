@@ -55,12 +55,14 @@ Net :: struct {
 } // A net(wire) connects many-many ports (thereby connecting the parent instances of those ports)
 
 Netlist :: struct {
+	modules:   []^Module, // all modules in this instance
 	instances: []^Instance, // all instances in the netlist
 	nets:      []^Net, // connections between the instances of the netlist
 } // Parent struct bringing ports,nets,wires together to represent an entire GL netlist
 
 Module :: struct {
 	module_name: string,
+	is_top:      bool,
 }
 
 Lexer :: struct {
@@ -139,12 +141,14 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	l: Lexer = {
 		src           = data,
 		curr_byte_idx = 0,
+		mode          = .NONE,
 	} // gl netlist data, start from byte 0
 
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
 		idx := l.curr_byte_idx
-		byte, peek_byte := l.src[idx], l.src[idx + 1]
+		byte := l.src[idx]
+		peek_byte := l.src[idx + 1] // guard peek byte access we don't know if we are at end? but when we are at end do we just keep this nil?
 		switch byte {
 		case SLASH: handleSingleAndMultiLineComments(&l)
 		case NEWLINE: skipNewline(&l)
@@ -210,13 +214,17 @@ handleIdent :: proc(l: ^Lexer) {
 	TOK_MODULE :: "module"
 
 	ident := scan_ident(l)
-	switch ident {
-	case TOK_ASSIGN:
-	case TOK_MODULE:
-		fmt.println("we're in a module")
-		l.mode = .IN_MODULE_HEADER
+	#partial switch l.mode {
+	case .NONE: switch ident {
+			case TOK_ASSIGN:
+			case TOK_MODULE:
+				fmt.println("we're in a module")
+				l.mode = .IN_MODULE_HEADER
+			}
+	case .IN_MODULE_HEADER:
+		module_name := ident // since we're in module header next scanned thing after module keyword is name of module and then module def
+		fmt.println("Module name", module_name)
 	}
-
 }
 
 // Write out an hgr file for debug purposes
