@@ -59,9 +59,29 @@ Netlist :: struct {
 	nets:      []^Net, // connections between the instances of the netlist
 } // Parent struct bringing ports,nets,wires together to represent an entire GL netlist
 
+Module :: struct {
+	module_name: string,
+}
+
 Lexer :: struct {
+	// source file and cursor index
 	src:           []byte,
 	curr_byte_idx: int, // 64 bit int on 64 bit system (not u32 to prevent casts everywhere when indexing)
+
+	// data about where we are to handle endmodule, etc. appropriately
+	mode:          LexerParseMode,
+	curr_module:   ^Module,
+	curr_instance: ^Instance,
+}
+
+LexerParseMode :: enum {
+	NONE,
+	IN_MODULE_HEADER,
+	IN_PORT_DECLARATION,
+	IN_WIRE_DECLARATION,
+	IN_ASSIGN,
+	IN_INSTANCE,
+	IN_INSTANCE_PORTS,
 }
 
 NetlistHyperGraph :: struct {
@@ -71,8 +91,14 @@ NetlistHyperGraph :: struct {
 WHITESPACE :: ' '
 SLASH :: '/'
 NEWLINE :: '\n'
-LPAREN :: '('
 ESCAPE_SYMBOL :: '\\'
+SEMICOLON :: ';'
+COMMA :: ','
+LPAREN :: '('
+RPAREN :: ')'
+L_SQUARE_BRACKET :: '['
+R_SQUARE_BRACKET :: ']'
+
 
 IDENT_START, IDENT_CHAR: [256]bool
 
@@ -118,16 +144,21 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
 		idx := l.curr_byte_idx
-		b := l.src[idx]
-		switch b {
+		byte, peek_byte := l.src[idx], l.src[idx + 1]
+		switch byte {
 		case SLASH: handleSingleAndMultiLineComments(&l)
 		case NEWLINE: skipNewline(&l)
 		case WHITESPACE: skipWhiteSpace(&l)
-		case LPAREN: handleAttribute(&l)
+		case LPAREN: if peek_byte == '*' { handleAttribute(&l) } else { handleLeftParentheses(&l) }
 		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
+		case SEMICOLON: handleSemicolon(&l)
+		case COMMA: handleComma(&l)
+		case RPAREN: handleRightParentheses(&l)
+		case L_SQUARE_BRACKET: handleLeftSquareBracket(&l)
+		case R_SQUARE_BRACKET: handleRightSquareBracket(&l)
 		case:
-			if is_ident_start(b) { handleIdent(&l) }
-				else { panic(fmt.tprintfln("Unhandled char %r at position %d", b, idx)) }
+			if is_ident_start(byte) { handleIdent(&l) }
+				else { panic(fmt.tprintfln("Unhandled char %r at position %d", byte, idx)) }
 		}
 	}
 
@@ -143,6 +174,13 @@ skipWhiteSpace :: #force_inline proc(l: ^Lexer) {
 }
 
 handleEscapedIdent :: proc(l: ^Lexer) {  }
+handleLeftParentheses :: proc(l: ^Lexer) {  }
+handleRightParentheses :: proc(l: ^Lexer) {  }
+handleSemicolon :: proc(l: ^Lexer) {  }
+handleComma :: proc(l: ^Lexer) {  }
+handleLeftSquareBracket :: proc(l: ^Lexer) {  }
+handleRightSquareBracket :: proc(l: ^Lexer) {  }
+
 
 handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
 	if (l.src[l.curr_byte_idx] == '/' && l.src[l.curr_byte_idx + 1] == '/') {
@@ -169,11 +207,14 @@ handleAttribute :: proc(l: ^Lexer) {
 handleIdent :: proc(l: ^Lexer) {
 	fmt.println("ident")
 	TOK_ASSIGN :: "assign"
+	TOK_MODULE :: "module"
 
 	ident := scan_ident(l)
 	switch ident {
 	case TOK_ASSIGN:
-	case:
+	case TOK_MODULE:
+		fmt.println("we're in a module")
+		l.mode = .IN_MODULE_HEADER
 	}
 
 }
