@@ -162,7 +162,9 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		case R_SQUARE_BRACKET: handleRightSquareBracket(&l)
 		case:
 			if is_ident_start(byte) { handleIdent(&l) }
-				else { panic(fmt.tprintfln("Unhandled char %r at position %d", byte, idx)) }
+				else {panic(
+						fmt.tprintfln("Unhandled char %r at position %d in file %s", byte, idx, gate_netlist_path),
+					)}
 		}
 	}
 
@@ -220,7 +222,6 @@ handleIdent :: proc(l: ^Lexer) {
 			case TOK_MODULE:
 				fmt.println("we're in a module")
 				l.mode = .IN_MODULE_HEADER
-			}
 	case .IN_MODULE_HEADER:
 		module_name := ident // since we're in module header next scanned thing after module keyword is name of module and then module def
 		fmt.println("Module name", module_name)

@@ -51,5 +51,27 @@ test_pdk_loader :: proc(_: ^testing.T) {
 
 @(test)
 test_lexGraph :: proc(_: ^testing.T) {
-	main.lexGraphNetlist("tests/netlist_creation/adder/.adder.netlist.v")
+	// TODO(rahul): This test should NOT be this verbose, find better way to express, also fix mem leaks.
+	netlist_paths: [dynamic]string
+	NETLISTS_DIR :: "netlist_creation/" // relative path of where netlist folders are from test.odin
+
+	design_dirs, design_dir_read_err := os.read_all_directory_by_path(NETLISTS_DIR, context.allocator)
+	assert(design_dir_read_err == nil)
+
+	for d in design_dirs {
+		files, err := os.read_all_directory_by_path(d.fullpath, context.allocator)
+		defer delete(files)
+		for file in files {
+			if strings.ends_with(file.name, ".netlist.v") {
+				append(&netlist_paths, file.fullpath)
+			}
+		}
+	}
+
+	for n in netlist_paths {
+		main.lexGraphNetlist(n)
+	}
+
+	defer delete(design_dirs)
+	defer delete(netlist_paths)
 }
