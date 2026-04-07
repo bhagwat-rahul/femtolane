@@ -91,7 +91,9 @@ NetlistHyperGraph :: struct {
 }
 
 WHITESPACE :: ' '
+WHITESPACE_TAB   :: '\t'
 SLASH :: '/'
+NEWLINE_CARRIAGE_RETURN :: '\r' // for windows platforms
 NEWLINE :: '\n'
 ESCAPE_SYMBOL :: '\\'
 SEMICOLON :: ';'
@@ -151,8 +153,8 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		peek_byte := l.src[idx + 1] // guard peek byte access we don't know if we are at end? but when we are at end do we just keep this nil?
 		switch byte {
 		case SLASH: handleSingleAndMultiLineComments(&l)
-		case NEWLINE: skipNewline(&l)
-		case WHITESPACE: skipWhiteSpace(&l)
+		case NEWLINE, NEWLINE_CARRIAGE_RETURN: skipNewline(&l)
+		case WHITESPACE, WHITESPACE_TAB: skipWhiteSpace(&l)
 		case LPAREN: if peek_byte == '*' { handleAttribute(&l) } else { handleLeftParentheses(&l) }
 		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
 		case SEMICOLON: handleSemicolon(&l)
@@ -172,11 +174,11 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 }
 
 skipNewline :: #force_inline proc(l: ^Lexer) {
-	for l.src[l.curr_byte_idx] == NEWLINE { l.curr_byte_idx += 1 }
+	for l.src[l.curr_byte_idx] == NEWLINE || l.src[l.curr_byte_idx] == NEWLINE_CARRIAGE_RETURN { l.curr_byte_idx += 1 }
 }
 
 skipWhiteSpace :: #force_inline proc(l: ^Lexer) {
-	for l.src[l.curr_byte_idx] == WHITESPACE { l.curr_byte_idx += 1 }
+	for l.src[l.curr_byte_idx] == WHITESPACE || l.src[l.curr_byte_idx] == WHITESPACE_TAB { l.curr_byte_idx += 1 }
 }
 
 handleEscapedIdent :: proc(l: ^Lexer) {  }
