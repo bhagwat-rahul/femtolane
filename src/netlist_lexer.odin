@@ -46,6 +46,7 @@ Port :: struct {
 	id:     PortID, // for fast lookup
 	type:   PortType, // input, output or inout
 	parent: ^Instance, // whom does this port belong to
+	net:    ^Net, // What net does this belong to
 } // A port is something on an instance that wires can connect to
 
 SourceLoc :: struct {
