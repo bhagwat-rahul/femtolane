@@ -21,15 +21,16 @@ PortID :: distinct u32
 NetID :: distinct u32
 
 Cell :: struct {
-	id:       CellID, // for fast lookup
-	name:     string, // human readable name from pdk
-	metadata: map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
-} // Metadata about a cell from the given pdk (stdcell lib, other ip, etc.)
+	id:           CellID, // for fast lookup
+	name:         string, // human readable name from pdk, or module name if not from PDK
+	pdk_provided: bool, // was this provided by the pdk or the user, where is this from (not sure if this field is needed but keeping it for now)
+	metadata:     map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
+} // Metadata about a cell from the given pdk (stdcell lib, other ip, modules etc.)
 
 Instance :: struct {
 	name:        string, // human readable name for debug
 	id:          InstanceID, // for fast lookup
-	parent_cell: ^Cell, // what cell is this an instance of from stdcells
+	parent_cell: ^Cell, // what cell is this an instance of from stdcells/modules
 	ports:       []^Port, // ports belonging to this instance
 	source:      SourceLoc, // where in the GL netlist this comes from
 } // Instances of cells in the actual design and their metadata
