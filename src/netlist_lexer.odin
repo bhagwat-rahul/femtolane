@@ -102,6 +102,11 @@ LPAREN :: '('
 RPAREN :: ')'
 L_SQUARE_BRACKET :: '['
 R_SQUARE_BRACKET :: ']'
+EQUAL :: '='
+LESS_THAN :: '<'
+GREATER_THAN :: '>'
+COLON :: ':'
+DOT :: '.'
 
 
 IDENT_START, IDENT_CHAR: [256]bool
@@ -183,7 +188,7 @@ skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^Lexer) {
 handleEscapedIdent :: proc(l: ^Lexer) {  }
 handleLeftParentheses :: proc(l: ^Lexer) {  }
 handleRightParentheses :: proc(l: ^Lexer) {  }
-handleSemicolon :: proc(l: ^Lexer) {  }
+handleSemicolon :: proc(l: ^Lexer) { fmt.println("current statement over"); l.curr_byte_idx += 1 }
 handleComma :: proc(l: ^Lexer) {  }
 handleLeftSquareBracket :: proc(l: ^Lexer) {  }
 handleRightSquareBracket :: proc(l: ^Lexer) {  }
@@ -212,7 +217,6 @@ handleAttribute :: proc(l: ^Lexer) {
 }
 
 handleIdent :: proc(l: ^Lexer) {
-	fmt.println("ident")
 	KEYWORD_ASSIGN :: "assign"
 	KEYWORD_MODULE :: "module"
 	KEYWORD_ENDMODULE :: "endmodule"
@@ -224,6 +228,8 @@ handleIdent :: proc(l: ^Lexer) {
 	#partial switch l.mode {
 	case .NONE: switch ident {
 			case KEYWORD_ASSIGN:
+				fmt.println("assign statement")
+				l.mode = .IN_ASSIGN
 			case KEYWORD_MODULE:
 				fmt.println("we're in a module")
 				l.mode = .IN_MODULE_HEADER
@@ -231,6 +237,14 @@ handleIdent :: proc(l: ^Lexer) {
 	case .IN_MODULE_HEADER:
 		module_name := ident // since we're in module header next scanned thing after module keyword is name of module and then module def
 		fmt.println("Module name", module_name)
+		
+	case .IN_ASSIGN:
+		lhs := scan_ident(l)
+		skipNewlinesAndWhiteSpaces(l)
+		equals := l.src[l.curr_byte_idx]
+		if (equals != EQUAL) { panic("No = after LHS in assign statement") } else { l.curr_byte_idx += 1 }
+		rhs := scan_ident(l)
+		skipNewlinesAndWhiteSpaces(l)
 	}
 }
 
