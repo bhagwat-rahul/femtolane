@@ -31,6 +31,7 @@ Instance :: struct {
 	id:          InstanceID, // for fast lookup
 	parent_cell: ^Cell, // what cell is this an instance of from stdcells
 	ports:       []^Port, // ports belonging to this instance
+	source:      SourceLoc, // where in the GL netlist this comes from
 } // Instances of cells in the actual design and their metadata
 
 PortType :: enum {
@@ -45,6 +46,15 @@ Port :: struct {
 	type:   PortType, // input, output or inout
 	parent: ^Instance, // whom does this port belong to
 } // A port is something on an instance that wires can connect to
+
+SourceLoc :: struct {
+	file_id:    u32,
+	byte_start: u32,
+	byte_end:   u32,
+	line:       u32,
+	column:     u32,
+} // For a debuggable representation, we want people to be able to 'click in/out' all the way to/from oasis polygon <-> pos in hypergraph viz <-> source of GL/RTL netlist
+// Attributes also play a role here, depending on how we do the frontend rtl -> gl later without yosys we may/may not need to store/write out attributes in some form.
 
 Net :: struct {
 	name:             ^string, // human readable name for debug
@@ -237,7 +247,9 @@ handleIdent :: proc(l: ^Lexer) {
 	case .IN_MODULE_HEADER:
 		module_name := ident // since we're in module header next scanned thing after module keyword is name of module and then module def
 		fmt.println("Module name", module_name)
-		
+		skipNewlinesAndWhiteSpaces(l)
+		lparen := l.src[l.curr_byte_idx]
+		if (lparen != LPAREN) { panic("No ( after module declaration") } else { l.curr_byte_idx += 1 }
 	case .IN_ASSIGN:
 		lhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
