@@ -91,7 +91,7 @@ NetlistHyperGraph :: struct {
 }
 
 WHITESPACE :: ' '
-WHITESPACE_TAB   :: '\t'
+WHITESPACE_TAB :: '\t'
 SLASH :: '/'
 NEWLINE_CARRIAGE_RETURN :: '\r' // for windows platforms
 NEWLINE :: '\n'
@@ -175,12 +175,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^Lexer) {
 	for {
 		c := l.src[l.curr_byte_idx]
-		if c != NEWLINE &&
-		   c != NEWLINE_CARRIAGE_RETURN &&
-		   c != WHITESPACE &&
-		   c != WHITESPACE_TAB {
-			break
-		}
+		if c != NEWLINE && c != NEWLINE_CARRIAGE_RETURN && c != WHITESPACE && c != WHITESPACE_TAB { break }
 		l.curr_byte_idx += 1
 	}
 }
@@ -218,16 +213,21 @@ handleAttribute :: proc(l: ^Lexer) {
 
 handleIdent :: proc(l: ^Lexer) {
 	fmt.println("ident")
-	TOK_ASSIGN :: "assign"
-	TOK_MODULE :: "module"
+	KEYWORD_ASSIGN :: "assign"
+	KEYWORD_MODULE :: "module"
+	KEYWORD_ENDMODULE :: "endmodule"
+	KEYWORD_INPUT :: "input"
+	KEYWORD_OUTPUT :: "output"
+	KEYWORD_WIRE :: "wire"
 
 	ident := scan_ident(l)
 	#partial switch l.mode {
 	case .NONE: switch ident {
-			case TOK_ASSIGN:
-			case TOK_MODULE:
+			case KEYWORD_ASSIGN:
+			case KEYWORD_MODULE:
 				fmt.println("we're in a module")
 				l.mode = .IN_MODULE_HEADER
+			}
 	case .IN_MODULE_HEADER:
 		module_name := ident // since we're in module header next scanned thing after module keyword is name of module and then module def
 		fmt.println("Module name", module_name)
