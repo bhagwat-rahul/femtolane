@@ -80,9 +80,6 @@ Lexer :: struct {
 	// source file and cursor index
 	src:           []byte,
 	curr_byte_idx: int, // 64 bit int on 64 bit system (not u32 to prevent casts everywhere when indexing)
-
-	// data about where we are to handle endmodule, etc. appropriately
-	mode:          LexerParseMode,
 	curr_module:   ^Module,
 	curr_instance: ^Instance,
 }
@@ -159,7 +156,6 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	l: Lexer = {
 		src           = data,
 		curr_byte_idx = 0,
-		mode          = .NONE,
 	} // gl netlist data, start from byte 0
 
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
@@ -228,6 +224,7 @@ handleAttribute :: proc(l: ^Lexer) {
 }
 
 handleIdent :: proc(l: ^Lexer) {
+
 	KEYWORD_ASSIGN :: "assign"
 	KEYWORD_MODULE :: "module"
 	KEYWORD_ENDMODULE :: "endmodule"
@@ -236,28 +233,36 @@ handleIdent :: proc(l: ^Lexer) {
 	KEYWORD_WIRE :: "wire"
 
 	ident := scan_ident(l)
-	#partial switch l.mode {
-	case .NONE: switch ident {
-			case KEYWORD_ASSIGN:
-				fmt.println("assign statement")
-				l.mode = .IN_ASSIGN
-			case KEYWORD_MODULE:
-				fmt.println("we're in a module")
-				l.mode = .IN_MODULE_HEADER
-			}
-	case .IN_MODULE_HEADER:
-		module_name := ident // since we're in module header next scanned thing after module keyword is name of module and then module def
-		fmt.println("Module name", module_name)
-		skipNewlinesAndWhiteSpaces(l)
-		lparen := l.src[l.curr_byte_idx]
-		if (lparen != LPAREN) { panic("No ( after module declaration") } else { l.curr_byte_idx += 1 }
-	case .IN_ASSIGN:
+
+	switch ident {
+
+	case KEYWORD_ASSIGN:
+		fmt.println("assign statement")
 		lhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
 		equals := l.src[l.curr_byte_idx]
 		if (equals != EQUAL) { panic("No = after LHS in assign statement") } else { l.curr_byte_idx += 1 }
 		rhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
+
+	case KEYWORD_MODULE:
+		fmt.println("we're in a module")
+		module_name := ident // since we're in module header next scanned thing after module keyword is name of module and then module def
+		fmt.println("Module name", module_name)
+		skipNewlinesAndWhiteSpaces(l)
+		lparen := l.src[l.curr_byte_idx]
+		if (lparen != LPAREN) { panic("No ( after module declaration") } else { l.curr_byte_idx += 1 }
+
+	case KEYWORD_ENDMODULE:
+
+	case KEYWORD_WIRE:
+
+	case KEYWORD_INPUT:
+
+	case KEYWORD_OUTPUT:
+
+	case:
+
 	}
 }
 
