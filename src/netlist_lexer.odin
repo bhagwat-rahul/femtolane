@@ -58,44 +58,25 @@ SourceLoc :: struct {
 // Attributes also play a role here, depending on how we do the frontend rtl -> gl later without yosys we may/may not need to store/write out attributes in some form.
 
 Net :: struct {
-	name:             ^string, // human readable name for debug
+	name:             string, // human readable name for debug
 	id:               NetID, // for fast lookup
 	connections:      []^Port, // ports that this connects
 	bus_len:          u32, // Is part of a bus like wire [7:0], if so len will be stored here, if not, then len 0
 	bus_msb, bus_lsb: u32, // most and least significant bit if part of bus, if not then both will be 0
 } // A net(wire) connects many-many ports (thereby connecting the parent instances of those ports)
 
-Netlist :: struct {
-	modules:   []^Module, // all modules in this instance
-	instances: []^Instance, // all instances in the netlist
-	nets:      []^Net, // connections between the instances of the netlist
-} // Parent struct bringing ports,nets,wires together to represent an entire GL netlist
-
-Module :: struct {
-	module_name: string,
-	is_top:      bool,
-}
-
 Lexer :: struct {
 	// source file and cursor index
 	src:           []byte,
 	curr_byte_idx: int, // 64 bit int on 64 bit system (not u32 to prevent casts everywhere when indexing)
-	curr_module:   ^Module,
+	curr_cell:     ^Cell,
 	curr_instance: ^Instance,
 }
 
-LexerParseMode :: enum {
-	NONE,
-	IN_MODULE_HEADER,
-	IN_PORT_DECLARATION,
-	IN_WIRE_DECLARATION,
-	IN_ASSIGN,
-	IN_INSTANCE,
-	IN_INSTANCE_PORTS,
-}
-
 NetlistHyperGraph :: struct {
-	// This should contain the final graph rep that will be used for processing
+	cells:     []^Cell,
+	instances: []^Instance, // all instances in the netlist
+	nets:      []^Net, // connections between the instances of the netlist
 }
 
 WHITESPACE :: ' '
@@ -150,7 +131,6 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	ensure(virtual.arena_init_growing(&lexGraphArena) == nil)
 	defer virtual.arena_destroy(&lexGraphArena)
 	arena_alloc := virtual.arena_allocator(&lexGraphArena)
-	hgr: NetlistHyperGraph = {}
 	data, err := os.read_entire_file_from_path(gate_netlist_path, arena_alloc)
 	ensure(err == nil, fmt.tprintfln("FileReadError: %v", err))
 	l: Lexer = {
@@ -158,6 +138,11 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		curr_byte_idx = 0,
 	} // gl netlist data, start from byte 0
 
+	hgr: NetlistHyperGraph = {
+		instances = {},
+		nets      = {},
+		cells     = {},
+	}
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
 		idx := l.curr_byte_idx
@@ -174,14 +159,12 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		case L_SQUARE_BRACKET: handleLeftSquareBracket(&l)
 		case R_SQUARE_BRACKET: handleRightSquareBracket(&l)
 		case:
-			if is_ident_start(byte) { handleIdent(&l) }
+			if is_ident_start(byte) { handleIdent(&l, &hgr) }
 				else {panic(
 						fmt.tprintfln("Unhandled char %r at position %d in file %s", byte, idx, gate_netlist_path),
 					)}
 		}
 	}
-
-	flattenAndWriteHyperGraph(&hgr)
 }
 
 skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^Lexer) {
@@ -223,7 +206,7 @@ handleAttribute :: proc(l: ^Lexer) {
 	} else { panic("Invalid attribute") }
 }
 
-handleIdent :: proc(l: ^Lexer) {
+handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
 
 	KEYWORD_ASSIGN :: "assign"
 	KEYWORD_MODULE :: "module"
