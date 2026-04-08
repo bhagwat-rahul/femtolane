@@ -9,6 +9,7 @@ This has to be performant, not just in runtime but in the way that we represent 
 
 package main
 import "core:fmt"
+import "core:mem"
 import "core:mem/virtual"
 import "core:os"
 
@@ -31,7 +32,7 @@ Instance :: struct {
 	name:        string, // human readable name for debug
 	id:          InstanceID, // for fast lookup
 	parent_cell: ^Cell, // what cell is this an instance of from stdcells/modules
-	ports:       []^Port, // ports belonging to this instance
+	ports:       [dynamic]^Port, // ports belonging to this instance
 	source:      SourceLoc, // where in the GL netlist this comes from
 } // Instances of cells in the actual design and their metadata
 
@@ -61,7 +62,7 @@ SourceLoc :: struct {
 Net :: struct {
 	name:             string, // human readable name for debug
 	id:               NetID, // for fast lookup
-	connections:      []^Port, // ports that this connects
+	connections:      [dynamic]^Port, // ports that this connects
 	bus_len:          u32, // Is part of a bus like wire [7:0], if so len will be stored here, if not, then len 0
 	bus_msb, bus_lsb: u32, // most and least significant bit if part of bus, if not then both will be 0
 } // A net(wire) connects many-many ports (thereby connecting the parent instances of those ports)
@@ -75,9 +76,9 @@ Lexer :: struct {
 }
 
 NetlistHyperGraph :: struct {
-	cells:     []^Cell,
-	instances: []^Instance, // all instances in the netlist
-	nets:      []^Net, // connections between the instances of the netlist
+	cells:     [dynamic]^Cell,
+	instances: [dynamic]^Instance, // all instances in the netlist
+	nets:      [dynamic]^Net, // connections between the instances of the netlist
 }
 
 WHITESPACE :: ' '
@@ -141,10 +142,10 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		curr_instance = nil,
 	} // gl netlist data, start from byte 0
 
-	hgr: NetlistHyperGraph = {
-		instances = {},
-		nets      = {},
-		cells     = {},
+	hgr := NetlistHyperGraph {
+		instances = make([dynamic]^Instance, arena_alloc),
+		nets      = make([dynamic]^Net, arena_alloc),
+		cells     = make([dynamic]^Cell, arena_alloc),
 	}
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
@@ -260,6 +261,41 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
 			)
 
 	}
+}
+
+create_instance :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, inst_val: Instance) -> ^Instance {
+	inst := new(Instance, arena_alloc)
+	inst^ = inst_val
+	inst.id = InstanceID(len(hgr.instances))
+	append(&hgr.instances, inst)
+	return inst
+}
+
+create_cell :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, cell_val: Cell) -> ^Cell {
+	cell := new(Cell, arena_alloc)
+	cell^ = cell_val
+	cell.id = CellID(len(hgr.cells))
+	append(&hgr.cells, cell)
+	return cell
+}
+
+create_port :: proc(arena_alloc: mem.Allocator, port_val: Port) -> ^Port {
+	port_parent_instance_ptr := port_val.parent
+	assert(port_parent_instance_ptr != nil, "Trying to add a port to a nil instance")
+	id := PortID(len(port_parent_instance_ptr.ports))
+	port := new(Port, arena_alloc)
+	port^ = port_val
+	port.id = id
+	append(&port_parent_instance_ptr.ports, port)
+	return port
+}
+
+create_net :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, net_val: Net) -> ^Net {
+	net := new(Net, arena_alloc)
+	net^ = net_val
+	net.id = NetID(len(hgr.nets))
+	append(&hgr.nets, net)
+	return net
 }
 
 // Write out an hgr file for debug purposes
