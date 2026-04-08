@@ -32,13 +32,13 @@ test_netlist_creation :: proc(_: ^testing.T) {
 		yosys_tcl_script_filepath = yosys_tcl_script_filepath,
 	)
 	outfile_src, read_err := os.read_entire_file_from_path(outfile, arena_allocator)
-	assert(read_err == nil, fmt.tprintfln("file read error %v", read_err))
+	assert(read_err == nil, fmt.tprintln("file read error", read_err))
 	lines, _ := strings.split_lines(string(outfile_src), arena_allocator)
 	for line in lines {
 		fields := strings.fields(line, arena_allocator)
 		if len(fields) < 2 { continue }
 		cell := fields[0]
-		ensure(cell[0] != '$', fmt.tprintfln("Non tech-mapped cell %s", cell))
+		ensure(cell[0] != '$', fmt.tprintln("Non tech-mapped cell %s", cell))
 	}
 }
 

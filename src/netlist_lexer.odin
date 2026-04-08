@@ -134,7 +134,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	defer virtual.arena_destroy(&lexGraphArena)
 	arena_alloc := virtual.arena_allocator(&lexGraphArena)
 	data, err := os.read_entire_file_from_path(gate_netlist_path, arena_alloc)
-	ensure(err == nil, fmt.tprintfln("FileReadError: %v", err))
+	ensure(err == nil, fmt.tprintln("FileReadError:", err))
 	l: Lexer = {
 		src           = data,
 		curr_byte_idx = 0,
@@ -261,6 +261,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
 }
 
 create_instance :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, inst_val: Instance) -> ^Instance {
+	ensure(inst_val.parent_cell != nil, fmt.tprint("No parent cell provided for instance", inst_val.name))
 	inst := new(Instance, arena_alloc)
 	inst^ = inst_val
 	inst.id = InstanceID(len(hgr.instances))

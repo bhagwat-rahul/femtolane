@@ -26,7 +26,7 @@ run_yosys :: proc(
 	defer delete(stdout)
 	defer delete(stderr)
 	fmt.println("STDOUT\n", string(stdout))
-	ensure(err == nil, fmt.tprintfln("SPAWN ERROR: %s", err))
+	ensure(err == nil, fmt.tprintln("SPAWN ERROR:", err))
 	ensure(state.exit_code == 0, fmt.tprintfln("YOSYS FAILED:\n%s", stderr))
 	return outfile
 }
