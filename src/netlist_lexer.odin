@@ -174,13 +174,6 @@ skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^Lexer) {
 }
 
 handleEscapedIdent :: proc(l: ^Lexer) {  }
-handleLeftParentheses :: proc(l: ^Lexer) {  }
-handleRightParentheses :: proc(l: ^Lexer) {  }
-handleSemicolon :: proc(l: ^Lexer) { fmt.println("current statement over"); l.curr_byte_idx += 1 }
-handleComma :: proc(l: ^Lexer) {  }
-handleLeftSquareBracket :: proc(l: ^Lexer) {  }
-handleRightSquareBracket :: proc(l: ^Lexer) {  }
-
 
 handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
 	if (l.src[l.curr_byte_idx] == '/' && l.src[l.curr_byte_idx + 1] == '/') {
