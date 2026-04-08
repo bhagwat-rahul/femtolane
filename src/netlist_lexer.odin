@@ -137,6 +137,8 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	l: Lexer = {
 		src           = data,
 		curr_byte_idx = 0,
+		curr_cell     = nil,
+		curr_instance = nil,
 	} // gl netlist data, start from byte 0
 
 	hgr: NetlistHyperGraph = {
@@ -148,17 +150,12 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	for l.curr_byte_idx < len(l.src) {
 		idx := l.curr_byte_idx
 		byte := l.src[idx]
-		peek_byte := l.src[idx + 1] // guard peek byte access we don't know if we are at end? but when we are at end do we just keep this nil?
+
 		switch byte {
 		case SLASH: handleSingleAndMultiLineComments(&l)
 		case NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE, WHITESPACE_TAB: skipNewlinesAndWhiteSpaces(&l)
-		case LPAREN: if peek_byte == '*' { handleAttribute(&l) } else { handleLeftParentheses(&l) }
+		case LPAREN: checkForAndHandleAttribute(&l) // the only lparen main loop should see is for attributes
 		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
-		case SEMICOLON: handleSemicolon(&l)
-		case COMMA: handleComma(&l)
-		case RPAREN: handleRightParentheses(&l)
-		case L_SQUARE_BRACKET: handleLeftSquareBracket(&l)
-		case R_SQUARE_BRACKET: handleRightSquareBracket(&l)
 		case:
 			if is_ident_start(byte) { handleIdent(&l, &hgr) }
 				else {panic(
@@ -197,7 +194,7 @@ handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
 	} else { panic("Error in comment skip") }
 }
 
-handleAttribute :: proc(l: ^Lexer) {
+checkForAndHandleAttribute :: proc(l: ^Lexer) {
 	if l.src[l.curr_byte_idx] == '(' && l.src[l.curr_byte_idx + 1] == '*' {
 		attribute_start_idx := l.curr_byte_idx // index of (*
 		for l.src[l.curr_byte_idx] == '*' && l.src[l.curr_byte_idx + 1] == ')' { l.curr_byte_idx += 1 }
@@ -231,13 +228,32 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
 
 	case KEYWORD_MODULE:
 		fmt.println("we're in a module")
-		module_name := ident // since we're in module header next scanned thing after module keyword is name of module and then module def
+		l.curr_byte_idx += 1
+		skipNewlinesAndWhiteSpaces(l)
+		module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
 		fmt.println("Module name", module_name)
 		skipNewlinesAndWhiteSpaces(l)
 		lparen := l.src[l.curr_byte_idx]
-		if (lparen != LPAREN) { panic("No ( after module declaration") } else { l.curr_byte_idx += 1 }
+		if (lparen !=
+			   LPAREN) { panic(fmt.tprintf("No ( after module declaration found %r instead", l.src[l.curr_byte_idx])) } else { l.curr_byte_idx += 1 }
+		skipNewlinesAndWhiteSpaces(l)
+		// handle ports of this module
+		ports := 0
+		for l.src[l.curr_byte_idx] != SEMICOLON {
+			fmt.println("Port", ports, "=", scan_ident(l))
+			skipNewlinesAndWhiteSpaces(l)
+			if (l.src[l.curr_byte_idx] ==
+				   ',') { l.curr_byte_idx += 1 } else if (l.src[l.curr_byte_idx] == ')') { l.curr_byte_idx += 1 } else { panic("no comma here") }
+			skipNewlinesAndWhiteSpaces(l)
+			ports += 1
+		}
+		skipNewlinesAndWhiteSpaces(l)
+		fmt.println("we are done with module")
 
 	case KEYWORD_ENDMODULE:
+		fmt.println("end current module", l.curr_cell.name)
+		l.curr_cell = nil
+		skipNewlinesAndWhiteSpaces(l)
 
 	case KEYWORD_WIRE:
 
@@ -246,6 +262,9 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
 	case KEYWORD_OUTPUT:
 
 	case:
+		fmt.println(
+				"Since this keyword doesn't look like any of the other keywords it has to be a module instantiation or error?",
+			)
 
 	}
 }
