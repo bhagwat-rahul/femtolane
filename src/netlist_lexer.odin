@@ -157,11 +157,9 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		case NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE, WHITESPACE_TAB: skipNewlinesAndWhiteSpaces(&l)
 		case LPAREN: checkForAndHandleAttribute(&l) // the only lparen main loop should see is for attributes
 		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
-		case:
-			if is_ident_start(byte) { handleIdent(&l, &hgr) }
-				else {panic(
-						fmt.tprintfln("Unhandled char %r at position %d in file %s", byte, idx, gate_netlist_path),
-					)}
+		case: if is_ident_start(byte) { handleIdent(&l, &hgr) } else {
+					panic(fmt.tprintfln("Unhandled char %r at position %d in file %s", byte, idx, gate_netlist_path))
+				}
 		}
 	}
 }
@@ -227,8 +225,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
 		module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
 		fmt.println("Module name", module_name)
 		skipNewlinesAndWhiteSpaces(l)
-		lparen := l.src[l.curr_byte_idx]
-		if (lparen !=
+		if (l.src[l.curr_byte_idx] !=
 			   LPAREN) { panic(fmt.tprintf("No ( after module declaration found %r instead", l.src[l.curr_byte_idx])) } else { l.curr_byte_idx += 1 }
 		skipNewlinesAndWhiteSpaces(l)
 		// handle ports of this module
