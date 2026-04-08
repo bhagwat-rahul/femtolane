@@ -157,7 +157,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		case NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE, WHITESPACE_TAB: skipNewlinesAndWhiteSpaces(&l)
 		case LPAREN: checkForAndHandleAttribute(&l) // the only lparen main loop should see is for attributes
 		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
-		case: if is_ident_start(byte) { handleIdent(&l, &hgr) } else {
+		case: if is_ident_start(byte) { handleIdent(&l, &hgr, arena_alloc) } else {
 					panic(fmt.tprintfln("Unhandled char %r at position %d in file %s", byte, idx, gate_netlist_path))
 				}
 		}
@@ -196,7 +196,7 @@ checkForAndHandleAttribute :: proc(l: ^Lexer) {
 	} else { panic("Invalid attribute") }
 }
 
-handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
+handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
 
 	KEYWORD_ASSIGN :: "assign"
 	KEYWORD_MODULE :: "module"
@@ -247,6 +247,31 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
 		skipNewlinesAndWhiteSpaces(l)
 
 	case KEYWORD_WIRE:
+		skipNewlinesAndWhiteSpaces(l)
+		// bus detection
+		if l.src[l.curr_byte_idx] == L_SQUARE_BRACKET {
+			// TODO(rahul): parse bus width
+		}
+		for {
+			name := scan_ident(l)
+			net := Net {
+				name        = name,
+				connections = make([dynamic]^Port, arena_alloc),
+			}
+			create_net(hgr, arena_alloc, net)
+			skipNewlinesAndWhiteSpaces(l)
+			c := l.src[l.curr_byte_idx]
+			if c == COMMA {
+				l.curr_byte_idx += 1
+				skipNewlinesAndWhiteSpaces(l)
+				continue
+			}
+			if c == SEMICOLON {
+				l.curr_byte_idx += 1
+				break
+			}
+			panic("expected ',' or ';' after wire declaration")
+		}
 
 	case KEYWORD_INPUT:
 
