@@ -118,7 +118,7 @@ is_ident_char :: #force_inline proc(b: byte) -> bool { return IDENT_CHAR[b] }
 
 scan_ident :: #force_inline proc(l: ^Lexer) -> string {
 	start := l.curr_byte_idx
-	for l.curr_byte_idx < len(l.src) && is_ident_char(l.src[l.curr_byte_idx]) { l.curr_byte_idx += 1 }
+	for is_ident_char(peek(l)) { advance(l) }
 	end := l.curr_byte_idx
 	return string(l.src[start:end])
 }
@@ -149,7 +149,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
 		idx := l.curr_byte_idx
-		byte := l.src[idx]
+		byte := peek(&l)
 
 		switch byte {
 		case SLASH: handleSingleAndMultiLineComments(&l)
@@ -165,34 +165,34 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 
 skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^Lexer) {
 	for {
-		c := l.src[l.curr_byte_idx]
+		c := peek(l)
 		if c != NEWLINE && c != NEWLINE_CARRIAGE_RETURN && c != WHITESPACE && c != WHITESPACE_TAB { break }
-		l.curr_byte_idx += 1
+		advance(l)
 	}
 }
 
 handleEscapedIdent :: proc(l: ^Lexer) {  }
 
 handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
-	if (l.src[l.curr_byte_idx] == '/' && l.src[l.curr_byte_idx + 1] == '/') {
-		l.curr_byte_idx += 2
-		for !(l.src[l.curr_byte_idx] == '\n') { l.curr_byte_idx += 1 }
-		l.curr_byte_idx += 2
-	} else if (l.src[l.curr_byte_idx] == '/' && l.src[l.curr_byte_idx + 1] == '*') {
-		l.curr_byte_idx += 2
-		for !(l.src[l.curr_byte_idx] == '*' && l.src[l.curr_byte_idx + 1] == '/') { l.curr_byte_idx += 1 }
-		l.curr_byte_idx += 2
-	} else { panic("Error in comment skip") }
+	if (peek(l) == '/' && peek_next(l) == '/') {
+		advance(l, 2)
+		for peek(l) != '\n' && peek(l) != 0 { advance(l) }
+		if peek(l) == '\n' { advance(l) }
+	} else if (peek(l) == '/' && peek_next(l) == '*') {
+		advance(l, 2)
+		for !(peek(l) == '*' && peek_next(l) == '/') && peek(l) != 0 { advance(l) }
+		advance(l, 2)
+	} else { panic(fmt.tprint("Error in comment skip for char", rune(peek(l)), "idx", l.curr_byte_idx)) }
 }
 
 checkForAndHandleAttribute :: proc(l: ^Lexer) {
-	if l.src[l.curr_byte_idx] == '(' && l.src[l.curr_byte_idx + 1] == '*' {
+	if peek(l) == '(' && peek_next(l) == '*' {
 		attribute_start_idx := l.curr_byte_idx // index of (*
-		for l.src[l.curr_byte_idx] == '*' && l.src[l.curr_byte_idx + 1] == ')' { l.curr_byte_idx += 1 }
-		l.curr_byte_idx += 2
+		for !(peek(l) == '*' && peek_next(l) == ')') && peek(l) != 0 { advance(l) }
+		advance(l, 2)
 		attribute_end_idx := l.curr_byte_idx // index of *)
 		emit_attribute := l.src[attribute_start_idx:attribute_end_idx] // TODO(rahul): map to source lines and handle attributes appropriately
-	} else { panic("Invalid attribute") }
+	} else { panic(fmt.tprint("Invalid attribute at", l.curr_byte_idx, rune(peek(l)))) }
 }
 
 handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
@@ -213,32 +213,31 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		fmt.println("assign statement")
 		lhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
-		equals := l.src[l.curr_byte_idx]
-		if (equals != EQUAL) { panic("No = after LHS in assign statement") } else { l.curr_byte_idx += 1 }
+		equals := peek(l)
+		if (equals != EQUAL) { panic("No = after LHS in assign statement") } else { advance(l) }
 		rhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
 
 	case KEYWORD_MODULE:
-		fmt.println("we're in a module")
-		l.curr_byte_idx += 1
+		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
 		module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
 		fmt.println("Module name", module_name)
 		skipNewlinesAndWhiteSpaces(l)
-		if (l.src[l.curr_byte_idx] !=
-			   LPAREN) { panic(fmt.tprintf("No ( after module declaration found %r instead", l.src[l.curr_byte_idx])) } else { l.curr_byte_idx += 1 }
+		if (peek(l) !=
+			   LPAREN) { panic(fmt.tprintf("No ( after module declaration found %r instead", peek(l))) } else { advance(l) }
 		skipNewlinesAndWhiteSpaces(l)
 		// handle ports of this module
 		ports := 0
-		for l.src[l.curr_byte_idx] != SEMICOLON {
+		for peek(l) != SEMICOLON {
 			fmt.println("Port", ports, "=", scan_ident(l))
 			skipNewlinesAndWhiteSpaces(l)
-			if (l.src[l.curr_byte_idx] ==
-				   ',') { l.curr_byte_idx += 1 } else if (l.src[l.curr_byte_idx] == ')') { l.curr_byte_idx += 1 } else { panic("no comma here") }
+			if (peek(l) == ',') { advance(l) } else if (peek(l) == ')') { advance(l) } else { panic("no comma here") }
 			skipNewlinesAndWhiteSpaces(l)
 			ports += 1
 		}
 		skipNewlinesAndWhiteSpaces(l)
+		advance(l)
 		fmt.println("we are done with module")
 
 	case KEYWORD_ENDMODULE:
@@ -256,13 +255,14 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		}
 		skipNewlinesAndWhiteSpaces(l)
 		msb, lsb := 0, 0
-		if l.src[l.curr_byte_idx] == L_SQUARE_BRACKET {
+		if peek(l) == L_SQUARE_BRACKET {
 			msb, lsb = parse_bus(l)
 			skipNewlinesAndWhiteSpaces(l)
 		}
-		for {
+		net_loop: for {
 			name := scan_ident(l)
-			for i in lsb ..= msb {
+			lo, hi := min(msb, lsb), max(msb, lsb)
+			for i in lo ..= hi {
 				net_name := name if (msb == 0 && lsb == 0) else fmt.tprintf("%s[%d]", name, i)
 				create_net(
 					hgr = hgr,
@@ -275,14 +275,22 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 				)
 			}
 			skipNewlinesAndWhiteSpaces(l)
-			switch l.src[l.curr_byte_idx] {
+			switch peek(l) {
 			case COMMA:
-				l.curr_byte_idx += 1
+				advance(l)
 				skipNewlinesAndWhiteSpaces(l)
 			case SEMICOLON:
-				l.curr_byte_idx += 1
-				break
-			case: panic("Expected ',' or ';' after wire declaration")
+				advance(l)
+				break net_loop
+			case:
+				panic(
+						fmt.tprint(
+							"Expected ',' or ';' after wire declaration got",
+							rune(peek(l)),
+							"at",
+							l.curr_byte_idx,
+						),
+					)
 			}
 		}
 
@@ -296,20 +304,20 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 
 // Parse bus of form [1023:0], which indicates 1024 elements, return msb (1023) and lsb (0)
 parse_bus :: proc(l: ^Lexer) -> (msb: int, lsb: int) {
-	ensure(l.src[l.curr_byte_idx] == L_SQUARE_BRACKET, "parse_buses called with a non-[ char")
-	l.curr_byte_idx += 1
-	for l.src[l.curr_byte_idx] != COLON {
-		c := l.src[l.curr_byte_idx]
+	ensure(peek(l) == L_SQUARE_BRACKET, "parse_buses called with a non-[ char")
+	advance(l)
+	for peek(l) != COLON && peek(l) != 0 {
+		c := peek(l)
 		msb = msb * 10 + int(c - '0')
-		l.curr_byte_idx += 1
+		advance(l)
 	}
-	l.curr_byte_idx += 1
-	for l.src[l.curr_byte_idx] != R_SQUARE_BRACKET {
-		c := l.src[l.curr_byte_idx]
+	advance(l)
+	for peek(l) != R_SQUARE_BRACKET && peek(l) != 0 {
+		c := peek(l)
 		lsb = lsb * 10 + int(c - '0')
-		l.curr_byte_idx += 1
+		advance(l)
 	}
-	l.curr_byte_idx += 1
+	advance(l)
 	return msb, lsb
 }
 
@@ -347,6 +355,19 @@ create_net :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, net_val:
 	net.id = NetID(len(hgr.nets))
 	append(&hgr.nets, net)
 	return net
+}
+
+peek :: #force_inline proc(l: ^Lexer) -> byte { return l.src[l.curr_byte_idx] if l.curr_byte_idx < len(l.src) else 0 }
+
+peek_next :: #force_inline proc(l: ^Lexer) -> byte {return(
+		l.src[l.curr_byte_idx + 1] if l.curr_byte_idx + 1 < len(l.src) else 0 \
+	)}
+
+advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
+	if l.curr_byte_idx + advance_by > len(l.src) {
+		panic("Unexpected EOF")
+	}
+	l.curr_byte_idx += advance_by
 }
 
 // Write out an hgr file for debug purposes
