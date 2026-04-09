@@ -249,6 +249,13 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 	case KEYWORD_WIRE, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT:
 		// wire input output only differ in net.nettype
 		// TODO(rahul): Add nettype appropriately based on if we are switching on wire, input, output, or inout
+		ident_net_type: NetType
+		switch ident {
+		case KEYWORD_WIRE: ident_net_type = .INTERNAL
+		case KEYWORD_INPUT: ident_net_type = .MODULE_INPUT
+		case KEYWORD_OUTPUT: ident_net_type = .MODULE_OUTPUT
+		case KEYWORD_INOUT: ident_net_type = .MODULE_INOUT
+		}
 		skipNewlinesAndWhiteSpaces(l)
 		msb, lsb := 0, 0
 		if l.src[l.curr_byte_idx] == L_SQUARE_BRACKET {
@@ -258,14 +265,23 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		for {
 			name := scan_ident(l)
 			if msb == 0 && lsb == 0 {
-				create_net(hgr, arena_alloc, Net{name = name, connections = make([dynamic]^InstancePort, arena_alloc)})
+				create_net(
+					hgr = hgr,
+					arena_alloc = arena_alloc,
+					net_val = Net {
+						name = name,
+						net_type = ident_net_type,
+						connections = make([dynamic]^InstancePort, arena_alloc),
+					},
+				)
 			} else {
 				for i in lsb ..= msb {
 					create_net(
-						hgr,
-						arena_alloc,
-						Net {
+						hgr = hgr,
+						arena_alloc = arena_alloc,
+						net_val = Net {
 							name = fmt.tprintf("%s[%d]", name, i),
+							net_type = ident_net_type,
 							connections = make([dynamic]^InstancePort, arena_alloc),
 						},
 					)
