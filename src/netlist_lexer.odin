@@ -60,11 +60,9 @@ SourceLoc :: struct {
 // Attributes also play a role here, depending on how we do the frontend rtl -> gl later without yosys we may/may not need to store/write out attributes in some form.
 
 Net :: struct {
-	name:             string, // human readable name for debug
-	id:               NetID, // for fast lookup
-	connections:      [dynamic]^Port, // ports that this connects
-	bus_len:          u32, // Is part of a bus like wire [7:0], if so len will be stored here, if not, then len 0
-	bus_msb, bus_lsb: u32, // most and least significant bit if part of bus, if not then both will be 0
+	name:        string, // human readable name for debug
+	id:          NetID, // for fast lookup
+	connections: [dynamic]^Port, // ports that this connects
 } // A net(wire) connects many-many ports (thereby connecting the parent instances of those ports)
 
 Lexer :: struct {
