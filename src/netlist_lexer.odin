@@ -13,8 +13,6 @@ import "core:mem"
 import "core:mem/virtual"
 import "core:os"
 
-// TODO(rahul): Learn more about hypergraphs and look at some gate level netlists before attempting this to find best fit
-
 // IDs for fast lookup
 CellID :: distinct u32
 InstanceID :: distinct u32
