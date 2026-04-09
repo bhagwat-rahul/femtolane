@@ -32,20 +32,13 @@ Instance :: struct {
 	name:        string, // human readable name for debug
 	id:          InstanceID, // for fast lookup
 	parent_cell: ^Cell, // what cell is this an instance of from stdcells/modules
-	ports:       [dynamic]^Port, // ports belonging to this instance
+	ports:       [dynamic]^InstancePort, // ports belonging to this instance
 	source:      SourceLoc, // where in the GL netlist this comes from
 } // Instances of cells in the actual design and their metadata
 
-PortType :: enum {
-	INPUT,
-	OUTPUT,
-	INOUT,
-} // Types of ports, input, output, or both
-
-Port :: struct {
+InstancePort :: struct {
 	name:   string, // human readable name for debug
 	id:     PortID, // for fast lookup
-	type:   PortType, // input, output or inout
 	parent: ^Instance, // whom does this port belong to
 	net:    ^Net, // What net does this belong to
 } // A port is something on an instance that wires can connect to
@@ -59,10 +52,18 @@ SourceLoc :: struct {
 } // For a debuggable representation, we want people to be able to 'click in/out' all the way to/from oasis polygon <-> pos in hypergraph viz <-> source of GL/RTL netlist
 // Attributes also play a role here, depending on how we do the frontend rtl -> gl later without yosys we may/may not need to store/write out attributes in some form.
 
+NetType :: enum {
+	INTERNAL, // wire
+	MODULE_INPUT, // input
+	MODULE_OUTPUT, // output
+	MODULE_INOUT, // inout
+}
+
 Net :: struct {
 	name:        string, // human readable name for debug
 	id:          NetID, // for fast lookup
-	connections: [dynamic]^Port, // ports that this connects
+	connections: [dynamic]^InstancePort, // ports that this connects
+	net_type:    NetType,
 } // A net(wire) connects many-many ports (thereby connecting the parent instances of those ports)
 
 Lexer :: struct {
@@ -201,6 +202,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 	KEYWORD_ENDMODULE :: "endmodule"
 	KEYWORD_INPUT :: "input"
 	KEYWORD_OUTPUT :: "output"
+	KEYWORD_INOUT :: "inout"
 	KEYWORD_WIRE :: "wire"
 
 	ident := scan_ident(l)
@@ -244,7 +246,9 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		l.curr_cell = nil
 		skipNewlinesAndWhiteSpaces(l)
 
-	case KEYWORD_WIRE:
+	case KEYWORD_WIRE, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT:
+		// wire input output only differ in net.nettype
+		// TODO(rahul): Add nettype appropriately based on if we are switching on wire, input, output, or inout
 		skipNewlinesAndWhiteSpaces(l)
 		msb, lsb := 0, 0
 		if l.src[l.curr_byte_idx] == L_SQUARE_BRACKET {
@@ -254,13 +258,16 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		for {
 			name := scan_ident(l)
 			if msb == 0 && lsb == 0 {
-				create_net(hgr, arena_alloc, Net{name = name, connections = make([dynamic]^Port, arena_alloc)})
+				create_net(hgr, arena_alloc, Net{name = name, connections = make([dynamic]^InstancePort, arena_alloc)})
 			} else {
 				for i in lsb ..= msb {
 					create_net(
 						hgr,
 						arena_alloc,
-						Net{name = fmt.tprintf("%s[%d]", name, i), connections = make([dynamic]^Port, arena_alloc)},
+						Net {
+							name = fmt.tprintf("%s[%d]", name, i),
+							connections = make([dynamic]^InstancePort, arena_alloc),
+						},
 					)
 				}
 			}
@@ -275,10 +282,6 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 			case: panic("Expected ',' or ';' after wire declaration")
 			}
 		}
-
-	case KEYWORD_INPUT:
-
-	case KEYWORD_OUTPUT:
 
 	case:
 		fmt.println(
@@ -324,15 +327,15 @@ create_cell :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, cell_va
 	return cell
 }
 
-create_port :: proc(arena_alloc: mem.Allocator, port_val: Port) -> ^Port {
-	port_parent_instance_ptr := port_val.parent
-	assert(port_parent_instance_ptr != nil, "Trying to add a port to a nil instance")
-	id := PortID(len(port_parent_instance_ptr.ports))
-	port := new(Port, arena_alloc)
-	port^ = port_val
-	port.id = id
-	append(&port_parent_instance_ptr.ports, port)
-	return port
+create_instance_port :: proc(arena_alloc: mem.Allocator, instance_port_val: InstancePort) -> ^InstancePort {
+	instance_port_parent_instance_ptr := instance_port_val.parent
+	assert(instance_port_parent_instance_ptr != nil, "Trying to add a port to a nil instance")
+	id := PortID(len(instance_port_parent_instance_ptr.ports))
+	instance_port := new(InstancePort, arena_alloc)
+	instance_port^ = instance_port_val
+	instance_port.id = id
+	append(&instance_port_parent_instance_ptr.ports, instance_port)
+	return instance_port
 }
 
 create_net :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, net_val: Net) -> ^Net {
