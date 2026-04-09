@@ -246,29 +246,34 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 
 	case KEYWORD_WIRE:
 		skipNewlinesAndWhiteSpaces(l)
-		// bus detection
+		msb, lsb := 0, 0
 		if l.src[l.curr_byte_idx] == L_SQUARE_BRACKET {
-			// TODO(rahul): parse bus width
+			msb, lsb = parse_bus(l)
+			skipNewlinesAndWhiteSpaces(l)
 		}
 		for {
 			name := scan_ident(l)
-			net := Net {
-				name        = name,
-				connections = make([dynamic]^Port, arena_alloc),
+			if msb == 0 && lsb == 0 {
+				create_net(hgr, arena_alloc, Net{name = name, connections = make([dynamic]^Port, arena_alloc)})
+			} else {
+				for i in lsb ..= msb {
+					create_net(
+						hgr,
+						arena_alloc,
+						Net{name = fmt.tprintf("%s[%d]", name, i), connections = make([dynamic]^Port, arena_alloc)},
+					)
+				}
 			}
-			create_net(hgr, arena_alloc, net)
 			skipNewlinesAndWhiteSpaces(l)
-			c := l.src[l.curr_byte_idx]
-			if c == COMMA {
+			switch l.src[l.curr_byte_idx] {
+			case COMMA:
 				l.curr_byte_idx += 1
 				skipNewlinesAndWhiteSpaces(l)
-				continue
-			}
-			if c == SEMICOLON {
+			case SEMICOLON:
 				l.curr_byte_idx += 1
 				break
+			case: panic("Expected ',' or ';' after wire declaration")
 			}
-			panic("expected ',' or ';' after wire declaration")
 		}
 
 	case KEYWORD_INPUT:
@@ -281,6 +286,25 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 			)
 
 	}
+}
+
+// Parse bus of form [1023:0], which indicates 1024 elements, return msb (1023) and lsb (0)
+parse_bus :: proc(l: ^Lexer) -> (msb: int, lsb: int) {
+	ensure(l.src[l.curr_byte_idx] == L_SQUARE_BRACKET, "parse_buses called with a non-[ char")
+	l.curr_byte_idx += 1
+	for l.src[l.curr_byte_idx] != COLON {
+		c := l.src[l.curr_byte_idx]
+		msb = msb * 10 + int(c - '0')
+		l.curr_byte_idx += 1
+	}
+	l.curr_byte_idx += 1
+	for l.src[l.curr_byte_idx] != R_SQUARE_BRACKET {
+		c := l.src[l.curr_byte_idx]
+		lsb = lsb * 10 + int(c - '0')
+		l.curr_byte_idx += 1
+	}
+	l.curr_byte_idx += 1
+	return msb, lsb
 }
 
 create_instance :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, inst_val: Instance) -> ^Instance {
