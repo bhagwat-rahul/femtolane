@@ -112,3 +112,12 @@ Then during final signoff you can run full drc. The approximations come from the
 LEF is usually enough for PnR DRC checks, a lot of the signoff drc checks don't have much to do with PnR
 So integrating an external PnR tool shouldn't be too difficult even for proprietary PDK since lef's standardised
 Challenges with standardising PDK distribution are more so political not technical.
+
+## Liberty File Notes (While working on GL lex->graph step)
+
+Lib files play a role in both frontend synthesis/tech-mapping + backend (pnr etc.)
+They are essentially a look-up table of IP (std-cells) to spice simulations so you don't have to sim everytime.
+Contain things like stdcell area, ports and metadata of cells, timing related info, capacitances, etc.
+Also have a lot of general metadata/waveform for whatever corner, temperature, voltage, etc. they are for.
+
+Since Gate Level netlists instantiate std-cells we will need to be able to parse those and their metadata from .lib files pre PnR.
