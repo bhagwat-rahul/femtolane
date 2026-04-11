@@ -332,7 +332,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 
 // Parse bus of form [1023:0], which indicates 1024 elements, return msb (1023) and lsb (0)
 parse_bus :: proc(l: ^Lexer) -> (msb: int, lsb: int) {
-	ensure(peek(l) == L_SQUARE_BRACKET, "parse_buses called with a non-[ char")
+	ensure(peek(l) == L_SQUARE_BRACKET, "parse_bus called with a non [ char")
 	advance(l)
 	for peek(l) != COLON && peek(l) != 0 {
 		c := peek(l)
