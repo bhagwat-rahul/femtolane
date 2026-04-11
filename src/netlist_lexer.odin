@@ -26,6 +26,9 @@ Cell :: struct {
 	metadata:     map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
 } // Metadata about a cell from the given pdk (stdcell lib, other ip, modules etc.)
 
+CellHashMap :: map[string]^Cell // Hashmap of Cell Name -> Cell ID for O(1) lookups
+InstanceHashMap :: map[string]^Instance // Hashmap of Instance Name -> Instance ID for O(1) lookups
+
 Instance :: struct {
 	name:        string, // human readable name for debug
 	id:          InstanceID, // for fast lookup
@@ -35,10 +38,10 @@ Instance :: struct {
 } // Instances of cells in the actual design and their metadata
 
 InstancePort :: struct {
-	name:   string, // human readable name for debug
-	id:     PortID, // for fast lookup
-	parent: ^Instance, // whom does this port belong to
-	net:    ^Net, // What net does this belong to
+	name:            string, // human readable name for debug
+	id:              PortID, // for fast lookup
+	parent_instance: ^Instance, // whom does this port belong to
+	net:             ^Net, // What net does this belong to
 } // A port is something on an instance that wires can connect to
 
 SourceLoc :: struct {
@@ -73,9 +76,13 @@ Lexer :: struct {
 }
 
 NetlistHyperGraph :: struct {
-	cells:     [dynamic]^Cell,
-	instances: [dynamic]^Instance, // all instances in the netlist
-	nets:      [dynamic]^Net, // connections between the instances of the netlist
+	cells:             [dynamic]^Cell,
+	instances:         [dynamic]^Instance, // all instances in the netlist
+	nets:              [dynamic]^Net, // connections between the instances of the netlist
+
+	// Lookup table helper data
+	cell_hash_map:     CellHashMap,
+	instance_hash_map: InstanceHashMap,
 }
 
 WHITESPACE :: ' '
@@ -140,9 +147,13 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	} // gl netlist data, start from byte 0
 
 	hgr := NetlistHyperGraph {
-		instances = make([dynamic]^Instance, arena_alloc),
-		nets      = make([dynamic]^Net, arena_alloc),
-		cells     = make([dynamic]^Cell, arena_alloc),
+		instances         = make([dynamic]^Instance, arena_alloc),
+		nets              = make([dynamic]^Net, arena_alloc),
+		cells             = make([dynamic]^Cell, arena_alloc),
+
+		// scratch data
+		cell_hash_map     = make(CellHashMap, arena_alloc),
+		instance_hash_map = make(InstanceHashMap, arena_alloc),
 	}
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
@@ -234,13 +245,13 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 			skipNewlinesAndWhiteSpaces(l)
 			ports += 1
 		}
-		skipNewlinesAndWhiteSpaces(l)
 		advance(l)
-		fmt.println("we are done with module")
+		skipNewlinesAndWhiteSpaces(l)
 
 	case KEYWORD_ENDMODULE:
 		fmt.println("end current module", l.curr_cell.name)
 		l.curr_cell = nil
+		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
 
 	case KEYWORD_WIRE, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT:
@@ -279,6 +290,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 				skipNewlinesAndWhiteSpaces(l)
 			case SEMICOLON:
 				advance(l)
+				skipNewlinesAndWhiteSpaces(l)
 				break net_loop
 			case:
 				panic(
@@ -293,9 +305,27 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		}
 
 	case:
-		fmt.println(
-				"Since this keyword doesn't look like any of the other keywords it has to be a module instantiation or error?",
-			)
+		// since this is nothing else it has to be an instantiation
+		parent_cell_name := ident
+		skipNewlinesAndWhiteSpaces(l)
+		instance_name := scan_ident(l)
+		ensure(
+			hgr.cell_hash_map[parent_cell_name] != nil,
+			fmt.tprint("Unknown cell type", parent_cell_name, "while instantiating", instance_name),
+		) // TODO(rahul): Look into other approaches instead of panic'ing when this happens
+		instance_val: Instance = {
+			name        = instance_name,
+			parent_cell = hgr.cell_hash_map[parent_cell_name], // O(1) lookup
+		}
+		skipNewlinesAndWhiteSpaces(l)
+		if peek(l) != '(' && peek(l) != 0 { panic("No brackets after instantiation") }
+		instance_connections := 0
+		for peek(l) != SEMICOLON {
+			skipNewlinesAndWhiteSpaces(l)
+			if (peek(l) == ',') { advance(l) } else if (peek(l) == ')') { advance(l) } else { panic("no comma here") }
+			skipNewlinesAndWhiteSpaces(l)
+			instance_connections += 1
+		}
 
 	}
 }
@@ -324,6 +354,7 @@ create_instance :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, ins
 	inst := new(Instance, arena_alloc)
 	inst^ = inst_val
 	inst.id = InstanceID(len(hgr.instances))
+	hgr.instance_hash_map[inst.name] = inst
 	append(&hgr.instances, inst)
 	return inst
 }
@@ -332,12 +363,13 @@ create_cell :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, cell_va
 	cell := new(Cell, arena_alloc)
 	cell^ = cell_val
 	cell.id = CellID(len(hgr.cells))
+	hgr.cell_hash_map[cell.name] = cell
 	append(&hgr.cells, cell)
 	return cell
 }
 
 create_instance_port :: proc(arena_alloc: mem.Allocator, instance_port_val: InstancePort) -> ^InstancePort {
-	instance_port_parent_instance_ptr := instance_port_val.parent
+	instance_port_parent_instance_ptr := instance_port_val.parent_instance
 	assert(instance_port_parent_instance_ptr != nil, "Trying to add a port to a nil instance")
 	id := PortID(len(instance_port_parent_instance_ptr.ports))
 	instance_port := new(InstancePort, arena_alloc)
