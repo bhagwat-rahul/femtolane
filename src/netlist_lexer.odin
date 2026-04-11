@@ -370,7 +370,7 @@ create_cell :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, cell_va
 
 create_instance_port :: proc(arena_alloc: mem.Allocator, instance_port_val: InstancePort) -> ^InstancePort {
 	instance_port_parent_instance_ptr := instance_port_val.parent_instance
-	assert(instance_port_parent_instance_ptr != nil, "Trying to add a port to a nil instance")
+	ensure(instance_port_parent_instance_ptr != nil, "Trying to add a port to a nil instance")
 	id := PortID(len(instance_port_parent_instance_ptr.ports))
 	instance_port := new(InstancePort, arena_alloc)
 	instance_port^ = instance_port_val
