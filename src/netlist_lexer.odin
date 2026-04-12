@@ -166,7 +166,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 		case LPAREN: checkForAndHandleAttribute(&l) // the only lparen main loop should see is for attributes
 		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
 		case: if is_ident_start(byte) { handleIdent(&l, &hgr, arena_alloc) } else {
-					panic(fmt.tprintfln("Unhandled char %r at position %d in file %s", byte, idx, gate_netlist_path))
+					lexer_panic(&l, "Unhandled char")
 				}
 		}
 	}
@@ -191,7 +191,7 @@ handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
 		advance(l, 2)
 		for !(peek(l) == '*' && peek_next(l) == '/') && peek(l) != 0 { advance(l) }
 		advance(l, 2)
-	} else { panic(fmt.tprint("Error in comment skip for char", rune(peek(l)), "idx", l.curr_byte_idx)) }
+	} else { lexer_panic(l, "Error in comment skip") }
 }
 
 checkForAndHandleAttribute :: proc(l: ^Lexer) {
@@ -201,7 +201,7 @@ checkForAndHandleAttribute :: proc(l: ^Lexer) {
 		advance(l, 2)
 		attribute_end_idx := l.curr_byte_idx // index of *)
 		emit_attribute := l.src[attribute_start_idx:attribute_end_idx] // TODO(rahul): map to source lines and handle attributes appropriately
-	} else { panic(fmt.tprint("Invalid attribute at", l.curr_byte_idx, rune(peek(l)))) }
+	} else { lexer_panic(l, "Invalid attribute") }
 }
 
 handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
@@ -223,7 +223,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		lhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
 		equals := peek(l)
-		if (equals != EQUAL) { panic("No = after LHS in assign statement") } else { advance(l) }
+		if (equals != EQUAL) { lexer_panic(l, "No = after LHS in assign statement") } else { advance(l) }
 		rhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
 
@@ -233,15 +233,14 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
 		fmt.println("Module name", module_name)
 		skipNewlinesAndWhiteSpaces(l)
-		if (peek(l) !=
-			   LPAREN) { panic(fmt.tprintf("No ( after module declaration found %r instead", peek(l))) } else { advance(l) }
+		if (peek(l) != LPAREN) { lexer_panic(l, fmt.tprint("Found", peek(l), "instead of", LPAREN)) } else { advance(l) }
 		skipNewlinesAndWhiteSpaces(l)
 		// handle ports of this module
 		ports := 0
 		for peek(l) != SEMICOLON {
 			fmt.println("Port", ports, "=", scan_ident(l))
 			skipNewlinesAndWhiteSpaces(l)
-			if (peek(l) == ',') { advance(l) } else if (peek(l) == ')') { advance(l) } else { panic("no comma here") }
+			if (peek(l) == ',') { advance(l) } else if (peek(l) == ')') { advance(l) } else { lexer_panic(l, "no comma here") }
 			skipNewlinesAndWhiteSpaces(l)
 			ports += 1
 		}
@@ -276,11 +275,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 				create_net(
 					hgr = hgr,
 					arena_alloc = arena_alloc,
-					net_val = Net {
-						name = net_name,
-						net_type = ident_net_type,
-						connections = make([dynamic]^InstancePort, arena_alloc),
-					},
+					net_val = Net{name = net_name, net_type = ident_net_type, connections = make([dynamic]^InstancePort, arena_alloc)},
 				)
 			}
 			skipNewlinesAndWhiteSpaces(l)
@@ -292,15 +287,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 				advance(l)
 				skipNewlinesAndWhiteSpaces(l)
 				break net_loop
-			case:
-				panic(
-						fmt.tprint(
-							"Expected ',' or ';' after wire declaration got",
-							rune(peek(l)),
-							"at",
-							l.curr_byte_idx,
-						),
-					)
+			case: lexer_panic(l, fmt.tprint("Expected ',' or ';' after wire declaration got", rune(peek(l))))
 			}
 		}
 
@@ -309,20 +296,17 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		parent_cell_name := ident
 		skipNewlinesAndWhiteSpaces(l)
 		instance_name := scan_ident(l)
-		ensure(
-			hgr.cell_hash_map[parent_cell_name] != nil,
-			fmt.tprint("Unknown cell type", parent_cell_name, "while instantiating", instance_name),
-		) // TODO(rahul): Look into other approaches instead of panic'ing when this happens
+		ensure(hgr.cell_hash_map[parent_cell_name] != nil, fmt.tprint("Unknown cell type", parent_cell_name, "while instantiating", instance_name)) // TODO(rahul): Look into other approaches instead of panic'ing when this happens
 		instance_val: Instance = {
 			name        = instance_name,
 			parent_cell = hgr.cell_hash_map[parent_cell_name], // O(1) lookup
 		}
 		skipNewlinesAndWhiteSpaces(l)
-		if peek(l) != '(' && peek(l) != 0 { panic("No brackets after instantiation") }
+		if peek(l) != '(' && peek(l) != 0 { lexer_panic(l, "No brackets after instantiation") }
 		instance_connections := 0
 		for peek(l) != SEMICOLON {
 			skipNewlinesAndWhiteSpaces(l)
-			if (peek(l) == ',') { advance(l) } else if (peek(l) == ')') { advance(l) } else { panic("no comma here") }
+			if (peek(l) == ',') { advance(l) } else if (peek(l) == ')') { advance(l) } else { lexer_panic(l, "No comma found") }
 			skipNewlinesAndWhiteSpaces(l)
 			instance_connections += 1
 		}
@@ -389,13 +373,11 @@ create_net :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, net_val:
 
 peek :: #force_inline proc(l: ^Lexer) -> byte { return l.src[l.curr_byte_idx] if l.curr_byte_idx < len(l.src) else 0 }
 
-peek_next :: #force_inline proc(l: ^Lexer) -> byte {return(
-		l.src[l.curr_byte_idx + 1] if l.curr_byte_idx + 1 < len(l.src) else 0 \
-	)}
+peek_next :: #force_inline proc(l: ^Lexer) -> byte { return l.src[l.curr_byte_idx + 1] if l.curr_byte_idx + 1 < len(l.src) else 0 }
 
 advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
 	if l.curr_byte_idx + advance_by > len(l.src) {
-		panic("Unexpected EOF")
+		lexer_panic(l, "Unexpected EOF")
 	}
 	l.curr_byte_idx += advance_by
 }
@@ -404,4 +386,9 @@ advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
 flattenAndWriteHyperGraph :: proc(hgr: ^NetlistHyperGraph) {
 	flatHgrData: []byte = {'t', 'e', 's', 't'}
 	writeDataToFile("netlist_hypergraph.hgr", &flatHgrData)
+}
+
+lexer_panic :: #force_inline proc(l: ^Lexer, error_message: string) {
+	error_message_with_details := fmt.tprint("Error:", error_message, "at byte", l.curr_byte_idx, "for char", rune(l.src[l.curr_byte_idx]))
+	panic(error_message_with_details)
 }
