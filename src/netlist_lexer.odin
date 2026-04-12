@@ -106,14 +106,14 @@ DOT :: '.'
 
 IDENT_START, IDENT_CHAR: [256]bool
 
-@(init) // run this before main
+@(init) // init directive makes this run before main since we don't have compile time generation
 init_ident_tables :: proc "contextless" () {
-	// both true
+	// true for ident start and ident char (this can show up anywhere in ident)
 	for c in 'a' ..= 'z' { IDENT_START[c] = true; IDENT_CHAR[c] = true }
 	for c in 'A' ..= 'Z' { IDENT_START[c] = true; IDENT_CHAR[c] = true }
 	IDENT_START['_'] = true; IDENT_CHAR['_'] = true
 
-	// start not true only char true
+	// only true for ident char, cannot see this at the beginning of an ident
 	for c in '0' ..= '9' { IDENT_CHAR[c] = true }
 	IDENT_CHAR['$'] = true
 }
