@@ -287,7 +287,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 				advance(l)
 				skipNewlinesAndWhiteSpaces(l)
 				break net_loop
-			case: lexer_panic(l, fmt.tprint("Expected ',' or ';' after wire declaration got", rune(peek(l))))
+			case: lexer_panic(l, fmt.tprint("Expected", COMMA, "or", SEMICOLON, "after wire declaration got", rune(peek(l))))
 			}
 		}
 
