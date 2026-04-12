@@ -376,9 +376,7 @@ peek :: #force_inline proc(l: ^Lexer) -> byte { return l.src[l.curr_byte_idx] if
 peek_next :: #force_inline proc(l: ^Lexer) -> byte { return l.src[l.curr_byte_idx + 1] if l.curr_byte_idx + 1 < len(l.src) else 0 }
 
 advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
-	if l.curr_byte_idx + advance_by > len(l.src) {
-		lexer_panic(l, "Unexpected EOF")
-	}
+	if l.curr_byte_idx + advance_by > len(l.src) { lexer_panic(l, "Unexpected EOF") }
 	l.curr_byte_idx += advance_by
 }
 
