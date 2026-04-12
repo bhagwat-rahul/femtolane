@@ -16,14 +16,17 @@ import "core:os"
 // IDs for fast lookup
 CellID :: distinct u32
 InstanceID :: distinct u32
-PortID :: distinct u32
+InstancePortID :: distinct u32
+CellPortID :: distinct u32
 NetID :: distinct u32
 
 Cell :: struct {
-	id:           CellID, // for fast lookup
-	name:         string, // human readable name from pdk, or module name if not from PDK
-	pdk_provided: bool, // was this provided by the pdk or the user, where is this from (not sure if this field is needed but keeping it for now)
-	metadata:     map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
+	id:             CellID, // for fast lookup
+	name:           string, // human readable name from pdk, or module name if not from PDK
+	pdk_provided:   bool, // was this provided by the pdk or the user, where is this from (not sure if this field is needed but keeping it for now)
+	children_ports: []^CellPort,
+	resolved:       bool, // Do we know where this comes from? (or was this instantiated without being defined)
+	metadata:       map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
 } // Metadata about a cell from the given pdk (stdcell lib, other ip, modules etc.)
 
 CellHashMap :: map[string]^Cell // Hashmap of Cell Name -> Cell ID for O(1) lookups
@@ -39,10 +42,16 @@ Instance :: struct {
 
 InstancePort :: struct {
 	name:            string, // human readable name for debug
-	id:              PortID, // for fast lookup
-	parent_instance: ^Instance, // whom does this port belong to
+	id:              InstancePortID, // for fast lookup
+	parent_instance: ^Instance, // what instance does this port belong to
 	net:             ^Net, // What net does this belong to
 } // A port is something on an instance that wires can connect to
+
+CellPort :: struct {
+	name:        string, // human readable name for debug
+	id:          CellPortID, // for fast lookup
+	parent_cell: ^Cell, // what cell does this port belong to
+} // Define ports of a cell (also use this to check if an instance is connecting to defined legal ports)
 
 SourceLoc :: struct {
 	file_id:    u32,
@@ -67,7 +76,7 @@ Net :: struct {
 	net_type:    NetType,
 } // A net(wire) connects many-many ports (thereby connecting the parent instances of those ports)
 
-Lexer :: struct {
+GateLevelNetlistLexer :: struct {
 	// source file and cursor index
 	src:           []byte,
 	curr_byte_idx: int, // 64 bit int on 64 bit system (not u32 to prevent casts everywhere when indexing)
@@ -121,7 +130,7 @@ init_ident_tables :: proc "contextless" () {
 is_ident_start :: #force_inline proc(b: byte) -> bool { return IDENT_START[b] }
 is_ident_char :: #force_inline proc(b: byte) -> bool { return IDENT_CHAR[b] }
 
-scan_ident :: #force_inline proc(l: ^Lexer) -> string {
+scan_ident :: #force_inline proc(l: ^GateLevelNetlistLexer) -> string {
 	start := l.curr_byte_idx
 	for is_ident_char(peek(l)) { advance(l) }
 	end := l.curr_byte_idx
@@ -139,7 +148,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	arena_alloc := virtual.arena_allocator(&lexGraphArena)
 	data, err := os.read_entire_file_from_path(gate_netlist_path, arena_alloc)
 	ensure(err == nil, fmt.tprintln("FileReadError:", err))
-	l: Lexer = {
+	l: GateLevelNetlistLexer = {
 		src           = data,
 		curr_byte_idx = 0,
 		curr_cell     = nil,
@@ -172,7 +181,7 @@ lexGraphNetlist :: proc(gate_netlist_path: string) {
 	}
 }
 
-skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^Lexer) {
+skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^GateLevelNetlistLexer) {
 	for {
 		c := peek(l)
 		if c != NEWLINE && c != NEWLINE_CARRIAGE_RETURN && c != WHITESPACE && c != WHITESPACE_TAB { break }
@@ -180,9 +189,9 @@ skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^Lexer) {
 	}
 }
 
-handleEscapedIdent :: proc(l: ^Lexer) {  }
+handleEscapedIdent :: proc(l: ^GateLevelNetlistLexer) {  }
 
-handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
+handleSingleAndMultiLineComments :: #force_inline proc(l: ^GateLevelNetlistLexer) {
 	if (peek(l) == '/' && peek_next(l) == '/') {
 		advance(l, 2)
 		for peek(l) != '\n' && peek(l) != 0 { advance(l) }
@@ -194,7 +203,7 @@ handleSingleAndMultiLineComments :: #force_inline proc(l: ^Lexer) {
 	} else { lexer_panic(l, "Error in comment skip") }
 }
 
-checkForAndHandleAttribute :: proc(l: ^Lexer) {
+checkForAndHandleAttribute :: proc(l: ^GateLevelNetlistLexer) {
 	if peek(l) == '(' && peek_next(l) == '*' {
 		attribute_start_idx := l.curr_byte_idx // index of (*
 		for !(peek(l) == '*' && peek_next(l) == ')') && peek(l) != 0 { advance(l) }
@@ -204,7 +213,7 @@ checkForAndHandleAttribute :: proc(l: ^Lexer) {
 	} else { lexer_panic(l, "Invalid attribute") }
 }
 
-handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
+handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
 
 	KEYWORD_ASSIGN :: "assign"
 	KEYWORD_MODULE :: "module"
@@ -296,11 +305,18 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 		parent_cell_name := ident
 		skipNewlinesAndWhiteSpaces(l)
 		instance_name := scan_ident(l)
-		ensure(hgr.cell_hash_map[parent_cell_name] != nil, fmt.tprint("Unknown cell type", parent_cell_name, "while instantiating", instance_name)) // TODO(rahul): Look into other approaches instead of panic'ing when this happens
+		parent_cell_ptr := hgr.cell_hash_map[parent_cell_name] // Try O(1) lookup
+		cell_resolved := false // start off as unresolved by default
+		if parent_cell_ptr == nil {
+			cell_resolved = false
+			parent_cell_ptr = create_cell(hgr = hgr, arena_alloc = arena_alloc, cell_val = Cell{name = parent_cell_name, resolved = cell_resolved})
+		} else { cell_resolved = true }
 		instance_val: Instance = {
 			name        = instance_name,
-			parent_cell = hgr.cell_hash_map[parent_cell_name], // O(1) lookup
+			parent_cell = parent_cell_ptr,
 		}
+		// created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val)
+		// fmt.println(created_instance.name, l.curr_byte_idx)
 		skipNewlinesAndWhiteSpaces(l)
 		if peek(l) != '(' && peek(l) != 0 { lexer_panic(l, "No brackets after instantiation") }
 		instance_connections := 0
@@ -315,7 +331,7 @@ handleIdent :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocat
 }
 
 // Parse bus of form [1023:0], which indicates 1024 elements, return msb (1023) and lsb (0)
-parse_bus :: proc(l: ^Lexer) -> (msb: int, lsb: int) {
+parse_bus :: proc(l: ^GateLevelNetlistLexer) -> (msb: int, lsb: int) {
 	ensure(peek(l) == L_SQUARE_BRACKET, "parse_bus called with a non [ char")
 	advance(l)
 	for peek(l) != COLON && peek(l) != 0 {
@@ -355,7 +371,7 @@ create_cell :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, cell_va
 create_instance_port :: proc(arena_alloc: mem.Allocator, instance_port_val: InstancePort) -> ^InstancePort {
 	instance_port_parent_instance_ptr := instance_port_val.parent_instance
 	ensure(instance_port_parent_instance_ptr != nil, "Trying to add a port to a nil instance")
-	id := PortID(len(instance_port_parent_instance_ptr.ports))
+	id := InstancePortID(len(instance_port_parent_instance_ptr.ports))
 	instance_port := new(InstancePort, arena_alloc)
 	instance_port^ = instance_port_val
 	instance_port.id = id
@@ -371,11 +387,11 @@ create_net :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, net_val:
 	return net
 }
 
-peek :: #force_inline proc(l: ^Lexer) -> byte { return l.src[l.curr_byte_idx] if l.curr_byte_idx < len(l.src) else 0 }
+peek :: #force_inline proc(l: ^GateLevelNetlistLexer) -> byte { return l.src[l.curr_byte_idx] if l.curr_byte_idx < len(l.src) else 0 }
 
-peek_next :: #force_inline proc(l: ^Lexer) -> byte { return l.src[l.curr_byte_idx + 1] if l.curr_byte_idx + 1 < len(l.src) else 0 }
+peek_next :: #force_inline proc(l: ^GateLevelNetlistLexer) -> byte { return l.src[l.curr_byte_idx + 1] if l.curr_byte_idx + 1 < len(l.src) else 0 }
 
-advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
+advance :: #force_inline proc(l: ^GateLevelNetlistLexer, advance_by: int = 1) {
 	if l.curr_byte_idx + advance_by > len(l.src) { lexer_panic(l, "Unexpected EOF") }
 	l.curr_byte_idx += advance_by
 }
@@ -386,7 +402,7 @@ flattenAndWriteHyperGraph :: proc(hgr: ^NetlistHyperGraph) {
 	writeDataToFile("netlist_hypergraph.hgr", &flatHgrData)
 }
 
-lexer_panic :: #force_inline proc(l: ^Lexer, error_message: string) {
+lexer_panic :: #force_inline proc(l: ^GateLevelNetlistLexer, error_message: string) {
 	error_message_with_details := fmt.tprint("Error:", error_message, "at byte", l.curr_byte_idx, "for char", rune(l.src[l.curr_byte_idx]))
 	panic(error_message_with_details)
 }
