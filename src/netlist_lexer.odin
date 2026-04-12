@@ -24,7 +24,7 @@ Cell :: struct {
 	id:             CellID, // for fast lookup
 	name:           string, // human readable name from pdk, or module name if not from PDK
 	pdk_provided:   bool, // was this provided by the pdk or the user, where is this from (not sure if this field is needed but keeping it for now)
-	children_ports: []^CellPort,
+	children_ports: [dynamic]^CellPort,
 	resolved:       bool, // Do we know where this comes from? (or was this instantiated without being defined)
 	metadata:       map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
 } // Metadata about a cell from the given pdk (stdcell lib, other ip, modules etc.)
@@ -377,6 +377,18 @@ create_instance_port :: proc(arena_alloc: mem.Allocator, instance_port_val: Inst
 	instance_port.id = id
 	append(&instance_port_parent_instance_ptr.ports, instance_port)
 	return instance_port
+}
+
+create_cell_port :: proc(parent_cell_ptr: ^Cell, arena_alloc: mem.Allocator, name: string) -> ^CellPort {
+	id := CellPortID(len(parent_cell_ptr.children_ports))
+	cell_port := new(CellPort, arena_alloc)
+	cell_port^ = CellPort {
+		name        = name,
+		id          = id,
+		parent_cell = parent_cell_ptr,
+	}
+	append(&parent_cell_ptr.children_ports, cell_port)
+	return cell_port
 }
 
 create_net :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, net_val: Net) -> ^Net {
