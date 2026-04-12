@@ -141,7 +141,7 @@ scan_ident :: #force_inline proc(l: ^GateLevelNetlistLexer) -> string {
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
-lexGraphNetlist :: proc(gate_netlist_path: string) {
+lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string) {
 	lexGraphArena: virtual.Arena
 	ensure(virtual.arena_init_growing(&lexGraphArena) == nil)
 	defer virtual.arena_destroy(&lexGraphArena)

@@ -17,11 +17,7 @@ test_netlist_creation :: proc(_: ^testing.T) {
 	ensure(virtual.arena_init_growing(&netlist_creation_test_arena) == nil)
 	defer virtual.arena_destroy(&netlist_creation_test_arena)
 	arena_allocator := virtual.arena_allocator(&netlist_creation_test_arena)
-	sky130a_liberty := fmt.tprint(
-		PDK_ROOT,
-		"/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_100C_1v65.lib",
-		sep = "",
-	)
+	sky130a_liberty := fmt.tprint(PDK_ROOT, "/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_100C_1v65.lib", sep = "")
 	verilog_src := "netlist_creation/adder/adder.v"
 	top := "adder"
 	yosys_tcl_script_filepath := "netlist_creation/netlist_creator.tcl"
@@ -69,7 +65,7 @@ test_lexGraph :: proc(_: ^testing.T) {
 	}
 
 	for n in netlist_paths {
-		main.lexGraphNetlist(n)
+		main.lex_gate_level_netlist_and_create_hypergraph(n)
 	}
 
 	defer delete(design_dirs)

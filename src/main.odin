@@ -13,7 +13,7 @@ main :: proc() {
 			ensure(len(args) >= 3, "Please provide a path to a gate level verilog netlist")
 			gl_netlist_path := args[2] // Gate level netlist
 			fmt.println("Converting netlist:-", gl_netlist_path, "to hypergraph")
-			lexGraphNetlist(gl_netlist_path)
+			lex_gate_level_netlist_and_create_hypergraph(gl_netlist_path)
 		} else { fmt.println("TODO(rahul): Unsupported arg, this should show help menu") }
 	}
 }
