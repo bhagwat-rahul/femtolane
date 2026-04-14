@@ -1,7 +1,6 @@
 // Main entry-point
 package main
 import "core:fmt"
-import "core:mem"
 import "core:mem/virtual"
 import "core:os"
 
@@ -12,14 +11,12 @@ main :: proc() {
 		run_gui()
 	} else {
 		if args[1] == "lexgraph" {
-
-			ensure(len(args) >= 3, "Please provide a path to a gate level verilog netlist")
-			gl_netlist_path := args[2]
+			gl_netlist_path := args[2] if len(args) >= 3 else ""
 			lex_graph_arena: virtual.Arena
 			ensure(virtual.arena_init_growing(&lex_graph_arena) == nil, "Error init'ing lex_graph_arena")
 			lex_graph_arena_allocator := virtual.arena_allocator(&lex_graph_arena)
 			defer virtual.arena_destroy(&lex_graph_arena)
-			lex_gate_level_netlist_and_create_hypergraph(gl_netlist_path, lex_graph_arena_allocator)
+			lex_gate_level_netlist_and_create_hypergraph(gate_netlist_path = gl_netlist_path, lex_graph_arena_allocator = lex_graph_arena_allocator)
 
 		} else { fmt.println("TODO(rahul): Unsupported arg, this should show help menu") }
 	}
