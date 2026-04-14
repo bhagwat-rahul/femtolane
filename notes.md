@@ -121,3 +121,17 @@ Contain things like stdcell area, ports and metadata of cells, timing related in
 Also have a lot of general metadata/waveform for whatever corner, temperature, voltage, etc. they are for.
 
 Since Gate Level netlists instantiate std-cells we will need to be able to parse those and their metadata from .lib files pre PnR.
+
+The liberty spec defines 3 top level groups:-
+1. Library group (Info/metadata about the library, default values)
+2. Cell & model group (model group obsolete now, the idea was to provide generics applicable to multiple cells)
+3. Pin group (pins on cells)
+
+Within each there are 3 types of attributes (ways to convey information):-
+1. Simple Attributes (key:val)
+2. Complex Attributes (maps)
+3. Group Statements (recursive structs containing subgroups / simple attributes within, eg. Cell, Pin groups.)
+
+The only top level group is library and that is always the root of a lib file.
+Lib files contain scaling attributes which basically say if the value of this measurement was x at these env conditions, here's how much to scale it by for diff temp/voltage/env conditions.
+These aren't super reliable but are provided since you can't have simulations for all conditions (PDKs do provide multiple lib files at diff corners and conditions though)
