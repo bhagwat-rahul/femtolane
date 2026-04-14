@@ -10,7 +10,6 @@ This has to be performant, not just in runtime but in the way that we represent 
 package main
 import "core:fmt"
 import "core:mem"
-import "core:mem/virtual"
 import "core:os"
 
 // IDs for fast lookup
@@ -140,11 +139,7 @@ scan_ident :: #force_inline proc(l: ^GateLevelNetlistLexer) -> string {
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
-lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string) {
-	lex_graph_arena: virtual.Arena
-	ensure(virtual.arena_init_growing(&lex_graph_arena) == nil)
-	defer virtual.arena_destroy(&lex_graph_arena)
-	lex_graph_arena_allocator := virtual.arena_allocator(&lex_graph_arena)
+lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, lex_graph_arena_allocator: mem.Allocator) {
 	data, err := os.read_entire_file_from_path(gate_netlist_path, lex_graph_arena_allocator)
 	ensure(err == nil, fmt.tprintln("FileReadError:", err))
 	l: GateLevelNetlistLexer = {
@@ -227,7 +222,6 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 	switch ident {
 
 	case KEYWORD_ASSIGN:
-		fmt.println("assign statement")
 		lhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
 		equals := peek(l)
@@ -239,14 +233,12 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
 		module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
-		fmt.println("Module name", module_name)
 		skipNewlinesAndWhiteSpaces(l)
 		if (peek(l) != LPAREN) { lexer_panic(l, fmt.tprint("Found", peek(l), "instead of", LPAREN)) } else { advance(l) }
 		skipNewlinesAndWhiteSpaces(l)
 		// handle ports of this module
 		ports := 0
 		for peek(l) != SEMICOLON {
-			fmt.println("Port", ports, "=", scan_ident(l))
 			skipNewlinesAndWhiteSpaces(l)
 			if (peek(l) == ',') { advance(l) } else if (peek(l) == ')') { advance(l) } else { lexer_panic(l, "no comma here") }
 			skipNewlinesAndWhiteSpaces(l)
@@ -256,7 +248,6 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 
 	case KEYWORD_ENDMODULE:
-		fmt.println("end current module", l.curr_cell.name)
 		l.curr_cell = nil
 		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
@@ -317,7 +308,6 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 			if peek(l) == DOT {
 				advance(l)
 				cell_port_name := scan_ident(l)
-				fmt.println(parent_cell_ptr.children_ports[:])
 				for port in parent_cell_ptr.children_ports {
 					if port.name == cell_port_name { fmt.println("Valid port") } else { fmt.println(port.name, "doesn't match", cell_port_name) }
 				}
