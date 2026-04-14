@@ -41,3 +41,4 @@ openpdk_load :: proc() {
 	defer delete(reflibs)
 	ensure(err == nil, fmt.tprintf("Error reading libs.ref: %v", err))
 	for dir in reflibs { defer delete(dir.fullpath) }
+}
