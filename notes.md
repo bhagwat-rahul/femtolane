@@ -135,3 +135,13 @@ Within each there are 3 types of attributes (ways to convey information):-
 The only top level group is library and that is always the root of a lib file.
 Lib files contain scaling attributes which basically say if the value of this measurement was x at these env conditions, here's how much to scale it by for diff temp/voltage/env conditions.
 These aren't super reliable but are provided since you can't have simulations for all conditions (PDKs do provide multiple lib files at diff corners and conditions though)
+
+There are also characterization attributes, they kind of just tell you how data was characterized, eg. in the look-up table measurements within 2% of each other concatenated, etc. (not relevant for our use case more for library maker)
+they can live in a config or even raw at top levels, eg. of config:
+```liberty
+char_config() {
+    internal_power_calculation : true;
+    merge_tolerance_rel(all, 2.0); // merge with 2 %
+    merge_selection(all, max);
+}
+```
