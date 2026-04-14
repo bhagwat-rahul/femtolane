@@ -25,7 +25,6 @@ Cell :: struct {
 	name:           string, // human readable name from pdk, or module name if not from PDK
 	pdk_provided:   bool, // was this provided by the pdk or the user, where is this from (not sure if this field is needed but keeping it for now)
 	children_ports: [dynamic]^CellPort,
-	resolved:       bool, // Do we know where this comes from? (or was this instantiated without being defined)
 	metadata:       map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
 } // Metadata about a cell from the given pdk (stdcell lib, other ip, modules etc.)
 
@@ -306,27 +305,32 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 		instance_name := scan_ident(l)
 		parent_cell_ptr := hgr.cell_hash_map[parent_cell_name] // Try O(1) lookup
-		cell_resolved := false // start off as unresolved by default
-		if parent_cell_ptr == nil {
-			cell_resolved = false
-			parent_cell_ptr = create_cell(hgr = hgr, arena_alloc = arena_alloc, cell_val = Cell{name = parent_cell_name, resolved = cell_resolved})
-		} else { cell_resolved = true }
+		if parent_cell_ptr == nil { lexer_panic(l, fmt.tprint("No cell found for name", parent_cell_name)) }
 		instance_val: Instance = {
 			name        = instance_name,
 			parent_cell = parent_cell_ptr,
 		}
-		// created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val)
-		// fmt.println(created_instance.name, l.curr_byte_idx)
 		skipNewlinesAndWhiteSpaces(l)
-		if peek(l) != '(' && peek(l) != 0 { lexer_panic(l, "No brackets after instantiation") }
-		instance_connections := 0
-		for peek(l) != SEMICOLON {
-			skipNewlinesAndWhiteSpaces(l)
-			if (peek(l) == ',') { advance(l) } else if (peek(l) == ')') { advance(l) } else { lexer_panic(l, "No comma found") }
-			skipNewlinesAndWhiteSpaces(l)
-			instance_connections += 1
-		}
+		if peek(l) == LPAREN && peek(l) != 0 { advance(l) } else { lexer_panic(l, "No ( after cell instantiation") }
 
+		for peek(l) != SEMICOLON && peek(l) != 0 {
+			if peek(l) == DOT {
+				advance(l)
+				cell_port_name := scan_ident(l)
+				fmt.println(parent_cell_ptr.children_ports[:])
+				for port in parent_cell_ptr.children_ports {
+					if port.name == cell_port_name { fmt.println("Valid port") } else { fmt.println(port.name, "doesn't match", cell_port_name) }
+				}
+				ensure(peek(l) == LPAREN, ""); advance(l)
+				port_conn_name := scan_ident(l)
+				if (peek(l) == L_SQUARE_BRACKET) { fmt.println("part of a bus") }
+				// ensure(peek(l) == RPAREN); advance(l)
+			}
+			skipNewlinesAndWhiteSpaces(l)
+		}
+		advance(l) // go past semicolon
+		skipNewlinesAndWhiteSpaces(l)
+		created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val)
 	}
 }
 
