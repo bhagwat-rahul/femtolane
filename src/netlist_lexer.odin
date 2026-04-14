@@ -141,11 +141,11 @@ scan_ident :: #force_inline proc(l: ^GateLevelNetlistLexer) -> string {
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
 lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string) {
-	lexGraphArena: virtual.Arena
-	ensure(virtual.arena_init_growing(&lexGraphArena) == nil)
-	defer virtual.arena_destroy(&lexGraphArena)
-	arena_alloc := virtual.arena_allocator(&lexGraphArena)
-	data, err := os.read_entire_file_from_path(gate_netlist_path, arena_alloc)
+	lex_graph_arena: virtual.Arena
+	ensure(virtual.arena_init_growing(&lex_graph_arena) == nil)
+	defer virtual.arena_destroy(&lex_graph_arena)
+	lex_graph_arena_allocator := virtual.arena_allocator(&lex_graph_arena)
+	data, err := os.read_entire_file_from_path(gate_netlist_path, lex_graph_arena_allocator)
 	ensure(err == nil, fmt.tprintln("FileReadError:", err))
 	l: GateLevelNetlistLexer = {
 		src           = data,
@@ -155,13 +155,13 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string) 
 	} // gl netlist data, start from byte 0
 
 	hgr := NetlistHyperGraph {
-		instances         = make([dynamic]^Instance, arena_alloc),
-		nets              = make([dynamic]^Net, arena_alloc),
-		cells             = make([dynamic]^Cell, arena_alloc),
+		instances         = make([dynamic]^Instance, lex_graph_arena_allocator),
+		nets              = make([dynamic]^Net, lex_graph_arena_allocator),
+		cells             = make([dynamic]^Cell, lex_graph_arena_allocator),
 
 		// scratch data
-		cell_hash_map     = make(CellHashMap, arena_alloc),
-		instance_hash_map = make(InstanceHashMap, arena_alloc),
+		cell_hash_map     = make(CellHashMap, lex_graph_arena_allocator),
+		instance_hash_map = make(InstanceHashMap, lex_graph_arena_allocator),
 	}
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
@@ -173,7 +173,7 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string) 
 		case NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE, WHITESPACE_TAB: skipNewlinesAndWhiteSpaces(&l)
 		case LPAREN: checkForAndHandleAttribute(&l) // the only lparen main loop should see is for attributes
 		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
-		case: if is_ident_start(byte) { handleIdent(&l, &hgr, arena_alloc) } else {
+		case: if is_ident_start(byte) { handleIdent(&l, &hgr, lex_graph_arena_allocator) } else {
 					lexer_panic(&l, "Unhandled char")
 				}
 		}
