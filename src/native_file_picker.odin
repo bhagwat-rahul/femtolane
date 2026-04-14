@@ -21,6 +21,7 @@ when ODIN_OS == .Linux {
 		gtk_file_chooser_set_current_folder :: proc(chooser: rawptr, path: cstring) -> bool ---
 		gtk_file_chooser_set_current_name :: proc(chooser: rawptr, name: cstring) ---
 		gtk_file_chooser_set_do_overwrite_confirmation :: proc(chooser: rawptr, enabled: bool) ---
+		gtk_file_chooser_set_show_hidden :: proc(chooser: rawptr, show_hidden: bool) ---
 		gtk_file_chooser_get_filename :: proc(chooser: rawptr) -> cstring ---
 		gtk_file_chooser_add_filter :: proc(chooser, filter: rawptr) ---
 		gtk_file_filter_new :: proc() -> rawptr ---
@@ -67,6 +68,12 @@ normalized_extension :: #force_inline proc(extension: string) -> string {
 }
 
 @(private="file")
+is_wildcard_extension :: #force_inline proc(extension: string) -> bool {
+	normalized := normalized_extension(extension)
+	return normalized == "*" || normalized == "*.*"
+}
+
+@(private="file")
 count_valid_extensions :: #force_inline proc(extensions: []string) -> int {
 	count := 0
 	for extension in extensions {
@@ -79,6 +86,7 @@ count_valid_extensions :: #force_inline proc(extensions: []string) -> int {
 wildcard_for_extension :: #force_inline proc(extension: string, allocator := context.temp_allocator) -> string {
 	ext := normalized_extension(extension)
 	if len(ext) == 0 { return "" }
+	if is_wildcard_extension(ext) { return "*" }
 	return strings.concatenate({"*.", ext}, allocator) or_else ""
 }
 
@@ -99,6 +107,11 @@ when ODIN_OS == .Darwin {
 
 	@(private="file")
 	allowed_types_array :: proc(filters: []File_Type_Filter) -> ^cocoa.Array {
+		for filter in filters {
+			for ext in filter.extensions {
+				if is_wildcard_extension(ext) { return nil }
+			}
+		}
 		count := 0
 		for filter in filters { count += count_valid_extensions(filter.extensions) }
 		if count == 0 { return nil }
@@ -132,6 +145,7 @@ when ODIN_OS == .Darwin {
 		cocoa.Application_activateIgnoringOtherApps(app, true)
 		if request.mode == .Save_File {
 			panel := cocoa.SavePanel_savePanel()
+			intrinsics.objc_send(nil, panel, "setShowsHiddenFiles:", cocoa.BOOL(true))
 			if len(request.title) > 0           { intrinsics.objc_send(nil, panel, "setTitle:", ns_string(request.title)) }
 			if len(request.starting_path) > 0   { intrinsics.objc_send(nil, panel, "setDirectoryURL:", file_url(request.starting_path)) }
 			if len(request.suggested_name) > 0  { intrinsics.objc_send(nil, panel, "setNameFieldStringValue:", ns_string(request.suggested_name)) }
@@ -145,6 +159,7 @@ when ODIN_OS == .Darwin {
 		cocoa.OpenPanel_setCanChooseDirectories(panel, request.mode == .Open_Folder)
 		cocoa.OpenPanel_setAllowsMultipleSelection(panel, false)
 		cocoa.OpenPanel_setResolvesAliases(panel, true)
+		intrinsics.objc_send(nil, panel, "setShowsHiddenFiles:", cocoa.BOOL(true))
 		if len(request.title) > 0         { intrinsics.objc_send(nil, panel, "setTitle:", ns_string(request.title)) }
 		if len(request.starting_path) > 0 { intrinsics.objc_send(nil, panel, "setDirectoryURL:", file_url(request.starting_path)) }
 		if request.mode == .Open_File {
@@ -192,7 +207,7 @@ when ODIN_OS == .Darwin {
 		defer dialog.Vtbl.Release(cast(^win32.IUnknown)dialog)
 		options: win32.FILEOPENDIALOGOPTIONS
 		if hr := dialog.Vtbl.GetOptions(dialog, &options); win32.FAILED(hr) { return "", false }
-		options |= win32.FOS_FORCEFILESYSTEM | win32.FOS_PATHMUSTEXIST
+		options |= win32.FOS_FORCEFILESYSTEM | win32.FOS_PATHMUSTEXIST | win32.FOS_FORCESHOWHIDDEN
 		switch request.mode {
 		case .Open_File:   options |= win32.FOS_FILEMUSTEXIST
 		case .Save_File:   options |= win32.FOS_OVERWRITEPROMPT
@@ -268,6 +283,7 @@ when ODIN_OS == .Darwin {
 		dialog := gtk_file_chooser_native_new(strings.clone_to_cstring(title, context.temp_allocator) or_else nil, nil, action, strings.clone_to_cstring(accept_label, context.temp_allocator) or_else nil, "Cancel")
 		if dialog == nil { return "", false }
 		defer g_object_unref(dialog)
+		gtk_file_chooser_set_show_hidden(dialog, true)
 		if len(request.starting_path) > 0 { _ = gtk_file_chooser_set_current_folder(dialog, strings.clone_to_cstring(request.starting_path, context.temp_allocator) or_else nil) }
 		if request.mode == .Save_File {
 			gtk_file_chooser_set_do_overwrite_confirmation(dialog, true)
