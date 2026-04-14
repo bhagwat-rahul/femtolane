@@ -172,9 +172,7 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		case NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE, WHITESPACE_TAB: skipNewlinesAndWhiteSpaces(&l)
 		case LPAREN: checkForAndHandleAttribute(&l) // the only lparen main loop should see is for attributes
 		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
-		case: if is_ident_start(byte) { handleIdent(&l, &hgr, lex_graph_arena_allocator) } else {
-					lexer_panic(&l, "Unhandled char")
-				}
+		case: if is_ident_start(byte) { handleIdent(&l, &hgr, lex_graph_arena_allocator) } else { lexer_panic(&l, "Unhandled char") }
 		}
 	}
 }
