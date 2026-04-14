@@ -140,7 +140,11 @@ scan_ident :: #force_inline proc(l: ^GateLevelNetlistLexer) -> string {
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
 lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, lex_graph_arena_allocator: mem.Allocator) {
-	data, err := os.read_entire_file_from_path(gate_netlist_path, lex_graph_arena_allocator)
+	resolved_gate_netlist_path := gate_netlist_path
+	for len(resolved_gate_netlist_path) == 0 { 	// TODO(rahul): Maybe no inf loop if user no pick file?
+		resolved_gate_netlist_path, _ = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
+	}
+	data, err := os.read_entire_file_from_path(resolved_gate_netlist_path, lex_graph_arena_allocator)
 	ensure(err == nil, fmt.tprintln("FileReadError:", err))
 	l: GateLevelNetlistLexer = {
 		src           = data,
