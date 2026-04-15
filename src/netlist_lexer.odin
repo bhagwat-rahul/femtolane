@@ -244,7 +244,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		ports := 0
 		for peek(l) != SEMICOLON {
 			skipNewlinesAndWhiteSpaces(l)
-			if (peek(l) == COMMA) { advance(l) } else if (peek(l) == RPAREN) { advance(l) } else { lexer_panic(l, "Expected comma or )") }
+			if peek(l) == COMMA { advance(l) } else if peek(l) == RPAREN { advance(l) } else { advance(l) } 	// We advance here since scanning ports in module header is redundant they show up again anyway
 			skipNewlinesAndWhiteSpaces(l)
 			ports += 1
 		}
