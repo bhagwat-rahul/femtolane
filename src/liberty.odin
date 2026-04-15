@@ -9,6 +9,10 @@ GL netlist lex and Liberty lex is different cz in lib files we have 200+ keyword
 
 package main
 
+import "core:fmt"
+import "core:mem"
+import "core:os"
+
 LibraryType :: enum {
 	CMOS,
 	FPGA,
@@ -223,37 +227,243 @@ init_liberty_ident_tables :: proc "contextless" () {
 	LIBERTY_IDENT_CHAR['$'] = true
 }
 
-is_liberty_ident_start :: #force_inline proc(b: byte) -> bool {
-	return LIBERTY_IDENT_START[b]
-}
+is_liberty_ident_start :: #force_inline proc(b: byte) -> bool { return LIBERTY_IDENT_START[b] }
 
-is_liberty_ident_char :: #force_inline proc(b: byte) -> bool {
-	return LIBERTY_IDENT_CHAR[b]
-}
+is_liberty_ident_char :: #force_inline proc(b: byte) -> bool { return LIBERTY_IDENT_CHAR[b] }
 
 scan_liberty_ident :: #force_inline proc(l: ^LibertyLexer) -> string {
 	start := l.curr_byte_idx
-
-	for l.curr_byte_idx < len(l.src) && is_liberty_ident_char(l.src[l.curr_byte_idx]) {
-		l.curr_byte_idx += 1
-	}
-
+	for l.curr_byte_idx < len(l.src) && is_liberty_ident_char(l.src[l.curr_byte_idx]) { l.curr_byte_idx += 1 }
 	return string(l.src[start:l.curr_byte_idx])
 }
 
-skip_whitespace_and_newlines :: #force_inline proc(l: ^LibertyLexer) {
+skip_ws_and_comments :: #force_inline proc(l: ^LibertyLexer) {
 	for l.curr_byte_idx < len(l.src) {
 		c := l.src[l.curr_byte_idx]
-		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
-			break
+
+		// whitespace
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			l.curr_byte_idx += 1
+			continue
 		}
-		l.curr_byte_idx += 1
+
+		// line comment: // ...
+		if c == '/' && l.curr_byte_idx + 1 < len(l.src) && l.src[l.curr_byte_idx + 1] == '/' {
+			l.curr_byte_idx += 2
+			for l.curr_byte_idx < len(l.src) && l.src[l.curr_byte_idx] != '\n' {
+				l.curr_byte_idx += 1
+			}
+			continue
+		}
+
+		// block comment: /* ... */
+		if c == '/' && l.curr_byte_idx + 1 < len(l.src) && l.src[l.curr_byte_idx + 1] == '*' {
+			l.curr_byte_idx += 2
+
+			for {
+				if l.curr_byte_idx + 1 >= len(l.src) {
+					panic("unterminated comment")
+				}
+				if l.src[l.curr_byte_idx] == '*' && l.src[l.curr_byte_idx + 1] == '/' {
+					l.curr_byte_idx += 2
+					break
+				}
+				l.curr_byte_idx += 1
+			}
+			continue
+		}
+
+		break
 	}
 }
 
 trip_point_parse :: proc(v: f64) -> TripPoint {
-	if v < TRIP_POINT_MIN || v > TRIP_POINT_MAX {
-		panic("trip_point out of range")
-	}
+	if v < TRIP_POINT_MIN || v > TRIP_POINT_MAX { panic("trip_point out of range") }
 	return TripPoint(v)
+}
+
+parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.Allocator, hgr: ^NetlistHyperGraph) {
+	resolved_liberty_path := liberty_filepath
+	for len(resolved_liberty_path) == 0 {
+		resolved_liberty_path, _ = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
+	}
+
+	data, err := os.read_entire_file_from_path(resolved_liberty_path, alloc)
+	ensure(err == nil, fmt.tprintln("FileReadError:", err))
+
+	l: LibertyLexer = {
+		src           = data,
+		curr_byte_idx = 0,
+	}
+
+	nodes: [dynamic]^LibertyNode
+	nodes = make([dynamic]^LibertyNode, alloc)
+
+	for l.curr_byte_idx < len(l.src) {
+		skip_ws_and_comments(&l)
+		if l.curr_byte_idx >= len(l.src) { break }
+
+		n := parse_stmt(&l, alloc)
+		append(&nodes, n)
+	}
+
+	lib := nodes[0] // or find "library"
+
+	for child in lib.children {
+		if child.name != "cell" { continue }
+
+		// --- CREATE CELL ---
+		cell_name := child.args[0]
+
+		cell_ptr := create_cell(
+			hgr = hgr,
+			arena_alloc = alloc,
+			cell_val = Cell{name = cell_name, pdk_provided = true, children_ports = make([dynamic]^CellPort, alloc)},
+		)
+
+		// --- PARSE CELL BODY ---
+		for cchild in child.children {
+
+			switch cchild.name {
+
+			case "pin", "pg_pin":
+				port_name := cchild.args[0]
+
+				create_cell_port(parent_cell_ptr = cell_ptr, arena_alloc = alloc, name = port_name)
+			}
+		}
+	}
+}
+
+LibertyNode :: struct {
+	name:     string,
+	args:     [dynamic]string,
+	value:    string,
+	children: [dynamic]^LibertyNode,
+}
+
+peek_liberty :: #force_inline proc(l: ^LibertyLexer) -> byte {
+	if l.curr_byte_idx >= len(l.src) { return 0 }
+	return l.src[l.curr_byte_idx]
+}
+
+consume :: #force_inline proc(l: ^LibertyLexer, c: byte) {
+	if peek_liberty(l) != c { panic("unexpected char") }
+	l.curr_byte_idx += 1
+}
+
+parse_args :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> [dynamic]string {
+	args := make([dynamic]string, alloc)
+
+	consume(l, '(')
+	skip_ws_and_comments(l)
+
+	for peek_liberty(l) != ')' {
+
+		c := peek_liberty(l)
+
+		// 🔥 NEW: handle quoted string
+		if c == '"' {
+			append(&args, scan_string(l))
+
+			// normal identifier
+		} else if is_liberty_ident_start(c) {
+			append(&args, scan_liberty_ident(l))
+
+			// fallback (numbers, weird stuff)
+		} else {
+			start := l.curr_byte_idx
+			for peek_liberty(l) != ',' && peek_liberty(l) != ')' {
+				l.curr_byte_idx += 1
+			}
+			append(&args, string(l.src[start:l.curr_byte_idx]))
+		}
+
+		skip_ws_and_comments(l)
+
+		if peek_liberty(l) == ',' {
+			l.curr_byte_idx += 1
+			skip_ws_and_comments(l)
+		}
+	}
+
+	consume(l, ')')
+	return args
+}
+
+scan_string :: proc(l: ^LibertyLexer) -> string {
+	consume(l, '"')
+	start := l.curr_byte_idx
+
+	for {
+		if l.curr_byte_idx >= len(l.src) {
+			panic("unterminated string")
+		}
+
+		if l.src[l.curr_byte_idx] == '"' {
+			s := string(l.src[start:l.curr_byte_idx]) // ← NO quotes
+			l.curr_byte_idx += 1
+			return s
+		}
+
+		l.curr_byte_idx += 1
+	}
+}
+
+parse_stmt :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> ^LibertyNode {
+	skip_ws_and_comments(l)
+
+	name := scan_liberty_ident(l)
+	skip_ws_and_comments(l)
+
+	node, _ := new(LibertyNode, alloc)
+	node.name = name
+
+	// SIMPLE: name : value ;
+	if peek_liberty(l) == ':' {
+		l.curr_byte_idx += 1
+		skip_ws_and_comments(l)
+
+		start := l.curr_byte_idx
+		for peek_liberty(l) != ';' {
+			l.curr_byte_idx += 1
+		}
+
+		node.value = string(l.src[start:l.curr_byte_idx])
+		consume(l, ';')
+		return node
+	}
+
+	// COMPLEX / GROUP
+	if peek_liberty(l) == '(' {
+		node.args = parse_args(l, alloc)
+		skip_ws_and_comments(l)
+
+		// GROUP
+		if peek_liberty(l) == '{' {
+			node.children = make([dynamic]^LibertyNode, alloc)
+
+			consume(l, '{')
+			skip_ws_and_comments(l)
+
+			for peek_liberty(l) != '}' {
+				child := parse_stmt(l, alloc)
+				append(&node.children, child)
+				skip_ws_and_comments(l)
+			}
+
+			consume(l, '}')
+			return node
+		}
+
+		// COMPLEX ATTR
+		consume(l, ';')
+		return node
+	}
+
+	panic(fmt.tprintf("Error: %s for char %r at byte %d", "invalid syntax", l.src[l.curr_byte_idx], l.curr_byte_idx))
+}
+
+liberty_panic :: #force_inline proc(err_msg: string, l: ^LibertyLexer) {
+	panic(fmt.tprintf("Error: %s for char %r at byte %d", err_msg, l.src[l.curr_byte_idx], l.curr_byte_idx))
 }

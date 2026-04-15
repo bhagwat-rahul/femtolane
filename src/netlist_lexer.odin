@@ -164,6 +164,9 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		cell_hash_map     = make(CellHashMap, lex_graph_arena_allocator),
 		instance_hash_map = make(InstanceHashMap, lex_graph_arena_allocator),
 	}
+
+	parse_liberty_create_cells_pins(liberty_filepath = "", alloc = lex_graph_arena_allocator, hgr = &hgr)
+
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
 		idx := l.curr_byte_idx
