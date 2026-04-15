@@ -146,7 +146,6 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		resolved_gate_netlist_path, _ = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
 	}
 	data, err := os.read_entire_file_from_path(resolved_gate_netlist_path, lex_graph_arena_allocator)
-	defer delete(data)
 	ensure(err == nil, fmt.tprintln("FileReadError:", err))
 	l: GateLevelNetlistLexer = {
 		filepath      = resolved_gate_netlist_path,
