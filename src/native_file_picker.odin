@@ -74,15 +74,6 @@ is_wildcard_extension :: #force_inline proc(extension: string) -> bool {
 }
 
 @(private="file")
-count_valid_extensions :: #force_inline proc(extensions: []string) -> int {
-	count := 0
-	for extension in extensions {
-		if len(normalized_extension(extension)) > 0 { count += 1 }
-	}
-	return count
-}
-
-@(private="file")
 wildcard_for_extension :: #force_inline proc(extension: string, allocator := context.temp_allocator) -> string {
 	ext := normalized_extension(extension)
 	if len(ext) == 0 { return "" }
@@ -107,13 +98,13 @@ when ODIN_OS == .Darwin {
 
 	@(private="file")
 	allowed_types_array :: proc(filters: []File_Type_Filter) -> ^cocoa.Array {
+		count := 0
 		for filter in filters {
+			count += len(filter.extensions)
 			for ext in filter.extensions {
 				if is_wildcard_extension(ext) { return nil }
 			}
 		}
-		count := 0
-		for filter in filters { count += count_valid_extensions(filter.extensions) }
 		if count == 0 { return nil }
 		objects := make([]^cocoa.Object, count, context.temp_allocator)
 		index := 0
@@ -125,21 +116,20 @@ when ODIN_OS == .Darwin {
 				}
 			}
 		}
-		value := cocoa.Array_alloc()->initWithObjects(raw_data(objects), cocoa.UInteger(count))
+		if index == 0 { return nil }
+		value := cocoa.Array_alloc()->initWithObjects(raw_data(objects), cocoa.UInteger(index))
 		cocoa.autorelease(cast(^cocoa.Object)value)
 		return value
 	}
 
 	@(private="file")
 	clone_url_path :: #force_inline proc(url: ^cocoa.URL, allocator := context.allocator) -> string {
-		if url == nil { return "" }
-		return strings.clone(string(cocoa.URL_fileSystemRepresentation(url)), allocator) or_else ""
+		return "" if url == nil else (strings.clone(string(cocoa.URL_fileSystemRepresentation(url)), allocator) or_else "")
 	}
 
 	@(private="file")
 	pick_path_darwin :: proc(request: File_Picker_Request, allocator := context.allocator) -> (selection: string, ok: bool) {
-		pool := cocoa.AutoreleasePool_alloc()->init()
-		defer cocoa.AutoreleasePool_drain(pool)
+		cocoa.scoped_autoreleasepool()
 		app := cocoa.Application_sharedApplication()
 		cocoa.Application_setActivationPolicy(app, .Regular)
 		cocoa.Application_activateIgnoringOtherApps(app, true)
@@ -182,9 +172,7 @@ when ODIN_OS == .Darwin {
 
 	@(private="file")
 	windows_filter_pattern :: proc(filter: File_Type_Filter) -> string {
-		valid_extension_count := count_valid_extensions(filter.extensions)
-		if valid_extension_count == 0 { return "" }
-		patterns := make([]string, valid_extension_count, context.temp_allocator)
+		patterns := make([]string, len(filter.extensions), context.temp_allocator)
 		count := 0
 		for ext in filter.extensions {
 			if pattern := wildcard_for_extension(ext, context.temp_allocator); len(pattern) > 0 {
@@ -192,7 +180,8 @@ when ODIN_OS == .Darwin {
 				count += 1
 			}
 		}
-		return strings.join(patterns, ";", context.temp_allocator) or_else ""
+		if count == 0 { return "" }
+		return strings.join(patterns[:count], ";", context.temp_allocator) or_else ""
 	}
 
 	@(private="file")
@@ -253,15 +242,18 @@ when ODIN_OS == .Darwin {
 	@(private="file")
 	add_linux_filters :: proc(dialog: rawptr, filters: []File_Type_Filter) {
 		for filter in filters {
-			gtk_filter := gtk_file_filter_new()
-			if gtk_filter == nil { continue }
-			if len(filter.description) > 0 { gtk_file_filter_set_name(gtk_filter, strings.clone_to_cstring(filter.description, context.temp_allocator) or_else nil) }
+			gtk_filter: rawptr
 			for ext in filter.extensions {
 				if pattern := wildcard_for_extension(ext, context.temp_allocator); len(pattern) > 0 {
+					if gtk_filter == nil {
+						gtk_filter = gtk_file_filter_new()
+						if gtk_filter == nil { break }
+						if len(filter.description) > 0 { gtk_file_filter_set_name(gtk_filter, strings.clone_to_cstring(filter.description, context.temp_allocator) or_else nil) }
+					}
 					gtk_file_filter_add_pattern(gtk_filter, strings.clone_to_cstring(pattern, context.temp_allocator) or_else nil)
 				}
 			}
-			gtk_file_chooser_add_filter(dialog, gtk_filter)
+			if gtk_filter != nil { gtk_file_chooser_add_filter(dialog, gtk_filter) }
 		}
 	}
 
