@@ -76,6 +76,7 @@ Net :: struct {
 
 GateLevelNetlistLexer :: struct {
 	// source file and cursor index
+	filepath:      string,
 	src:           []byte,
 	curr_byte_idx: int, // 64 bit int on 64 bit system (not u32 to prevent casts everywhere when indexing)
 	curr_cell:     ^Cell,
@@ -145,8 +146,10 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		resolved_gate_netlist_path, _ = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
 	}
 	data, err := os.read_entire_file_from_path(resolved_gate_netlist_path, lex_graph_arena_allocator)
+	defer delete(data)
 	ensure(err == nil, fmt.tprintln("FileReadError:", err))
 	l: GateLevelNetlistLexer = {
+		filepath      = resolved_gate_netlist_path,
 		src           = data,
 		curr_byte_idx = 0,
 		curr_cell     = nil,
@@ -236,13 +239,13 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 		module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
 		skipNewlinesAndWhiteSpaces(l)
-		if (peek(l) != LPAREN) { lexer_panic(l, fmt.tprint("Found", peek(l), "instead of", LPAREN)) } else { advance(l) }
+		if (peek(l) != LPAREN) { lexer_panic(l, fmt.tprintf("Found %r instead of %r", peek(l), LPAREN)) } else { advance(l) }
 		skipNewlinesAndWhiteSpaces(l)
 		// handle ports of this module
 		ports := 0
 		for peek(l) != SEMICOLON {
 			skipNewlinesAndWhiteSpaces(l)
-			if (peek(l) == ',') { advance(l) } else if (peek(l) == ')') { advance(l) } else { lexer_panic(l, "no comma here") }
+			if (peek(l) == COMMA) { advance(l) } else if (peek(l) == RPAREN) { advance(l) } else { lexer_panic(l, "Expected comma or )") }
 			skipNewlinesAndWhiteSpaces(l)
 			ports += 1
 		}
@@ -288,7 +291,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 				advance(l)
 				skipNewlinesAndWhiteSpaces(l)
 				break net_loop
-			case: lexer_panic(l, fmt.tprint("Expected", COMMA, "or", SEMICOLON, "after wire declaration got", rune(peek(l))))
+			case: lexer_panic(l, fmt.tprintf("Expected '%r' or '%r' after wire declaration, got %r", COMMA, SEMICOLON, peek(l)))
 			}
 		}
 
@@ -410,7 +413,6 @@ flattenAndWriteHyperGraph :: proc(hgr: ^NetlistHyperGraph) {
 	writeDataToFile("netlist_hypergraph.hgr", &flatHgrData)
 }
 
-lexer_panic :: #force_inline proc(l: ^GateLevelNetlistLexer, error_message: string) {
-	error_message_with_details := fmt.tprint("Error:", error_message, "at byte", l.curr_byte_idx, "for char", rune(l.src[l.curr_byte_idx]))
-	panic(error_message_with_details)
+lexer_panic :: #force_inline proc(l: ^GateLevelNetlistLexer, err_msg: string) {
+	panic(fmt.tprintf("Error: %s at byte %d for char %r in file '%s'", err_msg, l.curr_byte_idx, l.src[l.curr_byte_idx], l.filepath))
 }
