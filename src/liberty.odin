@@ -22,6 +22,14 @@ Revision :: union {
 TimeUnit :: enum {} /* 1ps , 10ps , 100ps , 1ns */
 VoltageUnit :: enum {} /* 1mV , 10mV , 100mV , 1V */
 
+/* Trip Point : A float between 0.0 - 100.0 default 50.0 */
+TripPoint :: distinct f64
+
+TRIP_POINT_MIN :: 0.0
+TRIP_POINT_MAX :: 100.0
+TRIP_POINT_DEFAULT :: TripPoint(50.0)
+/* End Trip Point Type */
+
 Library :: struct {
 	name:                          string,
 	description:                   string,
@@ -242,13 +250,6 @@ skip_whitespace_and_newlines :: #force_inline proc(l: ^LibertyLexer) {
 		l.curr_byte_idx += 1
 	}
 }
-
-
-TripPoint :: distinct f64
-
-TRIP_POINT_MIN :: 0.0
-TRIP_POINT_MAX :: 100.0
-TRIP_POINT_DEFAULT :: TripPoint(50.0)
 
 trip_point_parse :: proc(v: f64) -> TripPoint {
 	if v < TRIP_POINT_MIN || v > TRIP_POINT_MAX {
