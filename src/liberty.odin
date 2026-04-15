@@ -237,7 +237,7 @@ scan_liberty_ident :: #force_inline proc(l: ^LibertyLexer) -> string {
 	return string(l.src[start:l.curr_byte_idx])
 }
 
-skip_ws_and_comments :: #force_inline proc(l: ^LibertyLexer) {
+skip_whitespace_and_comments :: #force_inline proc(l: ^LibertyLexer) {
 	for l.curr_byte_idx < len(l.src) {
 		c := l.src[l.curr_byte_idx]
 
@@ -250,9 +250,7 @@ skip_ws_and_comments :: #force_inline proc(l: ^LibertyLexer) {
 		// line comment: // ...
 		if c == '/' && l.curr_byte_idx + 1 < len(l.src) && l.src[l.curr_byte_idx + 1] == '/' {
 			l.curr_byte_idx += 2
-			for l.curr_byte_idx < len(l.src) && l.src[l.curr_byte_idx] != '\n' {
-				l.curr_byte_idx += 1
-			}
+			for l.curr_byte_idx < len(l.src) && l.src[l.curr_byte_idx] != '\n' { l.curr_byte_idx += 1 }
 			continue
 		}
 
@@ -261,9 +259,7 @@ skip_ws_and_comments :: #force_inline proc(l: ^LibertyLexer) {
 			l.curr_byte_idx += 2
 
 			for {
-				if l.curr_byte_idx + 1 >= len(l.src) {
-					panic("unterminated comment")
-				}
+				if l.curr_byte_idx + 1 >= len(l.src) { panic("unterminated comment") }
 				if l.src[l.curr_byte_idx] == '*' && l.src[l.curr_byte_idx + 1] == '/' {
 					l.curr_byte_idx += 2
 					break
@@ -300,7 +296,7 @@ parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.All
 	nodes = make([dynamic]^LibertyNode, alloc)
 
 	for l.curr_byte_idx < len(l.src) {
-		skip_ws_and_comments(&l)
+		skip_whitespace_and_comments(&l)
 		if l.curr_byte_idx >= len(l.src) { break }
 
 		n := parse_stmt(&l, alloc)
@@ -328,7 +324,6 @@ parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.All
 
 			case "pin", "pg_pin":
 				port_name := cchild.args[0]
-
 				create_cell_port(parent_cell_ptr = cell_ptr, arena_alloc = alloc, name = port_name)
 			}
 		}
@@ -356,7 +351,7 @@ parse_args :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> [dynamic]string {
 	args := make([dynamic]string, alloc)
 
 	consume(l, '(')
-	skip_ws_and_comments(l)
+	skip_whitespace_and_comments(l)
 
 	for peek_liberty(l) != ')' {
 
@@ -379,11 +374,11 @@ parse_args :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> [dynamic]string {
 			append(&args, string(l.src[start:l.curr_byte_idx]))
 		}
 
-		skip_ws_and_comments(l)
+		skip_whitespace_and_comments(l)
 
 		if peek_liberty(l) == ',' {
 			l.curr_byte_idx += 1
-			skip_ws_and_comments(l)
+			skip_whitespace_and_comments(l)
 		}
 	}
 
@@ -396,25 +391,21 @@ scan_string :: proc(l: ^LibertyLexer) -> string {
 	start := l.curr_byte_idx
 
 	for {
-		if l.curr_byte_idx >= len(l.src) {
-			panic("unterminated string")
-		}
-
+		if l.curr_byte_idx >= len(l.src) { panic("unterminated string") }
 		if l.src[l.curr_byte_idx] == '"' {
 			s := string(l.src[start:l.curr_byte_idx]) // ← NO quotes
 			l.curr_byte_idx += 1
 			return s
 		}
-
 		l.curr_byte_idx += 1
 	}
 }
 
 parse_stmt :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> ^LibertyNode {
-	skip_ws_and_comments(l)
+	skip_whitespace_and_comments(l)
 
 	name := scan_liberty_ident(l)
-	skip_ws_and_comments(l)
+	skip_whitespace_and_comments(l)
 
 	node, _ := new(LibertyNode, alloc)
 	node.name = name
@@ -422,7 +413,7 @@ parse_stmt :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> ^LibertyNode {
 	// SIMPLE: name : value ;
 	if peek_liberty(l) == ':' {
 		l.curr_byte_idx += 1
-		skip_ws_and_comments(l)
+		skip_whitespace_and_comments(l)
 
 		start := l.curr_byte_idx
 		for peek_liberty(l) != ';' {
@@ -437,19 +428,19 @@ parse_stmt :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> ^LibertyNode {
 	// COMPLEX / GROUP
 	if peek_liberty(l) == '(' {
 		node.args = parse_args(l, alloc)
-		skip_ws_and_comments(l)
+		skip_whitespace_and_comments(l)
 
 		// GROUP
 		if peek_liberty(l) == '{' {
 			node.children = make([dynamic]^LibertyNode, alloc)
 
 			consume(l, '{')
-			skip_ws_and_comments(l)
+			skip_whitespace_and_comments(l)
 
 			for peek_liberty(l) != '}' {
 				child := parse_stmt(l, alloc)
 				append(&node.children, child)
-				skip_ws_and_comments(l)
+				skip_whitespace_and_comments(l)
 			}
 
 			consume(l, '}')
