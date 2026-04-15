@@ -10,10 +10,15 @@ when ODIN_OS == .Linux {
 	foreign import gobject "system:gobject-2.0"
 	foreign import glib "system:glib-2.0"
 
-	Gtk_File_Chooser_Action :: enum c_int { OPEN, SAVE, SELECT_FOLDER, CREATE_FOLDER }
+	Gtk_File_Chooser_Action :: enum c_int {
+		OPEN,
+		SAVE,
+		SELECT_FOLDER,
+		CREATE_FOLDER,
+	}
 	GTK_RESPONSE_ACCEPT :: -3
 
-	@(default_calling_convention="c")
+	@(default_calling_convention = "c")
 	foreign gtk {
 		gtk_init_check :: proc(argc, argv: rawptr) -> bool ---
 		gtk_file_chooser_native_new :: proc(title: cstring, parent: rawptr, action: Gtk_File_Chooser_Action, accept_label, cancel_label: cstring) -> rawptr ---
@@ -29,9 +34,9 @@ when ODIN_OS == .Linux {
 		gtk_file_filter_add_pattern :: proc(filter: rawptr, pattern: cstring) ---
 	}
 
-	@(default_calling_convention="c")
+	@(default_calling_convention = "c")
 	foreign gobject { g_object_unref :: proc(object: rawptr) --- }
-	@(default_calling_convention="c")
+	@(default_calling_convention = "c")
 	foreign glib { g_free :: proc(ptr: rawptr) --- }
 }
 
@@ -55,25 +60,25 @@ File_Picker_Request :: struct {
 }
 
 pick_path :: #force_inline proc(request: File_Picker_Request, allocator := context.allocator) -> (selection: string, ok: bool) {
-	when ODIN_OS == .Darwin    { return pick_path_darwin(request, allocator) }
-	when ODIN_OS == .Windows   { return pick_path_windows(request, allocator) }
-	when ODIN_OS == .Linux     { return pick_path_linux(request, allocator) }
+	when ODIN_OS == .Darwin { return pick_path_darwin(request, allocator) }
+	when ODIN_OS == .Windows { return pick_path_windows(request, allocator) }
+	when ODIN_OS == .Linux { return pick_path_linux(request, allocator) }
 	return "", false
 }
 
-@(private="file")
+@(private = "file")
 normalized_extension :: #force_inline proc(extension: string) -> string {
 	if len(extension) > 0 && extension[0] == '.' { return extension[1:] }
 	return extension
 }
 
-@(private="file")
+@(private = "file")
 is_wildcard_extension :: #force_inline proc(extension: string) -> bool {
 	normalized := normalized_extension(extension)
 	return normalized == "*" || normalized == "*.*"
 }
 
-@(private="file")
+@(private = "file")
 wildcard_for_extension :: #force_inline proc(extension: string, allocator := context.temp_allocator) -> string {
 	ext := normalized_extension(extension)
 	if len(ext) == 0 { return "" }
@@ -82,21 +87,21 @@ wildcard_for_extension :: #force_inline proc(extension: string, allocator := con
 }
 
 when ODIN_OS == .Darwin {
-	@(private="file")
+	@(private = "file")
 	ns_string :: #force_inline proc(text: string) -> ^cocoa.String {
 		value := cocoa.String_alloc()->initWithOdinString(text)
 		cocoa.autorelease(cast(^cocoa.Object)value)
 		return value
 	}
 
-	@(private="file")
+	@(private = "file")
 	file_url :: #force_inline proc(path: string) -> ^cocoa.URL {
 		value := cocoa.URL_alloc()->initFileURLWithPath(ns_string(path))
 		cocoa.autorelease(cast(^cocoa.Object)value)
 		return value
 	}
 
-	@(private="file")
+	@(private = "file")
 	allowed_types_array :: proc(filters: []File_Type_Filter) -> ^cocoa.Array {
 		count := 0
 		for filter in filters {
@@ -122,12 +127,12 @@ when ODIN_OS == .Darwin {
 		return value
 	}
 
-	@(private="file")
+	@(private = "file")
 	clone_url_path :: #force_inline proc(url: ^cocoa.URL, allocator := context.allocator) -> string {
 		return "" if url == nil else (strings.clone(string(cocoa.URL_fileSystemRepresentation(url)), allocator) or_else "")
 	}
 
-	@(private="file")
+	@(private = "file")
 	pick_path_darwin :: proc(request: File_Picker_Request, allocator := context.allocator) -> (selection: string, ok: bool) {
 		cocoa.scoped_autoreleasepool()
 		app := cocoa.Application_sharedApplication()
@@ -136,9 +141,9 @@ when ODIN_OS == .Darwin {
 		if request.mode == .Save_File {
 			panel := cocoa.SavePanel_savePanel()
 			intrinsics.objc_send(nil, panel, "setShowsHiddenFiles:", cocoa.BOOL(true))
-			if len(request.title) > 0           { intrinsics.objc_send(nil, panel, "setTitle:", ns_string(request.title)) }
-			if len(request.starting_path) > 0   { intrinsics.objc_send(nil, panel, "setDirectoryURL:", file_url(request.starting_path)) }
-			if len(request.suggested_name) > 0  { intrinsics.objc_send(nil, panel, "setNameFieldStringValue:", ns_string(request.suggested_name)) }
+			if len(request.title) > 0 { intrinsics.objc_send(nil, panel, "setTitle:", ns_string(request.title)) }
+			if len(request.starting_path) > 0 { intrinsics.objc_send(nil, panel, "setDirectoryURL:", file_url(request.starting_path)) }
+			if len(request.suggested_name) > 0 { intrinsics.objc_send(nil, panel, "setNameFieldStringValue:", ns_string(request.suggested_name)) }
 			if types := allowed_types_array(request.file_types); types != nil { intrinsics.objc_send(nil, panel, "setAllowedFileTypes:", types) }
 			if cocoa.SavePanel_runModal(panel) != .OK { return "", false }
 			selection = clone_url_path(cocoa.SavePanel_URL(panel), allocator)
@@ -150,7 +155,7 @@ when ODIN_OS == .Darwin {
 		cocoa.OpenPanel_setAllowsMultipleSelection(panel, false)
 		cocoa.OpenPanel_setResolvesAliases(panel, true)
 		intrinsics.objc_send(nil, panel, "setShowsHiddenFiles:", cocoa.BOOL(true))
-		if len(request.title) > 0         { intrinsics.objc_send(nil, panel, "setTitle:", ns_string(request.title)) }
+		if len(request.title) > 0 { intrinsics.objc_send(nil, panel, "setTitle:", ns_string(request.title)) }
 		if len(request.starting_path) > 0 { intrinsics.objc_send(nil, panel, "setDirectoryURL:", file_url(request.starting_path)) }
 		if request.mode == .Open_File {
 			if types := allowed_types_array(request.file_types); types != nil { cocoa.OpenPanel_setAllowedFileTypes(panel, types) }
@@ -160,7 +165,7 @@ when ODIN_OS == .Darwin {
 		return selection, len(selection) > 0
 	}
 } else when ODIN_OS == .Windows {
-	@(private="file")
+	@(private = "file")
 	first_allowed_extension :: #force_inline proc(filters: []File_Type_Filter) -> string {
 		for filter in filters {
 			for ext in filter.extensions {
@@ -170,7 +175,7 @@ when ODIN_OS == .Darwin {
 		return ""
 	}
 
-	@(private="file")
+	@(private = "file")
 	windows_filter_pattern :: proc(filter: File_Type_Filter) -> string {
 		patterns := make([]string, len(filter.extensions), context.temp_allocator)
 		count := 0
@@ -184,35 +189,43 @@ when ODIN_OS == .Darwin {
 		return strings.join(patterns[:count], ";", context.temp_allocator) or_else ""
 	}
 
-	@(private="file")
+	@(private = "file")
 	pick_path_windows :: proc(request: File_Picker_Request, allocator := context.allocator) -> (selection: string, ok: bool) {
 		co_init := win32.CoInitializeEx(nil, .APARTMENTTHREADED)
 		if win32.FAILED(co_init) { return "", false }
 		defer win32.CoUninitialize()
 		dialog_ptr: rawptr
 		class_id := win32.CLSID_FileSaveDialog if request.mode == .Save_File else win32.CLSID_FileOpenDialog
-		if hr := win32.CoCreateInstance(class_id, nil, win32.CLSCTX_INPROC_SERVER, win32.IID_IFileDialog, &dialog_ptr); win32.FAILED(hr) { return "", false }
+		if hr := win32.CoCreateInstance(class_id, nil, win32.CLSCTX_INPROC_SERVER, win32.IID_IFileDialog, &dialog_ptr);
+		   win32.FAILED(hr) { return "", false }
 		dialog := cast(^win32.IFileDialog)dialog_ptr
 		defer dialog.Vtbl.Release(cast(^win32.IUnknown)dialog)
 		options: win32.FILEOPENDIALOGOPTIONS
 		if hr := dialog.Vtbl.GetOptions(dialog, &options); win32.FAILED(hr) { return "", false }
 		options |= win32.FOS_FORCEFILESYSTEM | win32.FOS_PATHMUSTEXIST | win32.FOS_FORCESHOWHIDDEN
 		switch request.mode {
-		case .Open_File:   options |= win32.FOS_FILEMUSTEXIST
-		case .Save_File:   options |= win32.FOS_OVERWRITEPROMPT
+		case .Open_File: options |= win32.FOS_FILEMUSTEXIST
+		case .Save_File: options |= win32.FOS_OVERWRITEPROMPT
 		case .Open_Folder: options |= win32.FOS_PICKFOLDERS
 		}
 		if hr := dialog.Vtbl.SetOptions(dialog, options); win32.FAILED(hr) { return "", false }
 		if len(request.title) > 0 { _ = dialog.Vtbl.SetTitle(dialog, win32.utf8_to_wstring(request.title, context.temp_allocator) or_else nil) }
 		if len(request.starting_path) > 0 {
 			folder_ptr: rawptr
-			if hr := win32.SHCreateItemFromParsingName(win32.utf8_to_wstring(request.starting_path, context.temp_allocator) or_else nil, nil, win32.IID_IShellItem, &folder_ptr); win32.SUCCEEDED(hr) {
+			if hr := win32.SHCreateItemFromParsingName(
+				win32.utf8_to_wstring(request.starting_path, context.temp_allocator) or_else nil,
+				nil,
+				win32.IID_IShellItem,
+				&folder_ptr,
+			); win32.SUCCEEDED(hr) {
 				folder := cast(^win32.IShellItem)folder_ptr
 				defer folder.Vtbl.Release(cast(^win32.IUnknown)folder)
 				_ = dialog.Vtbl.SetFolder(dialog, folder)
 			}
 		}
-		if request.mode == .Save_File && len(request.suggested_name) > 0 { _ = dialog.Vtbl.SetFileName(dialog, win32.utf8_to_wstring(request.suggested_name, context.temp_allocator) or_else nil) }
+		if request.mode == .Save_File &&
+		   len(request.suggested_name) >
+			   0 { _ = dialog.Vtbl.SetFileName(dialog, win32.utf8_to_wstring(request.suggested_name, context.temp_allocator) or_else nil) }
 		if request.mode != .Open_Folder && len(request.file_types) > 0 {
 			specs := make([]win32.COMDLG_FILTERSPEC, len(request.file_types), context.temp_allocator)
 			spec_count := 0
@@ -220,13 +233,18 @@ when ODIN_OS == .Darwin {
 				pattern := windows_filter_pattern(filter)
 				if len(pattern) == 0 { continue }
 				description := filter.description if len(filter.description) > 0 else pattern
-				specs[spec_count] = {pszName = win32.utf8_to_wstring(description, context.temp_allocator) or_else nil, pszSpec = win32.utf8_to_wstring(pattern, context.temp_allocator) or_else nil}
+				specs[spec_count] = {
+					pszName = win32.utf8_to_wstring(description, context.temp_allocator) or_else nil,
+					pszSpec = win32.utf8_to_wstring(pattern, context.temp_allocator) or_else nil,
+				}
 				spec_count += 1
 			}
 			if spec_count > 0 {
 				_ = dialog.Vtbl.SetFileTypes(dialog, uint(spec_count), raw_data(specs[:spec_count]))
 			}
-			if default_ext := first_allowed_extension(request.file_types); len(default_ext) > 0 { _ = dialog.Vtbl.SetDefaultExtension(dialog, win32.utf8_to_wstring(default_ext, context.temp_allocator) or_else nil) }
+			if default_ext := first_allowed_extension(request.file_types);
+			   len(default_ext) >
+			   0 { _ = dialog.Vtbl.SetDefaultExtension(dialog, win32.utf8_to_wstring(default_ext, context.temp_allocator) or_else nil) }
 		}
 		if win32.FAILED(dialog.Vtbl.Show(dialog, nil)) { return "", false }
 		item: ^win32.IShellItem
@@ -239,7 +257,7 @@ when ODIN_OS == .Darwin {
 		return selection, len(selection) > 0
 	}
 } else when ODIN_OS == .Linux {
-	@(private="file")
+	@(private = "file")
 	add_linux_filters :: proc(dialog: rawptr, filters: []File_Type_Filter) {
 		for filter in filters {
 			gtk_filter: rawptr
@@ -248,7 +266,8 @@ when ODIN_OS == .Darwin {
 					if gtk_filter == nil {
 						gtk_filter = gtk_file_filter_new()
 						if gtk_filter == nil { break }
-						if len(filter.description) > 0 { gtk_file_filter_set_name(gtk_filter, strings.clone_to_cstring(filter.description, context.temp_allocator) or_else nil) }
+						if len(filter.description) >
+						   0 { gtk_file_filter_set_name(gtk_filter, strings.clone_to_cstring(filter.description, context.temp_allocator) or_else nil) }
 					}
 					gtk_file_filter_add_pattern(gtk_filter, strings.clone_to_cstring(pattern, context.temp_allocator) or_else nil)
 				}
@@ -257,7 +276,7 @@ when ODIN_OS == .Darwin {
 		}
 	}
 
-	@(private="file")
+	@(private = "file")
 	pick_path_linux :: proc(request: File_Picker_Request, allocator := context.allocator) -> (selection: string, ok: bool) {
 		if !gtk_init_check(nil, nil) { return "", false }
 		action := Gtk_File_Chooser_Action.OPEN
@@ -272,14 +291,22 @@ when ODIN_OS == .Darwin {
 		}
 		title := request.title
 		if len(title) == 0 { title = "Select Path" }
-		dialog := gtk_file_chooser_native_new(strings.clone_to_cstring(title, context.temp_allocator) or_else nil, nil, action, strings.clone_to_cstring(accept_label, context.temp_allocator) or_else nil, "Cancel")
+		dialog := gtk_file_chooser_native_new(
+			strings.clone_to_cstring(title, context.temp_allocator) or_else nil,
+			nil,
+			action,
+			strings.clone_to_cstring(accept_label, context.temp_allocator) or_else nil,
+			"Cancel",
+		)
 		if dialog == nil { return "", false }
 		defer g_object_unref(dialog)
 		gtk_file_chooser_set_show_hidden(dialog, true)
-		if len(request.starting_path) > 0 { _ = gtk_file_chooser_set_current_folder(dialog, strings.clone_to_cstring(request.starting_path, context.temp_allocator) or_else nil) }
+		if len(request.starting_path) >
+		   0 { _ = gtk_file_chooser_set_current_folder(dialog, strings.clone_to_cstring(request.starting_path, context.temp_allocator) or_else nil) }
 		if request.mode == .Save_File {
 			gtk_file_chooser_set_do_overwrite_confirmation(dialog, true)
-			if len(request.suggested_name) > 0 { gtk_file_chooser_set_current_name(dialog, strings.clone_to_cstring(request.suggested_name, context.temp_allocator) or_else nil) }
+			if len(request.suggested_name) >
+			   0 { gtk_file_chooser_set_current_name(dialog, strings.clone_to_cstring(request.suggested_name, context.temp_allocator) or_else nil) }
 		} else if request.mode == .Open_File {
 			add_linux_filters(dialog, request.file_types)
 		}
