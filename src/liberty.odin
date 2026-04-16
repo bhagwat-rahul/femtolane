@@ -316,7 +316,7 @@ parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.All
 		cell_ptr := create_cell(
 			hgr = hgr,
 			arena_alloc = alloc,
-			cell_val = Cell{name = cell_name, pdk_provided = true, children_ports = make([dynamic]^CellPort, alloc)},
+			cell_val = Cell{name = cell_name, pdk_provided = true, resolved = true, children_ports = make([dynamic]^CellPort, alloc)},
 		)
 
 		// --- PARSE CELL BODY ---

@@ -24,6 +24,7 @@ Cell :: struct {
 	name:           string, // human readable name from pdk, or module name if not from PDK
 	pdk_provided:   bool, // was this provided by the pdk or the user, where is this from (not sure if this field is needed but keeping it for now)
 	children_ports: [dynamic]^CellPort,
+	resolved:       bool, // false if we've just seen this get instantiated but don't have module def yet
 	metadata:       map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
 } // Metadata about a cell from the given pdk (stdcell lib, other ip, modules etc.)
 
