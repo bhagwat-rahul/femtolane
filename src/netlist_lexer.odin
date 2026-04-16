@@ -27,8 +27,9 @@ Cell :: struct {
 	metadata:       map[string]string, // pdk cell metadata; TODO(rahul):dk what this looks like fix type)
 } // Metadata about a cell from the given pdk (stdcell lib, other ip, modules etc.)
 
-CellHashMap :: map[string]^Cell // Hashmap of Cell Name -> Cell ID for O(1) lookups
-InstanceHashMap :: map[string]^Instance // Hashmap of Instance Name -> Instance ID for O(1) lookups
+CellHashMap :: map[string]^Cell
+InstanceHashMap :: map[string]^Instance
+NetHashMap :: map[string]^Net
 
 Instance :: struct {
 	name:        string, // human readable name for debug
@@ -88,9 +89,10 @@ NetlistHyperGraph :: struct {
 	instances:         [dynamic]^Instance, // all instances in the netlist
 	nets:              [dynamic]^Net, // connections between the instances of the netlist
 
-	// Lookup table helper data
+	// Lookup table helper data (name -> pointer hashmap)
 	cell_hash_map:     CellHashMap,
 	instance_hash_map: InstanceHashMap,
+	net_hash_map:      NetHashMap,
 }
 
 WHITESPACE :: ' '
@@ -163,6 +165,7 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		// scratch data
 		cell_hash_map     = make(CellHashMap, lex_graph_arena_allocator),
 		instance_hash_map = make(InstanceHashMap, lex_graph_arena_allocator),
+		net_hash_map      = make(NetHashMap, lex_graph_arena_allocator),
 	}
 
 	parse_liberty_create_cells_pins(liberty_filepath = "", alloc = lex_graph_arena_allocator, hgr = &hgr)
@@ -394,6 +397,7 @@ create_net :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, net_val:
 	net := new(Net, arena_alloc)
 	net^ = net_val
 	net.id = NetID(len(hgr.nets))
+	hgr.net_hash_map[net.name] = net
 	append(&hgr.nets, net)
 	return net
 }
