@@ -134,10 +134,26 @@ is_ident_start :: #force_inline proc(b: byte) -> bool { return IDENT_START[b] }
 is_ident_char :: #force_inline proc(b: byte) -> bool { return IDENT_CHAR[b] }
 
 scan_ident :: #force_inline proc(l: ^GateLevelNetlistLexer) -> string {
+	if peek(l) == ESCAPE_SYMBOL { return scan_escaped_ident(l) }
 	start := l.curr_byte_idx
 	for is_ident_char(peek(l)) { advance(l) }
 	end := l.curr_byte_idx
 	return string(l.src[start:end])
+}
+
+scan_escaped_ident :: proc(l: ^GateLevelNetlistLexer) -> string {
+	ensure(peek(l) == ESCAPE_SYMBOL, "Expected '\\' at start of escaped identifier")
+	advance(l) // skip '\'
+	start := l.curr_byte_idx
+	for {
+		c := peek(l)
+		if c == WHITESPACE || c == WHITESPACE_TAB || c == NEWLINE || c == NEWLINE_CARRIAGE_RETURN || c == 0 {
+			break
+		}
+		advance(l)
+	}
+	end := l.curr_byte_idx
+	return string(l.src[start:end]) // IMPORTANT: no '\'
 }
 
 // Main lexer function to single pass lex -> convert netlist to hypergraph,
@@ -181,8 +197,9 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		case SLASH: handleSingleAndMultiLineComments(&l)
 		case NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE, WHITESPACE_TAB: skipNewlinesAndWhiteSpaces(&l)
 		case LPAREN: checkForAndHandleAttribute(&l) // the only lparen main loop should see is for attributes
-		case ESCAPE_SYMBOL: handleEscapedIdent(&l)
-		case: if is_ident_start(byte) { handleIdent(&l, &hgr, lex_graph_arena_allocator) } else { lexer_panic(&l, "Unhandled char") }
+		case: if is_ident_start(byte) || byte == ESCAPE_SYMBOL {
+					handleIdent(&l, &hgr, lex_graph_arena_allocator)
+				} else { lexer_panic(&l, "Unhandled char") }
 		}
 	}
 }
@@ -194,8 +211,6 @@ skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^GateLevelNetlistLexer) {
 		advance(l)
 	}
 }
-
-handleEscapedIdent :: proc(l: ^GateLevelNetlistLexer) {  }
 
 handleSingleAndMultiLineComments :: #force_inline proc(l: ^GateLevelNetlistLexer) {
 	if (peek(l) == '/' && peek_next(l) == '/') {
@@ -266,6 +281,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 
 	case KEYWORD_ENDMODULE:
+		fmt.println("endmod")
 		l.curr_cell = nil
 		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
@@ -333,6 +349,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 			if peek(l) == DOT {
 				advance(l)
 				instance_port_name := scan_ident(l) // Port defined by cell
+				skipNewlinesAndWhiteSpaces(l)
 				cell_port: ^CellPort // this goes in instance port to point to parent cellport
 				for port in parent_cell_ptr.children_ports {
 					if port.name == instance_port_name {
@@ -349,8 +366,10 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 						net = nil,
 					},
 				)
-				ensure(peek(l) == LPAREN, "No ( after port connection"); advance(l)
+				if peek(l) != LPAREN { lexer_panic(l, "No ( after port connection") }
+				advance(l)
 				port_conn_name := scan_ident(l)
+				skipNewlinesAndWhiteSpaces(l)
 				if peek(l) == L_SQUARE_BRACKET {
 					advance(l)
 					idx := 0
@@ -362,7 +381,9 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 					fmt.println(port_conn_name)
 					advance(l)
 				}
-				ensure(peek(l) == RPAREN, "No ) after net conn"); advance(l)
+				skipNewlinesAndWhiteSpaces(l)
+				if peek(l) != RPAREN { lexer_panic(l, "No ) after net conn") }
+				advance(l)
 				create_net(hgr = hgr, arena_alloc = arena_alloc, net_val = Net{})
 			}
 			advance(l); skipNewlinesAndWhiteSpaces(l)
@@ -457,5 +478,14 @@ flattenAndWriteHyperGraph :: proc(hgr: ^NetlistHyperGraph) {
 }
 
 lexer_panic :: #force_inline proc(l: ^GateLevelNetlistLexer, err_msg: string) {
-	panic(fmt.tprintf("Error: %s at byte %d for char %r in file '%s'", err_msg, l.curr_byte_idx, l.src[l.curr_byte_idx], l.filepath))
+	panic(
+		fmt.tprintf(
+			"Error: %s at byte %d for char %r in file '%s'; find %s",
+			err_msg,
+			l.curr_byte_idx,
+			l.src[l.curr_byte_idx],
+			l.filepath,
+			l.src[l.curr_byte_idx - 20:l.curr_byte_idx],
+		),
+	)
 }
