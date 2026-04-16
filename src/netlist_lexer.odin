@@ -290,10 +290,15 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 			}
 			skipNewlinesAndWhiteSpaces(l)
 			switch peek(l) {
-			case COMMA, SEMICOLON:
+			case COMMA:
 				advance(l)
 				skipNewlinesAndWhiteSpaces(l)
-				if peek(l) == SEMICOLON { break net_loop }
+
+			case SEMICOLON:
+				advance(l)
+				skipNewlinesAndWhiteSpaces(l)
+				break net_loop
+
 			case: lexer_panic(l, fmt.tprintf("Expected '%r' or '%r' after wire declaration, got %r", COMMA, SEMICOLON, peek(l)))
 			}
 		}
