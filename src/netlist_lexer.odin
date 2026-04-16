@@ -40,10 +40,11 @@ Instance :: struct {
 } // Instances of cells in the actual design and their metadata
 
 InstancePort :: struct {
-	name:            string, // human readable name for debug
-	id:              InstancePortID, // for fast lookup
-	parent_instance: ^Instance, // what instance does this port belong to
-	net:             ^Net, // What net does this belong to
+	name:             string, // human readable name for debug
+	id:               InstancePortID, // for fast lookup
+	parent_cell_port: ^CellPort, // this is the cell port this instantiates
+	parent_instance:  ^Instance, // what instance does this port belong to
+	net:              ^Net, // What net does this belong to
 } // A port is something on an instance that wires can connect to
 
 CellPort :: struct {
