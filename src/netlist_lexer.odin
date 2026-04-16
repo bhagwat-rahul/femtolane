@@ -234,12 +234,21 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 	switch ident {
 
 	case KEYWORD_ASSIGN:
+		skipNewlinesAndWhiteSpaces(l)
 		lhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
-		equals := peek(l)
-		if (equals != EQUAL) { lexer_panic(l, "No = after LHS in assign statement") } else { advance(l) }
+		if (peek(l) != EQUAL) {
+			lexer_panic(l, "No = after LHS in assign statement")
+		} else {
+			advance(l)
+			skipNewlinesAndWhiteSpaces(l)
+		}
 		rhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
+		ensure(peek(l) == SEMICOLON, "No semicolon post assign statement")
+		advance(l)
+		skipNewlinesAndWhiteSpaces(l)
+		fmt.println("TODO(rahul):Create net here")
 
 	case KEYWORD_MODULE:
 		advance(l)
@@ -248,13 +257,10 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 		if (peek(l) != LPAREN) { lexer_panic(l, fmt.tprintf("Found %r instead of %r", peek(l), LPAREN)) } else { advance(l) }
 		skipNewlinesAndWhiteSpaces(l)
-		// handle ports of this module
-		ports := 0
 		for peek(l) != SEMICOLON {
 			skipNewlinesAndWhiteSpaces(l)
 			if peek(l) == COMMA { advance(l) } else if peek(l) == RPAREN { advance(l) } else { advance(l) } 	// We advance here since scanning ports in module header is redundant they show up again anyway
 			skipNewlinesAndWhiteSpaces(l)
-			ports += 1
 		}
 		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
@@ -310,7 +316,8 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 		instance_name := scan_ident(l)
 		parent_cell_ptr := hgr.cell_hash_map[parent_cell_name] // Try O(1) lookup
-		if parent_cell_ptr == nil { lexer_panic(l, fmt.tprint("No cell found for name", parent_cell_name)) }
+		if parent_cell_ptr ==
+		   nil { parent_cell_ptr = create_cell(hgr = hgr, cell_val = Cell{name = parent_cell_name, resolved = false, pdk_provided = false}, arena_alloc = arena_alloc) }
 		instance_val: Instance = {
 			name        = instance_name,
 			parent_cell = parent_cell_ptr,
@@ -319,6 +326,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		l.curr_instance = created_instance
 		defer l.curr_instance = nil
 		skipNewlinesAndWhiteSpaces(l)
+
 		if peek(l) == LPAREN && peek(l) != 0 { advance(l) } else { lexer_panic(l, "No ( after cell instantiation") }
 
 		for peek(l) != SEMICOLON && peek(l) != 0 {
@@ -332,6 +340,15 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 						break
 					}
 				}
+				created_instance_port := create_instance_port(
+					arena_alloc = arena_alloc,
+					instance_port_val = InstancePort {
+						parent_cell_port = cell_port,
+						parent_instance = created_instance,
+						name = instance_port_name,
+						net = nil,
+					},
+				)
 				ensure(peek(l) == LPAREN, "No ( after port connection"); advance(l)
 				port_conn_name := scan_ident(l)
 				if peek(l) == L_SQUARE_BRACKET {
@@ -341,15 +358,18 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 						idx = idx * 10 + int(peek(l) - '0')
 						advance(l)
 					}
-					ensure(peek(l) == R_SQUARE_BRACKET, "No closing bracket in instantiation"); advance(l)
 					port_conn_name = fmt.tprintf("%s[%d]", port_conn_name, idx)
 					fmt.println(port_conn_name)
+					advance(l)
 				}
-				create_net(hgr = hgr, arena_alloc = arena_alloc, net_val = Net{name = port_conn_name})
+				ensure(peek(l) == RPAREN, "No ) after net conn"); advance(l)
+				create_net(hgr = hgr, arena_alloc = arena_alloc, net_val = Net{})
 			}
-			skipNewlinesAndWhiteSpaces(l)
+			advance(l); skipNewlinesAndWhiteSpaces(l)
 		}
+		advance(l) // advance past semicolon
 		skipNewlinesAndWhiteSpaces(l)
+
 	}
 }
 
