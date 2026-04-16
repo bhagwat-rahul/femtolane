@@ -336,14 +336,12 @@ parse_bus :: proc(l: ^GateLevelNetlistLexer) -> (msb: int, lsb: int) {
 	ensure(peek(l) == L_SQUARE_BRACKET, "parse_bus called with a non [ char")
 	advance(l)
 	for peek(l) != COLON && peek(l) != 0 {
-		c := peek(l)
-		msb = msb * 10 + int(c - '0')
+		msb = msb * 10 + int(peek(l) - '0')
 		advance(l)
 	}
 	advance(l)
 	for peek(l) != R_SQUARE_BRACKET && peek(l) != 0 {
-		c := peek(l)
-		lsb = lsb * 10 + int(c - '0')
+		lsb = lsb * 10 + int(peek(l) - '0')
 		advance(l)
 	}
 	advance(l)
