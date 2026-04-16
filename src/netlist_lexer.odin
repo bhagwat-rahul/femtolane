@@ -312,26 +312,41 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 			name        = instance_name,
 			parent_cell = parent_cell_ptr,
 		}
+		created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val)
+		l.curr_instance = created_instance
+		defer l.curr_instance = nil
 		skipNewlinesAndWhiteSpaces(l)
 		if peek(l) == LPAREN && peek(l) != 0 { advance(l) } else { lexer_panic(l, "No ( after cell instantiation") }
 
 		for peek(l) != SEMICOLON && peek(l) != 0 {
 			if peek(l) == DOT {
 				advance(l)
-				cell_port_name := scan_ident(l)
+				instance_port_name := scan_ident(l) // Port defined by cell
+				cell_port: ^CellPort // this goes in instance port to point to parent cellport
 				for port in parent_cell_ptr.children_ports {
-					if port.name == cell_port_name { fmt.println("Valid port") } else { fmt.println(port.name, "doesn't match", cell_port_name) }
+					if port.name == instance_port_name {
+						cell_port = port
+						break
+					}
 				}
-				ensure(peek(l) == LPAREN, ""); advance(l)
+				ensure(peek(l) == LPAREN, "No ( after port connection"); advance(l)
 				port_conn_name := scan_ident(l)
-				if (peek(l) == L_SQUARE_BRACKET) { fmt.println("part of a bus") }
-				// ensure(peek(l) == RPAREN); advance(l)
+				if peek(l) == L_SQUARE_BRACKET {
+					advance(l)
+					idx := 0
+					for peek(l) != R_SQUARE_BRACKET {
+						idx = idx * 10 + int(peek(l) - '0')
+						advance(l)
+					}
+					ensure(peek(l) == R_SQUARE_BRACKET, "No closing bracket in instantiation"); advance(l)
+					port_conn_name = fmt.tprintf("%s[%d]", port_conn_name, idx)
+					fmt.println(port_conn_name)
+				}
+				create_net(hgr = hgr, arena_alloc = arena_alloc, net_val = Net{name = port_conn_name})
 			}
 			skipNewlinesAndWhiteSpaces(l)
 		}
-		advance(l) // go past semicolon
 		skipNewlinesAndWhiteSpaces(l)
-		created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val)
 	}
 }
 
