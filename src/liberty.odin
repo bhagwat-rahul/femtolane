@@ -196,6 +196,7 @@ LibertyPin :: struct {}
 LibertyLexer :: struct {
 	src:           []byte,
 	curr_byte_idx: int,
+	filepath:      string,
 }
 
 LIBERTY_IDENT_START, LIBERTY_IDENT_CHAR: [256]bool
@@ -290,6 +291,7 @@ parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.All
 	l: LibertyLexer = {
 		src           = data,
 		curr_byte_idx = 0,
+		filepath      = resolved_liberty_path,
 	}
 
 	nodes: [dynamic]^LibertyNode
@@ -452,7 +454,7 @@ parse_stmt :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> ^LibertyNode {
 		return node
 	}
 
-	panic(fmt.tprintf("Error: %s for char %r at byte %d", "invalid syntax", l.src[l.curr_byte_idx], l.curr_byte_idx))
+	panic(fmt.tprintf("Error: invalid syntax for char %r at byte %d in file %s", l.src[l.curr_byte_idx], l.curr_byte_idx, l.filepath))
 }
 
 liberty_panic :: #force_inline proc(err_msg: string, l: ^LibertyLexer) {
