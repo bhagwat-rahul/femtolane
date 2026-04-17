@@ -142,7 +142,7 @@ scan_ident :: #force_inline proc(l: ^GateLevelNetlistLexer) -> string {
 }
 
 scan_escaped_ident :: proc(l: ^GateLevelNetlistLexer) -> string {
-	ensure(peek(l) == ESCAPE_SYMBOL, "Expected '\\' at start of escaped identifier")
+	lexer_ensure(l = l, condition = peek(l) == ESCAPE_SYMBOL, err_msg = "Expected '\\' at start of escaped identifier")
 	advance(l) // skip '\'
 	start := l.curr_byte_idx
 	for {
@@ -202,6 +202,17 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 				} else { lexer_panic(&l, "Unhandled char") }
 		}
 	}
+	if l.curr_cell == nil && l.curr_instance == nil {
+		total_ports := 0
+		for instance in hgr.instances { total_ports += len(instance.ports) }
+		fmt.printfln(
+			"Lexing successful!\nCells = %d\nInstances = %d\nPorts = %d\nNets = %d",
+			len(hgr.cells),
+			len(hgr.instances),
+			total_ports,
+			len(hgr.nets),
+		)
+	} else { fmt.printfln("Module / Instantiation incomplete\nCurrent_cell=%s\nCurrent_instance=%s", l.curr_cell, l.curr_instance) }
 }
 
 skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^GateLevelNetlistLexer) {
@@ -260,7 +271,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		}
 		rhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
-		ensure(peek(l) == SEMICOLON, "No semicolon post assign statement")
+		lexer_ensure(l = l, condition = peek(l) == SEMICOLON, err_msg = "No semicolon post assign statement")
 		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
 		fmt.println("TODO(rahul):Create net here")
@@ -281,7 +292,6 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 
 	case KEYWORD_ENDMODULE:
-		fmt.println("endmod")
 		l.curr_cell = nil
 		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
@@ -338,7 +348,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 			name        = instance_name,
 			parent_cell = parent_cell_ptr,
 		}
-		created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val)
+		created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val, l = l)
 		l.curr_instance = created_instance
 		defer l.curr_instance = nil
 		skipNewlinesAndWhiteSpaces(l)
@@ -358,6 +368,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 					}
 				}
 				created_instance_port := create_instance_port(
+					l = l,
 					arena_alloc = arena_alloc,
 					instance_port_val = InstancePort {
 						parent_cell_port = cell_port,
@@ -396,7 +407,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 
 // Parse bus of form [1023:0], which indicates 1024 elements, return msb (1023) and lsb (0)
 parse_bus :: proc(l: ^GateLevelNetlistLexer) -> (msb: int, lsb: int) {
-	ensure(peek(l) == L_SQUARE_BRACKET, "parse_bus called with a non [ char")
+	lexer_ensure(l = l, condition = peek(l) == L_SQUARE_BRACKET, err_msg = "parse_bus called with a non [ char")
 	advance(l)
 	for peek(l) != COLON && peek(l) != 0 {
 		msb = msb * 10 + int(peek(l) - '0')
@@ -411,8 +422,8 @@ parse_bus :: proc(l: ^GateLevelNetlistLexer) -> (msb: int, lsb: int) {
 	return msb, lsb
 }
 
-create_instance :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, inst_val: Instance) -> ^Instance {
-	ensure(inst_val.parent_cell != nil, fmt.tprint("No parent cell provided for instance", inst_val.name))
+create_instance :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, inst_val: Instance, l: ^GateLevelNetlistLexer) -> ^Instance {
+	lexer_ensure(l = l, condition = inst_val.parent_cell != nil, err_msg = fmt.tprint("No parent cell provided for instance", inst_val.name))
 	inst := new(Instance, arena_alloc)
 	inst^ = inst_val
 	inst.id = InstanceID(len(hgr.instances))
@@ -430,9 +441,9 @@ create_cell :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, cell_va
 	return cell
 }
 
-create_instance_port :: proc(arena_alloc: mem.Allocator, instance_port_val: InstancePort) -> ^InstancePort {
+create_instance_port :: proc(arena_alloc: mem.Allocator, instance_port_val: InstancePort, l: ^GateLevelNetlistLexer) -> ^InstancePort {
 	instance_port_parent_instance_ptr := instance_port_val.parent_instance
-	ensure(instance_port_parent_instance_ptr != nil, "Trying to add a port to a nil instance")
+	lexer_ensure(l = l, condition = instance_port_parent_instance_ptr != nil, err_msg = "Trying to add a port to a nil instance")
 	id := InstancePortID(len(instance_port_parent_instance_ptr.ports))
 	instance_port := new(InstancePort, arena_alloc)
 	instance_port^ = instance_port_val
@@ -478,14 +489,9 @@ flattenAndWriteHyperGraph :: proc(hgr: ^NetlistHyperGraph) {
 }
 
 lexer_panic :: #force_inline proc(l: ^GateLevelNetlistLexer, err_msg: string) {
-	panic(
-		fmt.tprintf(
-			"Error: %s at byte %d for char %r in file '%s'; find %s",
-			err_msg,
-			l.curr_byte_idx,
-			l.src[l.curr_byte_idx],
-			l.filepath,
-			l.src[l.curr_byte_idx - 20:l.curr_byte_idx],
-		),
-	)
+	panic(fmt.tprintf("Error: %s at byte %d for char %r in file '%s'", err_msg, l.curr_byte_idx, l.src[l.curr_byte_idx], l.filepath))
+}
+
+lexer_ensure :: #force_inline proc(l: ^GateLevelNetlistLexer, condition: bool, err_msg: string) {
+	ensure(condition, fmt.tprintf("Error: %s at byte %d for char %r in file '%s'", err_msg, l.curr_byte_idx, l.src[l.curr_byte_idx], l.filepath))
 }
