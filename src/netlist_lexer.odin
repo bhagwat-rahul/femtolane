@@ -214,21 +214,21 @@ skipNewlinesAndWhiteSpaces :: #force_inline proc(l: ^GateLevelNetlistLexer) {
 }
 
 handleSingleAndMultiLineComments :: #force_inline proc(l: ^GateLevelNetlistLexer) {
-	if (peek(l) == '/' && peek_next(l) == '/') {
+	if (peek(l) == '/' && peek(l, 1) == '/') {
 		advance(l, 2)
 		for peek(l) != '\n' && peek(l) != 0 { advance(l) }
 		if peek(l) == '\n' { advance(l) }
-	} else if (peek(l) == '/' && peek_next(l) == '*') {
+	} else if (peek(l) == '/' && peek(l, 1) == '*') {
 		advance(l, 2)
-		for !(peek(l) == '*' && peek_next(l) == '/') && peek(l) != 0 { advance(l) }
+		for !(peek(l) == '*' && peek(l, 1) == '/') && peek(l) != 0 { advance(l) }
 		advance(l, 2)
 	} else { lexer_panic(l, "Error in comment skip") }
 }
 
 checkForAndHandleAttribute :: proc(l: ^GateLevelNetlistLexer) {
-	if peek(l) == '(' && peek_next(l) == '*' {
+	if peek(l) == '(' && peek(l, 1) == '*' {
 		attribute_start_idx := l.curr_byte_idx // index of (*
-		for !(peek(l) == '*' && peek_next(l) == ')') && peek(l) != 0 { advance(l) }
+		for !(peek(l) == '*' && peek(l) == ')') && peek(l) != 0 { advance(l) }
 		advance(l, 2)
 		attribute_end_idx := l.curr_byte_idx // index of *)
 		emit_attribute := l.src[attribute_start_idx:attribute_end_idx] // TODO(rahul): map to source lines and handle attributes appropriately
@@ -463,19 +463,13 @@ create_net :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, net_val:
 	return net
 }
 
-peek :: #force_inline proc(l: ^GateLevelNetlistLexer) -> byte { return l.src[l.curr_byte_idx] if l.curr_byte_idx < len(l.src) else 0 }
-
-peek_next :: #force_inline proc(l: ^GateLevelNetlistLexer) -> byte { return l.src[l.curr_byte_idx + 1] if l.curr_byte_idx + 1 < len(l.src) else 0 }
+peek :: #force_inline proc(l: ^GateLevelNetlistLexer, offset: int = 0) -> byte {return(
+		l.src[l.curr_byte_idx + offset] if l.curr_byte_idx + offset < len(l.src) else 0 \
+	)}
 
 advance :: #force_inline proc(l: ^GateLevelNetlistLexer, advance_by: int = 1) {
 	if l.curr_byte_idx + advance_by > len(l.src) { lexer_panic(l, "Unexpected EOF") }
 	l.curr_byte_idx += advance_by
-}
-
-// Write out an hgr file for debug purposes
-flattenAndWriteHyperGraph :: proc(hgr: ^NetlistHyperGraph) {
-	flatHgrData: []byte = {'t', 'e', 's', 't'}
-	writeDataToFile("netlist_hypergraph.hgr", &flatHgrData)
 }
 
 lexer_panic :: #force_inline proc(l: ^GateLevelNetlistLexer, err_msg: string) {
@@ -484,4 +478,10 @@ lexer_panic :: #force_inline proc(l: ^GateLevelNetlistLexer, err_msg: string) {
 
 lexer_ensure :: #force_inline proc(l: ^GateLevelNetlistLexer, condition: bool, err_msg: string) {
 	ensure(condition, fmt.tprintf("Error: %s at byte %d for char %r in file '%s'", err_msg, l.curr_byte_idx, l.src[l.curr_byte_idx], l.filepath))
+}
+
+// Write out an hgr file for debug purposes
+flattenAndWriteHyperGraph :: proc(hgr: ^NetlistHyperGraph) {
+	flatHgrData: []byte = {'t', 'e', 's', 't'}
+	writeDataToFile("netlist_hypergraph.hgr", &flatHgrData)
 }
