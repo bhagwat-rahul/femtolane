@@ -12,11 +12,16 @@ main :: proc() {
 	} else {
 		if args[1] == "lexgraph" {
 			gl_netlist_path := args[2] if len(args) >= 3 else ""
+			liberty_filepath := args[3] if len(args) >= 4 else ""
 			lex_graph_arena: virtual.Arena
 			ensure(virtual.arena_init_growing(&lex_graph_arena) == nil, "Error init'ing lex_graph_arena")
 			lex_graph_arena_allocator := virtual.arena_allocator(&lex_graph_arena)
 			defer virtual.arena_destroy(&lex_graph_arena)
-			lex_gate_level_netlist_and_create_hypergraph(gate_netlist_path = gl_netlist_path, lex_graph_arena_allocator = lex_graph_arena_allocator)
+			lex_gate_level_netlist_and_create_hypergraph(
+				liberty_filepath = liberty_filepath,
+				gate_netlist_path = gl_netlist_path,
+				lex_graph_arena_allocator = lex_graph_arena_allocator,
+			)
 
 		} else { fmt.println("TODO(rahul): Unsupported arg, this should show help menu") }
 	}

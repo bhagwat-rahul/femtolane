@@ -150,7 +150,7 @@ scan_escaped_ident :: proc(l: ^GateLevelNetlistLexer) -> string {
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
-lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, lex_graph_arena_allocator: mem.Allocator) {
+lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, liberty_filepath: string, lex_graph_arena_allocator: mem.Allocator) {
 	resolved_gate_netlist_path := gate_netlist_path
 	for len(resolved_gate_netlist_path) == 0 { 	// TODO(rahul): Maybe no inf loop if user no pick file?
 		resolved_gate_netlist_path, _ = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
@@ -176,7 +176,7 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		net_hash_map      = make(NetHashMap, lex_graph_arena_allocator),
 	}
 
-	parse_liberty_create_cells_pins(liberty_filepath = "", alloc = lex_graph_arena_allocator, hgr = &hgr)
+	parse_liberty_create_cells_pins(liberty_filepath = liberty_filepath, alloc = lex_graph_arena_allocator, hgr = &hgr)
 
 	// NOTE(rahul): this loop never changes curr_byte_idx only handler functions do
 	for l.curr_byte_idx < len(l.src) {
