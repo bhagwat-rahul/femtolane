@@ -37,7 +37,6 @@ Instance :: struct {
 	id:          InstanceID, // for fast lookup
 	parent_cell: ^Cell, // what cell is this an instance of from stdcells/modules
 	ports:       [dynamic]^InstancePort, // ports belonging to this instance
-	source:      SourceLoc, // where in the GL netlist this comes from
 } // Instances of cells in the actual design and their metadata
 
 InstancePort :: struct {
@@ -53,15 +52,6 @@ CellPort :: struct {
 	id:          CellPortID, // for fast lookup
 	parent_cell: ^Cell, // what cell does this port belong to
 } // Define ports of a cell (also use this to check if an instance is connecting to defined legal ports)
-
-SourceLoc :: struct {
-	file_id:    u32,
-	byte_start: u32,
-	byte_end:   u32,
-	line:       u32,
-	column:     u32,
-} // For a debuggable representation, we want people to be able to 'click in/out' all the way to/from oasis polygon <-> pos in hypergraph viz <-> source of GL/RTL netlist
-// Attributes also play a role here, depending on how we do the frontend rtl -> gl later without yosys we may/may not need to store/write out attributes in some form.
 
 NetType :: enum {
 	INTERNAL, // wire
