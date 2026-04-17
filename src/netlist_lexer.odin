@@ -243,7 +243,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 	ident := scan_ident(l)
 	switch ident {
 	case KEYWORD_ASSIGN: handle_assign_statement(l = l, hgr = hgr)
-	case KEYWORD_MODULE: handle_module_statement(l = l)
+	case KEYWORD_MODULE: handle_module_statement(l = l, hgr = hgr, arena_alloc = arena_alloc)
 	case KEYWORD_ENDMODULE: handle_endmodule_statement(l = l)
 	case KEYWORD_WIRE, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT: handle_net_creation(l = l, hgr = hgr, ident = ident, arena_alloc = arena_alloc)
 	case: handle_instantiation(l = l, hgr = hgr, parent_cell_name = ident, arena_alloc = arena_alloc) // since nothing else has to be instantiation
@@ -272,7 +272,7 @@ handle_assign_statement :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGra
 	fmt.println("TODO(rahul):Merge lhs / rhs here and delete/mark alias non-canonical from final rep")
 }
 
-handle_module_statement :: proc(l: ^GateLevelNetlistLexer) {
+handle_module_statement :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
 	advance(l)
 	skipNewlinesAndWhiteSpaces(l)
 	module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
@@ -284,6 +284,16 @@ handle_module_statement :: proc(l: ^GateLevelNetlistLexer) {
 		if peek(l) == COMMA { advance(l) } else if peek(l) == RPAREN { advance(l) } else { advance(l) } 	// We advance here since scanning ports in module header is redundant they show up again anyway
 		skipNewlinesAndWhiteSpaces(l)
 	}
+	cell_ptr := hgr.cell_hash_map[module_name]
+	if cell_ptr == nil {
+		cell_ptr = create_cell(hgr = hgr, arena_alloc = arena_alloc, cell_val = Cell{name = module_name, resolved = true, pdk_provided = false})
+	} else { cell_ptr.resolved = true } 	// We know this exists now if it was forward declared
+	lexer_ensure(
+		l = l,
+		condition = l.curr_cell == nil,
+		err_msg = fmt.tprintfln("New cell instantiated before prev instantiation closed. New cell=%s, Old cell=%s", module_name, l.curr_cell.name),
+	) // just to ensure we don't see a module before an endmodule, this is probably not necessary tbh
+	l.curr_cell = cell_ptr
 	advance(l)
 	skipNewlinesAndWhiteSpaces(l)
 }
