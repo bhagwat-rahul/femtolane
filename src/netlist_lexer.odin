@@ -87,6 +87,14 @@ NetlistHyperGraph :: struct {
 	net_hash_map:      NetHashMap,
 }
 
+KEYWORD_ASSIGN :: "assign"
+KEYWORD_MODULE :: "module"
+KEYWORD_ENDMODULE :: "endmodule"
+KEYWORD_INPUT :: "input"
+KEYWORD_OUTPUT :: "output"
+KEYWORD_INOUT :: "inout"
+KEYWORD_WIRE :: "wire"
+
 WHITESPACE :: ' '
 WHITESPACE_TAB :: '\t'
 SLASH :: '/'
@@ -187,6 +195,7 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 				} else { lexer_panic(&l, "Unhandled char") }
 		}
 	}
+
 	if l.curr_cell == nil && l.curr_instance == nil {
 		total_ports := 0
 		for instance in hgr.instances { total_ports += len(instance.ports) }
@@ -231,33 +240,24 @@ checkForAndHandleAttribute :: proc(l: ^GateLevelNetlistLexer) {
 }
 
 handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
-
-	KEYWORD_ASSIGN :: "assign"
-	KEYWORD_MODULE :: "module"
-	KEYWORD_ENDMODULE :: "endmodule"
-	KEYWORD_INPUT :: "input"
-	KEYWORD_OUTPUT :: "output"
-	KEYWORD_INOUT :: "inout"
-	KEYWORD_WIRE :: "wire"
-
 	ident := scan_ident(l)
 
 	switch ident {
 
 	case KEYWORD_ASSIGN:
 		skipNewlinesAndWhiteSpaces(l)
-		lhs := scan_ident(l)
+		lhs_net: ^Net = hgr.net_hash_map[scan_ident(l)]
 		skipNewlinesAndWhiteSpaces(l)
 		if (peek(l) != EQUAL) { lexer_panic(l, "No = after LHS in assign statement") } else {
 			advance(l)
 			skipNewlinesAndWhiteSpaces(l)
 		}
-		rhs := scan_ident(l)
+		rhs_net: ^Net = hgr.net_hash_map[scan_ident(l)]
 		skipNewlinesAndWhiteSpaces(l)
 		lexer_ensure(l = l, condition = peek(l) == SEMICOLON, err_msg = "No semicolon post assign statement")
 		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
-		fmt.println("TODO(rahul):Create net here")
+		fmt.println("TODO(rahul):Merge lhs / rhs here and delete/mark alias non-canonical from final rep")
 
 	case KEYWORD_MODULE:
 		advance(l)
@@ -279,118 +279,123 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		advance(l)
 		skipNewlinesAndWhiteSpaces(l)
 
-	case KEYWORD_WIRE, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT:
-		ident_net_type: NetType
-		switch ident {
-		case KEYWORD_WIRE: ident_net_type = .INTERNAL
-		case KEYWORD_INPUT: ident_net_type = .MODULE_INPUT
-		case KEYWORD_OUTPUT: ident_net_type = .MODULE_OUTPUT
-		case KEYWORD_INOUT: ident_net_type = .MODULE_INOUT
-		}
+	case KEYWORD_WIRE, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT: handle_net_creation(l = l, hgr = hgr, ident = ident, arena_alloc = arena_alloc)
+
+	case: handle_instantiation(l = l, hgr = hgr, parent_cell_name = ident, arena_alloc = arena_alloc) // since nothing else has to be instantiation
+	}
+}
+
+handle_net_creation :: proc(ident: string, hgr: ^NetlistHyperGraph, l: ^GateLevelNetlistLexer, arena_alloc: mem.Allocator) {
+	ident_net_type: NetType
+	switch ident {
+	case KEYWORD_WIRE: ident_net_type = .INTERNAL
+	case KEYWORD_INPUT: ident_net_type = .MODULE_INPUT
+	case KEYWORD_OUTPUT: ident_net_type = .MODULE_OUTPUT
+	case KEYWORD_INOUT: ident_net_type = .MODULE_INOUT
+	}
+	skipNewlinesAndWhiteSpaces(l)
+	msb, lsb := 0, 0
+	if peek(l) == L_SQUARE_BRACKET {
+		msb, lsb = parse_bus(l)
 		skipNewlinesAndWhiteSpaces(l)
-		msb, lsb := 0, 0
-		if peek(l) == L_SQUARE_BRACKET {
-			msb, lsb = parse_bus(l)
-			skipNewlinesAndWhiteSpaces(l)
-		}
-		net_loop: for {
-			name := scan_ident(l)
-			lo, hi := min(msb, lsb), max(msb, lsb)
-			for i in lo ..= hi {
-				net_name := name if (msb == 0 && lsb == 0) else fmt.tprintf("%s[%d]", name, i)
-				create_net(
-					hgr = hgr,
-					arena_alloc = arena_alloc,
-					net_val = Net{name = net_name, net_type = ident_net_type, connections = make([dynamic]^InstancePort, arena_alloc)},
-				)
-			}
-			skipNewlinesAndWhiteSpaces(l)
-			switch peek(l) {
-			case COMMA:
-				advance(l)
-				skipNewlinesAndWhiteSpaces(l)
-
-			case SEMICOLON:
-				advance(l)
-				skipNewlinesAndWhiteSpaces(l)
-				break net_loop
-
-			case: lexer_panic(l, fmt.tprintf("Expected '%r' or '%r' after wire declaration, got %r", COMMA, SEMICOLON, peek(l)))
-			}
-		}
-
-	case:
-		// since this is nothing else it has to be an instantiation
-		parent_cell_name := ident
-		skipNewlinesAndWhiteSpaces(l)
-		instance_name := scan_ident(l)
-		parent_cell_ptr := hgr.cell_hash_map[parent_cell_name] // Try O(1) lookup
-		if parent_cell_ptr == nil {
-			parent_cell_ptr = create_cell(
+	}
+	net_loop: for {
+		name := scan_ident(l)
+		lo, hi := min(msb, lsb), max(msb, lsb)
+		for i in lo ..= hi {
+			net_name := name if (msb == 0 && lsb == 0) else fmt.tprintf("%s[%d]", name, i)
+			create_net(
 				hgr = hgr,
-				cell_val = Cell{name = parent_cell_name, resolved = false, pdk_provided = false},
 				arena_alloc = arena_alloc,
+				net_val = Net{name = net_name, net_type = ident_net_type, connections = make([dynamic]^InstancePort, arena_alloc)},
 			)
 		}
-		instance_val: Instance = {
-			name        = instance_name,
-			parent_cell = parent_cell_ptr,
-		}
-		created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val, l = l)
-		l.curr_instance = created_instance
-		defer l.curr_instance = nil
 		skipNewlinesAndWhiteSpaces(l)
+		switch peek(l) {
+		case COMMA:
+			advance(l)
+			skipNewlinesAndWhiteSpaces(l)
 
-		if peek(l) == LPAREN && peek(l) != 0 { advance(l) } else { lexer_panic(l, "No ( after cell instantiation") }
+		case SEMICOLON:
+			advance(l)
+			skipNewlinesAndWhiteSpaces(l)
+			break net_loop
 
-		for peek(l) != SEMICOLON && peek(l) != 0 {
-			if peek(l) == DOT {
-				advance(l)
-				instance_port_name := scan_ident(l) // Port defined by cell
-				skipNewlinesAndWhiteSpaces(l)
-				cell_port: ^CellPort // this goes in instance port to point to parent cellport
-				for port in parent_cell_ptr.children_ports {
-					if port.name == instance_port_name {
-						cell_port = port
-						break
-					}
-				}
-				created_instance_port := create_instance_port(
-					l = l,
-					arena_alloc = arena_alloc,
-					instance_port_val = InstancePort {
-						parent_cell_port = cell_port,
-						parent_instance = created_instance,
-						name = instance_port_name,
-						net = nil,
-					},
-				)
-				if peek(l) != LPAREN { lexer_panic(l, "No ( after port connection") }
-				advance(l)
-				port_conn_name := scan_ident(l)
-				skipNewlinesAndWhiteSpaces(l)
-				if peek(l) == L_SQUARE_BRACKET {
-					advance(l)
-					idx := 0
-					for peek(l) != R_SQUARE_BRACKET {
-						idx = idx * 10 + int(peek(l) - '0')
-						advance(l)
-					}
-					port_conn_name = fmt.tprintf("%s[%d]", port_conn_name, idx)
-					fmt.println(port_conn_name)
-					advance(l)
-				}
-				skipNewlinesAndWhiteSpaces(l)
-				if peek(l) != RPAREN { lexer_panic(l, "No ) after net conn") }
-				advance(l)
-				create_net(hgr = hgr, arena_alloc = arena_alloc, net_val = Net{})
-			}
-			advance(l); skipNewlinesAndWhiteSpaces(l)
+		case: lexer_panic(l, fmt.tprintf("Expected '%r' or '%r' after wire declaration, got %r", COMMA, SEMICOLON, peek(l)))
 		}
-		advance(l) // advance past semicolon
-		skipNewlinesAndWhiteSpaces(l)
-
 	}
+}
+
+handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, l: ^GateLevelNetlistLexer, arena_alloc: mem.Allocator) {
+	// since this is nothing else it has to be an instantiation
+	skipNewlinesAndWhiteSpaces(l)
+	instance_name := scan_ident(l)
+	parent_cell_ptr := hgr.cell_hash_map[parent_cell_name] // Try O(1) lookup
+	if parent_cell_ptr == nil {
+		parent_cell_ptr = create_cell(
+			hgr = hgr,
+			cell_val = Cell{name = parent_cell_name, resolved = false, pdk_provided = false},
+			arena_alloc = arena_alloc,
+		)
+	}
+	instance_val: Instance = {
+		name        = instance_name,
+		parent_cell = parent_cell_ptr,
+	}
+	created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val, l = l)
+	l.curr_instance = created_instance
+	defer l.curr_instance = nil
+	skipNewlinesAndWhiteSpaces(l)
+
+	if peek(l) == LPAREN && peek(l) != 0 { advance(l) } else { lexer_panic(l, "No ( after cell instantiation") }
+
+	for peek(l) != SEMICOLON && peek(l) != 0 {
+		if peek(l) == DOT {
+			advance(l)
+			instance_port_name := scan_ident(l) // Port defined by cell
+			skipNewlinesAndWhiteSpaces(l)
+			cell_port: ^CellPort // this goes in instance port to point to parent cellport
+			for port in parent_cell_ptr.children_ports {
+				if port.name == instance_port_name {
+					cell_port = port
+					break
+				}
+			}
+			created_instance_port := create_instance_port(
+				l = l,
+				arena_alloc = arena_alloc,
+				instance_port_val = InstancePort {
+					parent_cell_port = cell_port,
+					parent_instance = created_instance,
+					name = instance_port_name,
+					net = nil,
+				},
+			)
+			if peek(l) != LPAREN { lexer_panic(l, "No ( after port connection") }
+			advance(l)
+			port_conn_name := scan_ident(l)
+			skipNewlinesAndWhiteSpaces(l)
+			if peek(l) == L_SQUARE_BRACKET {
+				advance(l)
+				idx := 0
+				for peek(l) != R_SQUARE_BRACKET {
+					idx = idx * 10 + int(peek(l) - '0')
+					advance(l)
+				}
+				port_conn_name = fmt.tprintf("%s[%d]", port_conn_name, idx)
+				fmt.println(port_conn_name)
+				advance(l)
+			}
+			skipNewlinesAndWhiteSpaces(l)
+			if peek(l) != RPAREN { lexer_panic(l, "No ) after net conn") }
+			advance(l)
+			create_net(hgr = hgr, arena_alloc = arena_alloc, net_val = Net{})
+		}
+		advance(l); skipNewlinesAndWhiteSpaces(l)
+	}
+	advance(l) // advance past semicolon
+	skipNewlinesAndWhiteSpaces(l)
+
 }
 
 // Parse bus of form [1023:0], which indicates 1024 elements, return msb (1023) and lsb (0)
