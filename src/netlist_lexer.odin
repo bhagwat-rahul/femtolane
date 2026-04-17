@@ -291,7 +291,7 @@ handle_module_statement :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGra
 	lexer_ensure(
 		l = l,
 		condition = l.curr_cell == nil,
-		err_msg = fmt.tprintfln("New cell instantiated before prev instantiation closed. New cell=%s, Old cell=%s", module_name, l.curr_cell.name),
+		err_msg = fmt.tprintfln("New cell '%s' instantiated before prev instantiation closed.", module_name),
 	) // just to ensure we don't see a module before an endmodule, this is probably not necessary tbh
 	l.curr_cell = cell_ptr
 	advance(l)
