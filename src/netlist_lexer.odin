@@ -253,9 +253,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 		lhs := scan_ident(l)
 		skipNewlinesAndWhiteSpaces(l)
-		if (peek(l) != EQUAL) {
-			lexer_panic(l, "No = after LHS in assign statement")
-		} else {
+		if (peek(l) != EQUAL) { lexer_panic(l, "No = after LHS in assign statement") } else {
 			advance(l)
 			skipNewlinesAndWhiteSpaces(l)
 		}
@@ -332,8 +330,13 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 		instance_name := scan_ident(l)
 		parent_cell_ptr := hgr.cell_hash_map[parent_cell_name] // Try O(1) lookup
-		if parent_cell_ptr ==
-		   nil { parent_cell_ptr = create_cell(hgr = hgr, cell_val = Cell{name = parent_cell_name, resolved = false, pdk_provided = false}, arena_alloc = arena_alloc) }
+		if parent_cell_ptr == nil {
+			parent_cell_ptr = create_cell(
+				hgr = hgr,
+				cell_val = Cell{name = parent_cell_name, resolved = false, pdk_provided = false},
+				arena_alloc = arena_alloc,
+			)
+		}
 		instance_val: Instance = {
 			name        = instance_name,
 			parent_cell = parent_cell_ptr,
