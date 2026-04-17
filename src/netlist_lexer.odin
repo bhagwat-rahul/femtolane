@@ -123,27 +123,22 @@ init_ident_tables :: proc "contextless" () {
 is_ident_start :: #force_inline proc(b: byte) -> bool { return IDENT_START[b] }
 is_ident_char :: #force_inline proc(b: byte) -> bool { return IDENT_CHAR[b] }
 
+// Scan identifiers handling escape symbols
 scan_ident :: #force_inline proc(l: ^GateLevelNetlistLexer) -> string {
-	if peek(l) == ESCAPE_SYMBOL { return scan_escaped_ident(l) }
-	start := l.curr_byte_idx
-	for is_ident_char(peek(l)) { advance(l) }
-	end := l.curr_byte_idx
-	return string(l.src[start:end])
-}
-
-scan_escaped_ident :: proc(l: ^GateLevelNetlistLexer) -> string {
-	lexer_ensure(l = l, condition = peek(l) == ESCAPE_SYMBOL, err_msg = "Expected '\\' at start of escaped identifier")
-	advance(l) // skip '\'
-	start := l.curr_byte_idx
-	for {
-		c := peek(l)
-		if c == WHITESPACE || c == WHITESPACE_TAB || c == NEWLINE || c == NEWLINE_CARRIAGE_RETURN || c == 0 {
-			break
+	start: int
+	if peek(l) == ESCAPE_SYMBOL {
+		advance(l) // skip '\'
+		start = l.curr_byte_idx
+		for {
+			c := peek(l)
+			if c == WHITESPACE || c == WHITESPACE_TAB || c == NEWLINE || c == NEWLINE_CARRIAGE_RETURN || c == 0 { break }
+			advance(l)
 		}
-		advance(l)
+	} else {
+		start = l.curr_byte_idx
+		for is_ident_char(peek(l)) { advance(l) }
 	}
-	end := l.curr_byte_idx
-	return string(l.src[start:end]) // IMPORTANT: no '\'
+	return string(l.src[start:l.curr_byte_idx])
 }
 
 // Main lexer function to single pass lex -> convert netlist to hypergraph,
