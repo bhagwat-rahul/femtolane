@@ -259,20 +259,7 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 		skipNewlinesAndWhiteSpaces(l)
 		fmt.println("TODO(rahul):Merge lhs / rhs here and delete/mark alias non-canonical from final rep")
 
-	case KEYWORD_MODULE:
-		advance(l)
-		skipNewlinesAndWhiteSpaces(l)
-		module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
-		skipNewlinesAndWhiteSpaces(l)
-		if (peek(l) != LPAREN) { lexer_panic(l, fmt.tprintf("Found %r instead of %r", peek(l), LPAREN)) } else { advance(l) }
-		skipNewlinesAndWhiteSpaces(l)
-		for peek(l) != SEMICOLON {
-			skipNewlinesAndWhiteSpaces(l)
-			if peek(l) == COMMA { advance(l) } else if peek(l) == RPAREN { advance(l) } else { advance(l) } 	// We advance here since scanning ports in module header is redundant they show up again anyway
-			skipNewlinesAndWhiteSpaces(l)
-		}
-		advance(l)
-		skipNewlinesAndWhiteSpaces(l)
+	case KEYWORD_MODULE: handle_module_statement(l = l)
 
 	case KEYWORD_ENDMODULE:
 		l.curr_cell = nil
@@ -283,6 +270,22 @@ handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_al
 
 	case: handle_instantiation(l = l, hgr = hgr, parent_cell_name = ident, arena_alloc = arena_alloc) // since nothing else has to be instantiation
 	}
+}
+
+handle_module_statement :: proc(l: ^GateLevelNetlistLexer) {
+	advance(l)
+	skipNewlinesAndWhiteSpaces(l)
+	module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
+	skipNewlinesAndWhiteSpaces(l)
+	if (peek(l) != LPAREN) { lexer_panic(l, fmt.tprintf("Found %r instead of %r", peek(l), LPAREN)) } else { advance(l) }
+	skipNewlinesAndWhiteSpaces(l)
+	for peek(l) != SEMICOLON {
+		skipNewlinesAndWhiteSpaces(l)
+		if peek(l) == COMMA { advance(l) } else if peek(l) == RPAREN { advance(l) } else { advance(l) } 	// We advance here since scanning ports in module header is redundant they show up again anyway
+		skipNewlinesAndWhiteSpaces(l)
+	}
+	advance(l)
+	skipNewlinesAndWhiteSpaces(l)
 }
 
 handle_net_creation :: proc(ident: string, hgr: ^NetlistHyperGraph, l: ^GateLevelNetlistLexer, arena_alloc: mem.Allocator) {
