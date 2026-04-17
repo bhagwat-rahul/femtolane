@@ -241,35 +241,35 @@ checkForAndHandleAttribute :: proc(l: ^GateLevelNetlistLexer) {
 
 handleIdent :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
 	ident := scan_ident(l)
-
 	switch ident {
-
-	case KEYWORD_ASSIGN:
-		skipNewlinesAndWhiteSpaces(l)
-		lhs_net: ^Net = hgr.net_hash_map[scan_ident(l)]
-		skipNewlinesAndWhiteSpaces(l)
-		if (peek(l) != EQUAL) { lexer_panic(l, "No = after LHS in assign statement") } else {
-			advance(l)
-			skipNewlinesAndWhiteSpaces(l)
-		}
-		rhs_net: ^Net = hgr.net_hash_map[scan_ident(l)]
-		skipNewlinesAndWhiteSpaces(l)
-		lexer_ensure(l = l, condition = peek(l) == SEMICOLON, err_msg = "No semicolon post assign statement")
-		advance(l)
-		skipNewlinesAndWhiteSpaces(l)
-		fmt.println("TODO(rahul):Merge lhs / rhs here and delete/mark alias non-canonical from final rep")
-
+	case KEYWORD_ASSIGN: handle_assign_statement(l = l, hgr = hgr)
 	case KEYWORD_MODULE: handle_module_statement(l = l)
-
-	case KEYWORD_ENDMODULE:
-		l.curr_cell = nil
-		advance(l)
-		skipNewlinesAndWhiteSpaces(l)
-
+	case KEYWORD_ENDMODULE: handle_endmodule_statement(l = l)
 	case KEYWORD_WIRE, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT: handle_net_creation(l = l, hgr = hgr, ident = ident, arena_alloc = arena_alloc)
-
 	case: handle_instantiation(l = l, hgr = hgr, parent_cell_name = ident, arena_alloc = arena_alloc) // since nothing else has to be instantiation
 	}
+}
+
+handle_endmodule_statement :: proc(l: ^GateLevelNetlistLexer) {
+	l.curr_cell = nil
+	advance(l)
+	skipNewlinesAndWhiteSpaces(l)
+}
+
+handle_assign_statement :: proc(l: ^GateLevelNetlistLexer, hgr: ^NetlistHyperGraph) {
+	skipNewlinesAndWhiteSpaces(l)
+	lhs_net: ^Net = hgr.net_hash_map[scan_ident(l)]
+	skipNewlinesAndWhiteSpaces(l)
+	if (peek(l) != EQUAL) { lexer_panic(l, "No = after LHS in assign statement") } else {
+		advance(l)
+		skipNewlinesAndWhiteSpaces(l)
+	}
+	rhs_net: ^Net = hgr.net_hash_map[scan_ident(l)]
+	skipNewlinesAndWhiteSpaces(l)
+	lexer_ensure(l = l, condition = peek(l) == SEMICOLON, err_msg = "No semicolon post assign statement")
+	advance(l)
+	skipNewlinesAndWhiteSpaces(l)
+	fmt.println("TODO(rahul):Merge lhs / rhs here and delete/mark alias non-canonical from final rep")
 }
 
 handle_module_statement :: proc(l: ^GateLevelNetlistLexer) {
