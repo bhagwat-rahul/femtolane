@@ -23,8 +23,18 @@ Revision :: union {
 	string,
 }
 
-TimeUnit :: enum {} /* 1ps , 10ps , 100ps , 1ns */
-VoltageUnit :: enum {} /* 1mV , 10mV , 100mV , 1V */
+TimeUnit :: enum {
+	PS_1,
+	PS_10,
+	PS_100,
+	NS_1,
+} /* 1ps , 10ps , 100ps , 1ns */
+VoltageUnit :: enum {
+	MV_1,
+	MV_10,
+	MV_100,
+	V_1,
+} /* 1mV , 10mV , 100mV , 1V */
 
 /* Trip Point : A float between 0.0 - 100.0 default 50.0 */
 TripPoint :: distinct f64
