@@ -95,5 +95,6 @@ test_liberty_cell_creation :: proc(_: ^testing.T) {
 	for file in files {
 		main.parse_liberty_create_cells_pins(liberty_filepath = file.fullpath, hgr = &hgr, alloc = lex_graph_arena_allocator)
 		fmt.println(file.name, "done")
+		fmt.println(len(hgr.cells))
 	}
 }
