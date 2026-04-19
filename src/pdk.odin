@@ -28,9 +28,6 @@ OPENPDK_METADATA :: struct {
 	version:      string,
 }
 
-/* TODO(rahul): Too many defer deletes across the project
- let's start allocating into buffers on stack whenever we can/should */
-
 // set PDK_ROOT to dir with libs.ref and libs.tech (openpdk format)
 openpdk_load :: proc() {
 	pdk_root := os.get_env(PDK_ROOT, context.allocator)
