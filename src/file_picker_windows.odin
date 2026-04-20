@@ -43,11 +43,11 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) 
 	case .Open_Folder: options |= win32.FOS_PICKFOLDERS
 	}
 	if hr := dialog.Vtbl.SetOptions(dialog, options); win32.FAILED(hr) { return "", false }
-	if len(request.title) > 0 { _ = dialog.Vtbl.SetTitle(dialog, win32.utf8_to_wstring(request.title, context.temp_allocator) or_else nil) }
+	if len(request.title) > 0 { _ = dialog.Vtbl.SetTitle(dialog, win32.utf8_to_wstring(request.title, context.temp_allocator)) }
 	if len(request.starting_path) > 0 {
 		folder_ptr: rawptr
 		if hr := win32.SHCreateItemFromParsingName(
-			win32.utf8_to_wstring(request.starting_path, context.temp_allocator) or_else nil,
+			win32.utf8_to_wstring(request.starting_path, context.temp_allocator),
 			nil,
 			win32.IID_IShellItem,
 			&folder_ptr,
@@ -58,8 +58,7 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) 
 		}
 	}
 	if request.mode == .Save_File &&
-	   len(request.suggested_name) >
-		   0 { _ = dialog.Vtbl.SetFileName(dialog, win32.utf8_to_wstring(request.suggested_name, context.temp_allocator) or_else nil) }
+	   len(request.suggested_name) > 0 { _ = dialog.Vtbl.SetFileName(dialog, win32.utf8_to_wstring(request.suggested_name, context.temp_allocator)) }
 	if request.mode != .Open_Folder && len(request.file_types) > 0 {
 		specs := make([]win32.COMDLG_FILTERSPEC, len(request.file_types), context.temp_allocator)
 		spec_count := 0
@@ -68,17 +67,16 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) 
 			if len(pattern) == 0 { continue }
 			description := filter.description if len(filter.description) > 0 else pattern
 			specs[spec_count] = {
-				pszName = win32.utf8_to_wstring(description, context.temp_allocator) or_else nil,
-				pszSpec = win32.utf8_to_wstring(pattern, context.temp_allocator) or_else nil,
+				pszName = win32.utf8_to_wstring(description, context.temp_allocator),
+				pszSpec = win32.utf8_to_wstring(pattern, context.temp_allocator),
 			}
 			spec_count += 1
 		}
 		if spec_count > 0 {
-			_ = dialog.Vtbl.SetFileTypes(dialog, uint(spec_count), raw_data(specs[:spec_count]))
+			_ = dialog.Vtbl.SetFileTypes(dialog, u32(spec_count), raw_data(specs[:spec_count]))
 		}
 		if default_ext := first_allowed_extension(request.file_types);
-		   len(default_ext) >
-		   0 { _ = dialog.Vtbl.SetDefaultExtension(dialog, win32.utf8_to_wstring(default_ext, context.temp_allocator) or_else nil) }
+		   len(default_ext) > 0 { _ = dialog.Vtbl.SetDefaultExtension(dialog, win32.utf8_to_wstring(default_ext, context.temp_allocator)) }
 	}
 	if win32.FAILED(dialog.Vtbl.Show(dialog, nil)) { return "", false }
 	item: ^win32.IShellItem
@@ -87,6 +85,6 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) 
 	path_w: win32.LPWSTR
 	if hr := item.Vtbl.GetDisplayName(item, .FILESYSPATH, &path_w); win32.FAILED(hr) || path_w == nil { return "", false }
 	defer win32.CoTaskMemFree(rawptr(path_w))
-	selection, _ = win32.wstring_to_utf8(path_w, -1, allocator)
+	selection, _ = win32.wstring_to_utf8_alloc(cstring16(path_w), -1, allocator)
 	return selection, len(selection) > 0
 }
