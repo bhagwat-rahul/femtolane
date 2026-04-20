@@ -1,23 +1,24 @@
 package main
+import "core:c"
 import "core:strings"
 
 foreign import gtk "system:gtk-3"
 foreign import gobject "system:gobject-2.0"
 foreign import glib "system:glib-2.0"
 
-Gtk_File_Chooser_Action :: enum c_int {
+Gtk_File_Chooser_Action :: enum c.int {
 	OPEN,
 	SAVE,
 	SELECT_FOLDER,
 	CREATE_FOLDER,
 }
-GTK_RESPONSE_ACCEPT :: -3
+GTK_RESPONSE_ACCEPT : c.int : -3
 
 @(default_calling_convention = "c")
 foreign gtk {
 	gtk_init_check :: proc(argc, argv: rawptr) -> bool ---
 	gtk_file_chooser_native_new :: proc(title: cstring, parent: rawptr, action: Gtk_File_Chooser_Action, accept_label, cancel_label: cstring) -> rawptr ---
-	gtk_native_dialog_run :: proc(dialog: rawptr) -> c_int ---
+	gtk_native_dialog_run :: proc(dialog: rawptr) -> c.int ---
 	gtk_file_chooser_set_current_folder :: proc(chooser: rawptr, path: cstring) -> bool ---
 	gtk_file_chooser_set_current_name :: proc(chooser: rawptr, name: cstring) ---
 	gtk_file_chooser_set_do_overwrite_confirmation :: proc(chooser: rawptr, enabled: bool) ---
@@ -58,6 +59,9 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) 
 	action := Gtk_File_Chooser_Action.OPEN
 	accept_label := "Open"
 	switch request.mode {
+	case .Open_File:
+		action = .OPEN
+		accept_label = "Open"
 	case .Save_File:
 		action = .SAVE
 		accept_label = "Save"
