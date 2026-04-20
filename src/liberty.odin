@@ -337,6 +337,10 @@ parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.All
 			case "pin", "pg_pin":
 				port_name := cchild.args[0]
 				create_cell_port(parent_cell_ptr = cell_ptr, arena_alloc = alloc, name = port_name)
+			case "area":
+				// TODO(rahul): Use area from lef file but store this area to corroborate too"
+				cell_area := cchild.value
+				fmt.println("cell", cell_name, "has area", cell_area)
 			}
 		}
 	}
