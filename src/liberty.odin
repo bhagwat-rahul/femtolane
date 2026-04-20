@@ -369,20 +369,13 @@ parse_args :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> [dynamic]string {
 
 		c := peek_liberty(l)
 
-		// 🔥 NEW: handle quoted string
 		if c == '"' {
 			append(&args, scan_string(l))
-
-			// normal identifier
 		} else if is_liberty_ident_start(c) {
 			append(&args, scan_liberty_ident(l))
-
-			// fallback (numbers, weird stuff)
 		} else {
 			start := l.curr_byte_idx
-			for peek_liberty(l) != ',' && peek_liberty(l) != ')' {
-				l.curr_byte_idx += 1
-			}
+			for peek_liberty(l) != ',' && peek_liberty(l) != ')' { l.curr_byte_idx += 1 }
 			append(&args, string(l.src[start:l.curr_byte_idx]))
 		}
 
