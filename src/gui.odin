@@ -39,6 +39,7 @@ run_gui :: proc() {
 	rl.SetConfigFlags(window.control_flags)
 	rl.InitWindow(window.width, window.height, window.name)
 	rl.SetTargetFPS(window.fps)
+	rl.SetWindowSize(rl.GetScreenWidth() - 200, rl.GetScreenHeight() - 200) // we need to set this post window init otherwise width/height returns 0
 	showMessage: bool = true
 
 	for !rl.WindowShouldClose() {
