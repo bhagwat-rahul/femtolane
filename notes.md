@@ -145,3 +145,18 @@ char_config() {
     merge_selection(all, max);
 }
 ```
+
+## Lef / Lib / Tlef files
+
+From lib file we can get area of a stdcell, but it is derived (more authoritatively) from lef file as dimensions.
+And the units for the dimensions (and other such relevant things) are given in the tlef (technology lef files)
+So the tlef file is the top level file which gives us data that applies to all lef files, and lef files have cell specific data
+lef data differs from lib data since lef data is about geometry whereas lib data is electrical simulation data.
+so lef will tell you size, this can go here, tolerances etc. lib tells you this happens at this temp and voltage, how fast it switches at this condition, etc.
+
+LIB = Electrical characteristics
+LEF = Physical geometry (cell level)
+TLEF = Top level technology wide rules
+
+From these we make DEF (.def) which realizes our design (can then run checks, etc.) and when def is final, we write out the binary containing actual polygons (oasis)
+Def contains instructions, Oasis is the rendered 'artwork' from those instructions.
