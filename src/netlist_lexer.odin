@@ -495,9 +495,3 @@ lexer_panic :: #force_inline proc(l: ^GateLevelNetlistLexer, err_msg: string) {
 lexer_ensure :: #force_inline proc(l: ^GateLevelNetlistLexer, condition: bool, err_msg: string) {
 	ensure(condition, fmt.tprintf("Error: %s at byte %d for char %r in file '%s'", err_msg, l.curr_byte_idx, l.src[l.curr_byte_idx], l.filepath))
 }
-
-// Write out an hgr file for debug purposes
-flatten_and_write_hypergraph :: proc(hgr: ^NetlistHyperGraph) {
-	flatHgrData: []byte = {'t', 'e', 's', 't'}
-	writeDataToFile("netlist_hypergraph.hgr", &flatHgrData)
-}
