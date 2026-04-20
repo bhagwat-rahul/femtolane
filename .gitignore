@@ -2,6 +2,7 @@
 build/
 *.bin
 *.exe
+*.pdb
 .*
 
 # MacOS Debug Symbols
