@@ -1,6 +1,7 @@
 # Ignore build dir, binaries, dotfiles and dotfolders
 build/
 *.bin
+*.exe
 .*
 
 # MacOS Debug Symbols
