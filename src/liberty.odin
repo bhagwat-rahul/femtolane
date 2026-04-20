@@ -311,7 +311,7 @@ parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.All
 		skip_whitespace_and_comments(&l)
 		if l.curr_byte_idx >= len(l.src) { break }
 
-		n := parse_stmt(&l, alloc)
+		n := liberty_parse_statement(&l, alloc)
 		append(&nodes, n)
 	}
 
@@ -406,7 +406,7 @@ scan_string :: proc(l: ^LibertyLexer) -> string {
 	}
 }
 
-parse_stmt :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> ^LibertyNode {
+liberty_parse_statement :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> ^LibertyNode {
 	skip_whitespace_and_comments(l)
 
 	name := scan_liberty_ident(l)
@@ -443,7 +443,7 @@ parse_stmt :: proc(l: ^LibertyLexer, alloc: mem.Allocator) -> ^LibertyNode {
 			skip_whitespace_and_comments(l)
 
 			for peek_liberty(l) != '}' {
-				child := parse_stmt(l, alloc)
+				child := liberty_parse_statement(l, alloc)
 				append(&node.children, child)
 				skip_whitespace_and_comments(l)
 			}
