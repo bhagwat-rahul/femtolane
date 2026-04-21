@@ -13,6 +13,14 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 
+LibertyProcessCorner :: distinct string
+LibertyPVTCorner :: struct {
+	temperature_celsius: i16,
+	voltage_millivolts:  u32, // 1000 = 1 V
+	process_corner:      LibertyProcessCorner, // not an enum since pdk's define their custom ones apart from common
+	source_lib_filepath: string,
+}
+
 LibraryType :: enum {
 	CMOS,
 	FPGA,
