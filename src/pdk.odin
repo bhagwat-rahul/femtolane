@@ -1,3 +1,15 @@
+/* nodeinfo.json at open_pdk root
+foundry       :	Short name of the foundry, equal to the foundry directory root, above the PDK variants.
+foundry-name  : Long name of the foundry.
+node          :	The name of the PDK variant
+feature-size  : The foundry process feature size (e.g. 130nm)
+status        : "active" or "inactive". May be used by tools to present or hide specific PDK variants.
+description   :	Long text description of the process variant (e.g., 6-metal stack + MiM caps)
+options       :	List of options, corresponding to the definitions used in the Makefile and passed to preproc.py.
+stdcells      :	List of standard cell libraries available for this PDK variant.
+iocells       :	List of I/O pad cell libraries available for this PDK variant.
+*/
+
 package main
 
 // func's to help with loading a pdk setting up pdk specific structs, provide a browsing interface
