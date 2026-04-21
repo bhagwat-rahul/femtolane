@@ -39,7 +39,7 @@ run_gui :: proc() {
 	raylib.SetConfigFlags(window.control_flags)
 	raylib.InitWindow(window.width, window.height, window.name)
 	raylib.SetTargetFPS(window.fps)
-	raylib.SetWindowSize(raylib.GetScreenWidth() - 200, raylib.GetScreenHeight() - 200) // we need to set this post window init otherwise width/height returns 0
+	raylib.SetWindowSize(raylib.GetScreenWidth() - 200, raylib.GetScreenHeight() - 200) // set post window init else width,height return 0
 	showMessage: bool = true
 
 	for !raylib.WindowShouldClose() {
