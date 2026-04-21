@@ -3,6 +3,7 @@ build/
 *.bin
 *.exe
 *.pdb
+*.rdi
 .*
 
 # MacOS Debug Symbols
