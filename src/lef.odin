@@ -37,7 +37,9 @@ package main
 import "core:mem"
 import "core:os"
 
-read_lef :: proc(filepath: string = ".test.lef", allocator: mem.Allocator = context.temp_allocator) {
+LEF_COMMENT :: '#'
+
+read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator) {
 	data, err := os.read_entire_file_from_path(filepath, allocator)
 	ensure(err == nil, "Error reading file")
 
@@ -48,14 +50,11 @@ read_lef :: proc(filepath: string = ".test.lef", allocator: mem.Allocator = cont
 	}
 
 	for l.idx < len(l.src) {
-		c := l.src[l.idx]
-		switch c {
-		case '#': lef_skip_comments()
+		switch peek(&l) {
+		case LEF_COMMENT: lef_skip_comments(l = &l)
 		case:
 		}
 	}
 }
 
-lef_skip_comments :: proc() {
-	for { break }
-}
+lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advance(l) } }

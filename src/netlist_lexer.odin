@@ -184,7 +184,7 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		byte := peek(&l)
 
 		switch byte {
-		case SLASH: handle_single_and_multiline_comments(&l)
+		case SLASH: netlist_handle_comments(&l)
 		case NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE, WHITESPACE_TAB: skip_newlines_and_whitespaces(&l)
 		case LPAREN: check_for_and_handle_attribute(&l) // the only lparen main loop should see is for attributes
 		case: if is_ident_start(byte) || byte == ESCAPE_SYMBOL {
@@ -212,7 +212,7 @@ skip_newlines_and_whitespaces :: #force_inline proc(l: ^Lexer) {
 	}
 }
 
-handle_single_and_multiline_comments :: #force_inline proc(l: ^Lexer) {
+netlist_handle_comments :: #force_inline proc(l: ^Lexer) {
 	if (peek(l) == '/' && peek(l, 1) == '/') {
 		advance(l, 2)
 		for peek(l) != '\n' && peek(l) != 0 { advance(l) }

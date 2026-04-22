@@ -247,38 +247,37 @@ is_liberty_ident_char :: #force_inline proc(b: byte) -> bool { return LIBERTY_ID
 
 scan_liberty_ident :: #force_inline proc(l: ^Lexer) -> string {
 	start := l.idx
-	for l.idx < len(l.src) && is_liberty_ident_char(l.src[l.idx]) { l.idx += 1 }
+	for l.idx < len(l.src) && is_liberty_ident_char(peek(l)) { advance(l) }
 	return string(l.src[start:l.idx])
 }
 
-skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
+liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
 	for l.idx < len(l.src) {
-		c := l.src[l.idx]
+		c := peek(l)
 
 		// whitespace
 		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
-			l.idx += 1
+			advance(l)
 			continue
 		}
 
 		// line comment: // ...
 		if c == '/' && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == '/' {
-			l.idx += 2
-			for l.idx < len(l.src) && l.src[l.idx] != '\n' { l.idx += 1 }
+			for l.idx < len(l.src) && peek(l) != '\n' { advance(l) }
 			continue
 		}
 
 		// block comment: /* ... */
 		if c == '/' && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == '*' {
-			l.idx += 2
+			advance(l, 2)
 
 			for {
 				if l.idx + 1 >= len(l.src) { panic("unterminated comment") }
-				if l.src[l.idx] == '*' && l.src[l.idx + 1] == '/' {
-					l.idx += 2
+				if peek(l) == '*' && l.src[l.idx + 1] == '/' {
+					advance(l, 2)
 					break
 				}
-				l.idx += 1
+				advance(l)
 			}
 			continue
 		}
@@ -312,7 +311,7 @@ parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.All
 	nodes = make([dynamic]^LibertyNode, alloc)
 
 	for l.idx < len(l.src) {
-		skip_whitespace_and_comments(&l)
+		liberty_skip_whitespace_and_comments(&l)
 		if l.idx >= len(l.src) { break }
 
 		n := liberty_parse_statement(&l, alloc)
@@ -357,25 +356,20 @@ LibertyNode :: struct {
 	children: [dynamic]^LibertyNode,
 }
 
-peek_liberty :: #force_inline proc(l: ^Lexer) -> byte {
-	if l.idx >= len(l.src) { return 0 }
-	return l.src[l.idx]
-}
-
 consume :: #force_inline proc(l: ^Lexer, c: byte) {
-	if peek_liberty(l) != c { panic("unexpected char") }
-	l.idx += 1
+	if peek(l) != c { panic("unexpected char") }
+	advance(l)
 }
 
 parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 	args := make([dynamic]string, alloc)
 
 	consume(l, '(')
-	skip_whitespace_and_comments(l)
+	liberty_skip_whitespace_and_comments(l)
 
-	for peek_liberty(l) != ')' {
+	for peek(l) != ')' {
 
-		c := peek_liberty(l)
+		c := peek(l)
 
 		if c == '"' {
 			append(&args, scan_string(l))
@@ -383,15 +377,15 @@ parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 			append(&args, scan_liberty_ident(l))
 		} else {
 			start := l.idx
-			for peek_liberty(l) != ',' && peek_liberty(l) != ')' { l.idx += 1 }
+			for peek(l) != ',' && peek(l) != ')' { advance(l) }
 			append(&args, string(l.src[start:l.idx]))
 		}
 
-		skip_whitespace_and_comments(l)
+		liberty_skip_whitespace_and_comments(l)
 
-		if peek_liberty(l) == ',' {
-			l.idx += 1
-			skip_whitespace_and_comments(l)
+		if peek(l) == ',' {
+			advance(l)
+			liberty_skip_whitespace_and_comments(l)
 		}
 	}
 
@@ -405,32 +399,32 @@ scan_string :: proc(l: ^Lexer) -> string {
 
 	for {
 		if l.idx >= len(l.src) { panic("unterminated string") }
-		if l.src[l.idx] == '"' {
+		if peek(l) == '"' {
 			s := string(l.src[start:l.idx]) // ← NO quotes
-			l.idx += 1
+			advance(l)
 			return s
 		}
-		l.idx += 1
+		advance(l)
 	}
 }
 
 liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode {
-	skip_whitespace_and_comments(l)
+	liberty_skip_whitespace_and_comments(l)
 
 	name := scan_liberty_ident(l)
-	skip_whitespace_and_comments(l)
+	liberty_skip_whitespace_and_comments(l)
 
 	node, _ := new(LibertyNode, alloc)
 	node.name = name
 
 	// SIMPLE: name : value ;
-	if peek_liberty(l) == ':' {
-		l.idx += 1
-		skip_whitespace_and_comments(l)
+	if peek(l) == ':' {
+		advance(l)
+		liberty_skip_whitespace_and_comments(l)
 
 		start := l.idx
-		for peek_liberty(l) != ';' {
-			l.idx += 1
+		for peek(l) != ';' {
+			advance(l)
 		}
 
 		node.value = string(l.src[start:l.idx])
@@ -439,21 +433,21 @@ liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode
 	}
 
 	// COMPLEX / GROUP
-	if peek_liberty(l) == '(' {
+	if peek(l) == '(' {
 		node.args = parse_args(l, alloc)
-		skip_whitespace_and_comments(l)
+		liberty_skip_whitespace_and_comments(l)
 
 		// GROUP
-		if peek_liberty(l) == '{' {
+		if peek(l) == '{' {
 			node.children = make([dynamic]^LibertyNode, alloc)
 
 			consume(l, '{')
-			skip_whitespace_and_comments(l)
+			liberty_skip_whitespace_and_comments(l)
 
-			for peek_liberty(l) != '}' {
+			for peek(l) != '}' {
 				child := liberty_parse_statement(l, alloc)
 				append(&node.children, child)
-				skip_whitespace_and_comments(l)
+				liberty_skip_whitespace_and_comments(l)
 			}
 
 			consume(l, '}')
@@ -465,9 +459,5 @@ liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode
 		return node
 	}
 
-	panic(fmt.tprintf("Error: invalid syntax for char %r at byte %d in file %s", l.src[l.idx], l.idx, l.filepath))
-}
-
-liberty_panic :: #force_inline proc(err_msg: string, l: ^Lexer) {
-	panic(fmt.tprintf("Error: %s for char %r at byte %d", err_msg, l.src[l.idx], l.idx))
+	panic(fmt.tprintf("Error: invalid syntax for char %r at byte %d in file %s", peek(l), l.idx, l.filepath))
 }
