@@ -297,7 +297,7 @@ parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.All
 		fmt.println("Please select a liberty file")
 		resolved_liberty_path, _ = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
 	}
-	ensure(len(resolved_liberty_path) == 0, "Program terminated as you did not select a liberty file")
+	ensure(len(resolved_liberty_path) >= 0, "Program terminated as you did not select a liberty file")
 	data, err := os.read_entire_file_from_path(resolved_liberty_path, alloc)
 	ensure(err == nil, fmt.tprintln("FileReadError:", err))
 

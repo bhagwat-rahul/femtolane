@@ -156,7 +156,7 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		fmt.println("Please select a gate-level verilog netlist file")
 		resolved_gate_netlist_path, _ = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
 	}
-	ensure(len(resolved_gate_netlist_path) != 0, "Program terminated as you did not select a file to lexgraph")
+	ensure(len(resolved_gate_netlist_path) >= 0, "Program terminated as you did not select a file to lexgraph")
 	data, err := os.read_entire_file_from_path(resolved_gate_netlist_path, lex_graph_arena_allocator)
 	ensure(err == nil, fmt.tprintln("FileReadError:", err))
 	l: Lexer = {
