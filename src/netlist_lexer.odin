@@ -67,12 +67,6 @@ Net :: struct {
 	net_type:    NetType,
 } // A net(wire) connects many-many ports (thereby connecting the parent instances of those ports)
 
-Lexer :: struct {
-	src:      []byte,
-	idx:      int,
-	filepath: string,
-}
-
 NetlistHyperGraph :: struct {
 	cells:             [dynamic]^Cell,
 	instances:         [dynamic]^Instance, // all instances in the netlist
@@ -463,19 +457,4 @@ create_net :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, net_val:
 	hgr.net_hash_map[net.name] = net
 	append(&hgr.nets, net)
 	return net
-}
-
-peek :: #force_inline proc(l: ^Lexer, offset: int = 0) -> byte { return l.src[l.idx + offset] if l.idx + offset < len(l.src) else 0 }
-
-advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
-	if l.idx + advance_by > len(l.src) { lexer_panic(l, "Unexpected EOF") }
-	l.idx += advance_by
-}
-
-lexer_panic :: #force_inline proc(l: ^Lexer, err_msg: string) {
-	panic(fmt.tprintf("Error: %s at byte %d for char %r in file '%s'", err_msg, l.idx, l.src[l.idx], l.filepath))
-}
-
-lexer_ensure :: #force_inline proc(l: ^Lexer, condition: bool, err_msg: string) {
-	ensure(condition, fmt.tprintf("Error: %s at byte %d for char %r in file '%s'", err_msg, l.idx, l.src[l.idx], l.filepath))
 }

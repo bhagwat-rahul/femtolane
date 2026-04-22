@@ -356,11 +356,6 @@ LibertyNode :: struct {
 	children: [dynamic]^LibertyNode,
 }
 
-consume :: #force_inline proc(l: ^Lexer, c: byte) {
-	if peek(l) != c { panic("unexpected char") }
-	advance(l)
-}
-
 parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 	args := make([dynamic]string, alloc)
 
@@ -372,7 +367,7 @@ parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 		c := peek(l)
 
 		if c == '"' {
-			append(&args, scan_string(l))
+			append(&args, scan_double_quote_wrapped_string(l))
 		} else if is_liberty_ident_start(c) {
 			append(&args, scan_liberty_ident(l))
 		} else {
@@ -391,21 +386,6 @@ parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 
 	consume(l, ')')
 	return args
-}
-
-scan_string :: proc(l: ^Lexer) -> string {
-	consume(l, '"')
-	start := l.idx
-
-	for {
-		if l.idx >= len(l.src) { panic("unterminated string") }
-		if peek(l) == '"' {
-			s := string(l.src[start:l.idx]) // ← NO quotes
-			advance(l)
-			return s
-		}
-		advance(l)
-	}
 }
 
 liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode {
