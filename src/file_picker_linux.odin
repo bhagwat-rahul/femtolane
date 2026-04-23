@@ -1,99 +1,115 @@
 package main
 import "core:c"
+import "core:fmt"
 import "core:strings"
 
-foreign import gtk "system:gtk-3"
-foreign import gobject "system:gobject-2.0"
-foreign import glib "system:glib-2.0"
+DBusConnection :: rawptr
+DBusMessage :: rawptr
 
-Gtk_File_Chooser_Action :: enum c.int {
-	OPEN,
-	SAVE,
-	SELECT_FOLDER,
-	CREATE_FOLDER,
-}
-GTK_RESPONSE_ACCEPT : c.int : -3
-
-@(default_calling_convention = "c")
-foreign gtk {
-	gtk_init_check :: proc(argc, argv: rawptr) -> bool ---
-	gtk_file_chooser_native_new :: proc(title: cstring, parent: rawptr, action: Gtk_File_Chooser_Action, accept_label, cancel_label: cstring) -> rawptr ---
-	gtk_native_dialog_run :: proc(dialog: rawptr) -> c.int ---
-	gtk_file_chooser_set_current_folder :: proc(chooser: rawptr, path: cstring) -> bool ---
-	gtk_file_chooser_set_current_name :: proc(chooser: rawptr, name: cstring) ---
-	gtk_file_chooser_set_do_overwrite_confirmation :: proc(chooser: rawptr, enabled: bool) ---
-	gtk_file_chooser_set_show_hidden :: proc(chooser: rawptr, show_hidden: bool) ---
-	gtk_file_chooser_get_filename :: proc(chooser: rawptr) -> cstring ---
-	gtk_file_chooser_add_filter :: proc(chooser, filter: rawptr) ---
-	gtk_file_filter_new :: proc() -> rawptr ---
-	gtk_file_filter_set_name :: proc(filter: rawptr, name: cstring) ---
-	gtk_file_filter_add_pattern :: proc(filter: rawptr, pattern: cstring) ---
+DBusError :: struct {
+	name:    cstring,
+	message: cstring,
+	_opaque: [64]byte,
 }
 
-@(default_calling_convention = "c")
-foreign gobject { g_object_unref :: proc(object: rawptr) --- }
-@(default_calling_convention = "c")
-foreign glib { g_free :: proc(ptr: rawptr) --- }
-
-
-add_linux_filters :: proc(dialog: rawptr, filters: []File_Type_Filter) {
-	for filter in filters {
-		gtk_filter: rawptr
-		for ext in filter.extensions {
-			if pattern := wildcard_for_extension(ext, context.temp_allocator); len(pattern) > 0 {
-				if gtk_filter == nil {
-					gtk_filter = gtk_file_filter_new()
-					if gtk_filter == nil { break }
-					if len(filter.description) >
-					   0 { gtk_file_filter_set_name(gtk_filter, strings.clone_to_cstring(filter.description, context.temp_allocator) or_else nil) }
-				}
-				gtk_file_filter_add_pattern(gtk_filter, strings.clone_to_cstring(pattern, context.temp_allocator) or_else nil)
-			}
-		}
-		if gtk_filter != nil { gtk_file_chooser_add_filter(dialog, gtk_filter) }
-	}
+DBusMessageIter :: struct {
+	_opaque: [64]byte,
 }
 
-pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) -> (selection: string, ok: bool) {
-	if !gtk_init_check(nil, nil) { return "", false }
-	action := Gtk_File_Chooser_Action.OPEN
-	accept_label := "Open"
-	switch request.mode {
-	case .Open_File:
-		action = .OPEN
-		accept_label = "Open"
-	case .Save_File:
-		action = .SAVE
-		accept_label = "Save"
-	case .Open_Folder:
-		action = .SELECT_FOLDER
-		accept_label = "Select"
-	}
-	title := request.title
-	if len(title) == 0 { title = "Select Path" }
-	dialog := gtk_file_chooser_native_new(
-		strings.clone_to_cstring(title, context.temp_allocator) or_else nil,
-		nil,
-		action,
-		strings.clone_to_cstring(accept_label, context.temp_allocator) or_else nil,
-		"Cancel",
+DBUS_BUS_SESSION: c.int : 0
+
+
+@(default_calling_convention = "c")
+foreign _ {
+	dbus_error_init :: proc(err: ^DBusError) ---
+	dbus_bus_get :: proc(bus: c.int, err: ^DBusError) -> DBusConnection ---
+	dbus_message_new_method_call :: proc(bus: cstring, path: cstring, interface: cstring, method: cstring) -> DBusMessage ---
+	dbus_message_iter_init_append :: proc(msg: DBusMessage, iter: ^DBusMessageIter) -> c.int ---
+	dbus_message_iter_append_basic :: proc(iter: ^DBusMessageIter, typ: c.int, value: rawptr) -> c.int ---
+	dbus_connection_send_with_reply_and_block :: proc(conn: DBusConnection, msg: DBusMessage, timeout: c.int, err: ^DBusError) -> DBusMessage ---
+	dbus_message_iter_init :: proc(msg: DBusMessage, iter: ^DBusMessageIter) -> c.int ---
+	dbus_message_iter_next :: proc(iter: ^DBusMessageIter) -> c.int ---
+	dbus_message_iter_get_basic :: proc(iter: ^DBusMessageIter, value: rawptr) -> c.int ---
+	dbus_message_get_path :: proc(msg: DBusMessage) -> cstring ---
+	dbus_connection_read_write :: proc(conn: DBusConnection, timeout: c.int) -> c.int ---
+	dbus_connection_pop_message :: proc(conn: DBusConnection) -> DBusMessage ---
+	dbus_message_is_signal :: proc(msg: DBusMessage, interface: cstring, signal: cstring) -> c.int ---
+	dbus_message_iter_open_container :: proc(iter: ^DBusMessageIter, typ: c.int, contained_signature: cstring, sub: ^DBusMessageIter) -> c.int ---
+	dbus_message_iter_close_container :: proc(iter: ^DBusMessageIter, sub: ^DBusMessageIter) -> c.int ---
+}
+
+pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string, ok: bool) {
+
+	err: DBusError
+	dbus_error_init(&err)
+
+	conn := dbus_bus_get(DBUS_BUS_SESSION, &err)
+	if conn == nil { fmt.println(err.message); return "", false }
+
+	title: cstring = strings.clone_to_cstring(request.title)
+	if len(title) == 0 { title = "Select File" }
+
+	parent: cstring = ""
+
+	msg := dbus_message_new_method_call(
+		"org.freedesktop.portal.Desktop",
+		"/org/freedesktop/portal/desktop",
+		"org.freedesktop.portal.FileChooser",
+		"OpenFile",
 	)
-	if dialog == nil { return "", false }
-	defer g_object_unref(dialog)
-	gtk_file_chooser_set_show_hidden(dialog, true)
-	if len(request.starting_path) >
-	   0 { _ = gtk_file_chooser_set_current_folder(dialog, strings.clone_to_cstring(request.starting_path, context.temp_allocator) or_else nil) }
-	if request.mode == .Save_File {
-		gtk_file_chooser_set_do_overwrite_confirmation(dialog, true)
-		if len(request.suggested_name) >
-		   0 { gtk_file_chooser_set_current_name(dialog, strings.clone_to_cstring(request.suggested_name, context.temp_allocator) or_else nil) }
-	} else if request.mode == .Open_File {
-		add_linux_filters(dialog, request.file_types)
+
+	if msg == nil { return "", false }
+
+	iter: DBusMessageIter
+	dbus_message_iter_init_append(msg, &iter)
+
+	p := parent
+	t := title
+
+	dbus_message_iter_append_basic(&iter, 's', rawptr(&p))
+	dbus_message_iter_append_basic(&iter, 's', rawptr(&t))
+
+	opts: DBusMessageIter
+	dbus_message_iter_open_container(&iter, 'a', "{sv}", &opts)
+	dbus_message_iter_close_container(&iter, &opts)
+
+	reply := dbus_connection_send_with_reply_and_block(conn, msg, -1, &err)
+
+	if reply == nil { fmt.println(err.message); return "", false }
+
+	handle: cstring
+	dbus_message_iter_init(reply, &iter)
+	dbus_message_iter_get_basic(&iter, &handle)
+
+	for {
+		dbus_connection_read_write(conn, 0)
+
+		sig := dbus_connection_pop_message(conn)
+		if sig == nil { continue }
+
+		if dbus_message_is_signal(sig, "org.freedesktop.portal.Request", "Response") == 0 { continue }
+
+		path := dbus_message_get_path(sig)
+		if path == nil || path != handle { continue }
+
+		dbus_message_iter_init(sig, &iter)
+
+		response_code: c.int
+		dbus_message_iter_get_basic(&iter, &response_code)
+
+		if response_code != 0 { return "", false }
+
+		dbus_message_iter_next(&iter)
+
+		uri: cstring
+		dbus_message_iter_get_basic(&iter, &uri)
+
+		if uri == nil { return "", false }
+
+		uri_str := string(uri)
+
+		if len(uri_str) > 7 && uri_str[0:7] == "file://" { return strings.clone(uri_str[7:], allocator), true }
+
+		return strings.clone(uri_str, allocator), true
 	}
-	if gtk_native_dialog_run(dialog) != GTK_RESPONSE_ACCEPT { return "", false }
-	path := gtk_file_chooser_get_filename(dialog)
-	if path == nil { return "", false }
-	defer g_free(rawptr(path))
-	selection = strings.clone(string(path), allocator) or_else ""
-	return selection, len(selection) > 0
 }
