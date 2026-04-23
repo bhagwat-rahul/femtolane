@@ -43,9 +43,20 @@ LEF_COMMENT :: '#'
 
 LefKeyword :: enum {
 	NONE,
-	VERSION,
 	BUSBITCHARS,
+	CLEARANCEMEASURE,
 	DIVIDERCHAR,
+}
+
+LefConfig :: struct {
+	bus_bit_chars:     [2]byte, // delimiters on buses (escape if used elsewhere) (default [])
+	clearance_measure: ClearanceMeasure, // default euclidean
+	divider_char:      byte, // express hierarchy when lef names mapped to/from other dbs (default "/", escape if used elsewhere)
+}
+
+ClearanceMeasure :: enum {
+	MAXXY, // Uses the largest x or y distances for spacing between objects.
+	EUCLIDEAN, // Uses the euclidean distance for spacing between objects, i.e. sqrt(x2 + y2) (default)
 }
 
 read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator) {
@@ -56,6 +67,12 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		src      = data,
 		idx      = 0,
 		filepath = filepath,
+	}
+
+	lef_config: LefConfig = {
+		bus_bit_chars     = "[]",
+		clearance_measure = .EUCLIDEAN,
+		divider_char      = '/',
 	}
 
 	for l.idx < len(l.src) {
@@ -74,15 +91,18 @@ handle_keyword :: proc(l: ^Lexer) {
 
 	switch keyword {
 	case .NONE: fmt.println("Unable to match keyword")
-	case .VERSION:
-	case .BUSBITCHARS:
-	case .DIVIDERCHAR:
+	case .BUSBITCHARS: // get 2 byte pair enclosed in quotes
+	case .CLEARANCEMEASURE: // which of 2 enums
+	case .DIVIDERCHAR: // single byte in quotes
+
 	}
 
 }
 
 return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
-	if strings.equal_fold(ident, "busbitchars") { return .BUSBITCHARS }
-	if strings.equal_fold(ident, "dividerchar") { return .DIVIDERCHAR }
+	if strings.equal_fold(ident, "BUSBITCHARS") { return .BUSBITCHARS }
+	if strings.equal_fold(ident, "CLEARANCEMEASURE") { return .CLEARANCEMEASURE }
+	if strings.equal_fold(ident, "DIVIDERCHAR") { return .DIVIDERCHAR }
+
 	return .NONE
 }
