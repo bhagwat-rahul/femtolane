@@ -34,6 +34,8 @@ foreign _ {
 	dbus_connection_read_write :: proc(conn: DBusConnection, timeout: c.int) -> c.int ---
 	dbus_connection_pop_message :: proc(conn: DBusConnection) -> DBusMessage ---
 	dbus_message_is_signal :: proc(msg: DBusMessage, interface: cstring, signal: cstring) -> c.int ---
+	dbus_message_iter_open_container :: proc(iter: ^DBusMessageIter, typ: c.int, contained_signature: cstring, sub: ^DBusMessageIter) -> c.int ---
+	dbus_message_iter_close_container :: proc(iter: ^DBusMessageIter, sub: ^DBusMessageIter) -> c.int ---
 }
 
 pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string, ok: bool) {
@@ -66,6 +68,10 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 
 	dbus_message_iter_append_basic(&iter, 's', rawptr(&p))
 	dbus_message_iter_append_basic(&iter, 's', rawptr(&t))
+
+	opts: DBusMessageIter
+	dbus_message_iter_open_container(&iter, 'a', "{sv}", &opts)
+	dbus_message_iter_close_container(&iter, &opts)
 
 	reply := dbus_connection_send_with_reply_and_block(conn, msg, -1, &err)
 
