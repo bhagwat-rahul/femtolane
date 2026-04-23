@@ -1,5 +1,6 @@
 package main
 import "core:c"
+import "core:fmt"
 import "core:strings"
 
 DBusConnection :: rawptr
@@ -35,15 +36,13 @@ foreign _ {
 	dbus_message_is_signal :: proc(msg: DBusMessage, interface: cstring, signal: cstring) -> c.int ---
 }
 
-pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) -> (selection: string, ok: bool) {
+pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string, ok: bool) {
 
 	err: DBusError
 	dbus_error_init(&err)
 
 	conn := dbus_bus_get(DBUS_BUS_SESSION, &err)
-	if conn == nil {
-		return "", false
-	}
+	if conn == nil { fmt.println(err.message); return "", false }
 
 	title: cstring = strings.clone_to_cstring(request.title)
 	if len(title) == 0 { title = "Select File" }
@@ -70,7 +69,7 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) 
 
 	reply := dbus_connection_send_with_reply_and_block(conn, msg, -1, &err)
 
-	if reply == nil { return "", false }
+	if reply == nil { fmt.println(err.message); return "", false }
 
 	handle: cstring
 	dbus_message_iter_init(reply, &iter)
