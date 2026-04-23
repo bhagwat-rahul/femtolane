@@ -2,10 +2,6 @@ package main
 import "core:c"
 import "core:strings"
 
-// =====================================================
-// Types
-// =====================================================
-
 DBusConnection :: rawptr
 DBusMessage :: rawptr
 
