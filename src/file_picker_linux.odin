@@ -38,13 +38,13 @@ foreign _ {
 	dbus_message_iter_close_container :: proc(iter: ^DBusMessageIter, sub: ^DBusMessageIter) -> c.int ---
 }
 
-pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string, ok: bool) {
+pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string) {
 
 	err: DBusError
 	dbus_error_init(&err)
 
 	conn := dbus_bus_get(DBUS_BUS_SESSION, &err)
-	if conn == nil { fmt.println(err.message); return "", false }
+	if conn == nil { fmt.println(err.message); return "" }
 
 	title: cstring = strings.clone_to_cstring(request.title)
 	if len(title) == 0 { title = "Select File" }
@@ -58,7 +58,7 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 		"OpenFile",
 	)
 
-	if msg == nil { return "", false }
+	if msg == nil { return "" }
 
 	iter: DBusMessageIter
 	dbus_message_iter_init_append(msg, &iter)
@@ -75,7 +75,7 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 
 	reply := dbus_connection_send_with_reply_and_block(conn, msg, -1, &err)
 
-	if reply == nil { fmt.println(err.message); return "", false }
+	if reply == nil { fmt.println(err.message); return "" }
 
 	handle: cstring
 	dbus_message_iter_init(reply, &iter)
@@ -97,19 +97,19 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 		response_code: c.int
 		dbus_message_iter_get_basic(&iter, &response_code)
 
-		if response_code != 0 { return "", false }
+		if response_code != 0 { return "" }
 
 		dbus_message_iter_next(&iter)
 
 		uri: cstring
 		dbus_message_iter_get_basic(&iter, &uri)
 
-		if uri == nil { return "", false }
+		if uri == nil { return "" }
 
 		uri_str := string(uri)
 
-		if len(uri_str) > 7 && uri_str[0:7] == "file://" { return strings.clone(uri_str[7:], allocator), true }
+		if len(uri_str) > 7 && uri_str[0:7] == "file://" { return strings.clone(uri_str[7:], allocator) }
 
-		return strings.clone(uri_str, allocator), true
+		return strings.clone(uri_str, allocator)
 	}
 }

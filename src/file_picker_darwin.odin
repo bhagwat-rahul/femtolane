@@ -45,7 +45,7 @@ clone_url_path :: #force_inline proc(url: ^Foundation.URL, allocator := context.
 	return "" if url == nil else (strings.clone(string(Foundation.URL_fileSystemRepresentation(url)), allocator) or_else "")
 }
 
-pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string, ok: bool) {
+pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string) {
 	Foundation.scoped_autoreleasepool()
 	app := Foundation.Application_sharedApplication()
 	Foundation.Application_setActivationPolicy(app, .Regular)
@@ -57,9 +57,9 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 		if len(request.starting_path) > 0 { intrinsics.objc_send(nil, panel, "setDirectoryURL:", file_url(request.starting_path)) }
 		if len(request.suggested_name) > 0 { intrinsics.objc_send(nil, panel, "setNameFieldStringValue:", ns_string(request.suggested_name)) }
 		if types := allowed_types_array(request.file_types); types != nil { intrinsics.objc_send(nil, panel, "setAllowedFileTypes:", types) }
-		if Foundation.SavePanel_runModal(panel) != .OK { return "", false }
+		if Foundation.SavePanel_runModal(panel) != .OK { return "" }
 		selection = clone_url_path(Foundation.SavePanel_URL(panel), allocator)
-		return selection, len(selection) > 0
+		return selection
 	}
 	panel := Foundation.OpenPanel_openPanel()
 	Foundation.OpenPanel_setCanChooseFiles(panel, request.mode == .Open_File)
@@ -72,7 +72,7 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 	if request.mode == .Open_File {
 		if types := allowed_types_array(request.file_types); types != nil { Foundation.OpenPanel_setAllowedFileTypes(panel, types) }
 	}
-	if Foundation.SavePanel_runModal(cast(^Foundation.SavePanel)panel) != .OK { return "", false }
+	if Foundation.SavePanel_runModal(cast(^Foundation.SavePanel)panel) != .OK { return "" }
 	selection = clone_url_path(Foundation.SavePanel_URL(cast(^Foundation.SavePanel)panel), allocator)
-	return selection, len(selection) > 0
+	return selection
 }

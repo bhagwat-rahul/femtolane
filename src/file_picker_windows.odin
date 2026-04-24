@@ -24,25 +24,24 @@ windows_filter_pattern :: proc(filter: File_Type_Filter) -> string {
 	return strings.join(patterns[:count], ";", context.temp_allocator) or_else ""
 }
 
-pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string, ok: bool) {
+pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string) {
 	co_init := win32.CoInitializeEx(nil, .APARTMENTTHREADED)
-	if win32.FAILED(co_init) { return "", false }
+	if win32.FAILED(co_init) { return "" }
 	defer win32.CoUninitialize()
 	dialog_ptr: rawptr
 	class_id := win32.CLSID_FileSaveDialog if request.mode == .Save_File else win32.CLSID_FileOpenDialog
-	if hr := win32.CoCreateInstance(class_id, nil, win32.CLSCTX_INPROC_SERVER, win32.IID_IFileDialog, &dialog_ptr);
-	   win32.FAILED(hr) { return "", false }
+	if hr := win32.CoCreateInstance(class_id, nil, win32.CLSCTX_INPROC_SERVER, win32.IID_IFileDialog, &dialog_ptr); win32.FAILED(hr) { return "" }
 	dialog := cast(^win32.IFileDialog)dialog_ptr
 	defer dialog.Vtbl.Release(cast(^win32.IUnknown)dialog)
 	options: win32.FILEOPENDIALOGOPTIONS
-	if hr := dialog.Vtbl.GetOptions(dialog, &options); win32.FAILED(hr) { return "", false }
+	if hr := dialog.Vtbl.GetOptions(dialog, &options); win32.FAILED(hr) { return "" }
 	options |= win32.FOS_FORCEFILESYSTEM | win32.FOS_PATHMUSTEXIST | win32.FOS_FORCESHOWHIDDEN
 	switch request.mode {
 	case .Open_File: options |= win32.FOS_FILEMUSTEXIST
 	case .Save_File: options |= win32.FOS_OVERWRITEPROMPT
 	case .Open_Folder: options |= win32.FOS_PICKFOLDERS
 	}
-	if hr := dialog.Vtbl.SetOptions(dialog, options); win32.FAILED(hr) { return "", false }
+	if hr := dialog.Vtbl.SetOptions(dialog, options); win32.FAILED(hr) { return "" }
 	if len(request.title) > 0 { _ = dialog.Vtbl.SetTitle(dialog, win32.utf8_to_wstring(request.title, context.temp_allocator)) }
 	if len(request.starting_path) > 0 {
 		folder_ptr: rawptr
@@ -78,13 +77,13 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 		if default_ext := first_allowed_extension(request.file_types);
 		   len(default_ext) > 0 { _ = dialog.Vtbl.SetDefaultExtension(dialog, win32.utf8_to_wstring(default_ext, context.temp_allocator)) }
 	}
-	if win32.FAILED(dialog.Vtbl.Show(dialog, nil)) { return "", false }
+	if win32.FAILED(dialog.Vtbl.Show(dialog, nil)) { return "" }
 	item: ^win32.IShellItem
-	if hr := dialog.Vtbl.GetResult(dialog, &item); win32.FAILED(hr) || item == nil { return "", false }
+	if hr := dialog.Vtbl.GetResult(dialog, &item); win32.FAILED(hr) || item == nil { return "" }
 	defer item.Vtbl.Release(cast(^win32.IUnknown)item)
 	path_w: win32.LPWSTR
-	if hr := item.Vtbl.GetDisplayName(item, .FILESYSPATH, &path_w); win32.FAILED(hr) || path_w == nil { return "", false }
+	if hr := item.Vtbl.GetDisplayName(item, .FILESYSPATH, &path_w); win32.FAILED(hr) || path_w == nil { return "" }
 	defer win32.CoTaskMemFree(rawptr(path_w))
 	selection, _ = win32.wstring_to_utf8_alloc(cstring16(path_w), -1, allocator)
-	return selection, len(selection) > 0
+	return selection
 }
