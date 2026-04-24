@@ -53,6 +53,7 @@ LefKeyword :: enum {
 	MACRO,
 	MANUFACTURINGGRID,
 	MAXVIASTACK,
+	NONDEFAULTRULE,
 }
 
 LefExtension :: struct {
@@ -71,6 +72,7 @@ LefConfig :: struct {
 	macros:                   [dynamic]LefMacro,
 	manufacturing_grid_value: f64, // Maybe int instead?
 	max_via_stack:            LefMaxViaStack,
+	non_default_rules:        [dynamic]LefNonDefaultRule,
 }
 
 ClearanceMeasure :: enum {
@@ -131,6 +133,10 @@ LefMaxViaStack :: struct {
 	top_layer:    ^LefLayer,
 }
 
+LefNonDefaultRule :: struct {
+	name: string,
+}
+
 read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator) {
 	data, err := os.read_entire_file_from_path(filepath, allocator)
 	ensure(err == nil, "Error reading file")
@@ -152,6 +158,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		macros                   = make([dynamic]LefMacro, allocator),
 		manufacturing_grid_value = 0, // not sure yet if good to start w 0 default
 		max_via_stack            = LefMaxViaStack{},
+		non_default_rules        = make([dynamic]LefNonDefaultRule, allocator),
 	}
 
 	for l.idx < len(l.src) {
@@ -180,6 +187,7 @@ handle_keyword :: proc(l: ^Lexer) {
 	case .MACRO: // Parse Macro
 	case .MANUFACTURINGGRID: // Get float val (maybe scaled to int)
 	case .MAXVIASTACK: // Parse int + check if lower/upper bound given else applies to all
+	case .NONDEFAULTRULE: // Parse non-default rules
 
 	}
 
@@ -196,6 +204,7 @@ return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
 	if strings.equal_fold(ident, "MACRO") { return .MACRO }
 	if strings.equal_fold(ident, "MANUFACTURINGGRID") { return .MANUFACTURINGGRID }
 	if strings.equal_fold(ident, "MAXVIASTACK") { return .MAXVIASTACK }
+	if strings.equal_fold(ident, "NONDEFAULTRULE") { return .NONDEFAULTRULE }
 
 	return .NONE
 }
