@@ -5,12 +5,7 @@ import "core:os"
 import "core:path/slashpath"
 import "core:strings"
 
-run_yosys :: proc(
-	filepath: string,
-	lib_file: string,
-	top_module: string,
-	yosys_tcl_script_filepath: string,
-) -> string {
+run_yosys :: proc(filepath: string, lib_file: string, top_module: string, yosys_tcl_script_filepath: string) -> string {
 	directory, filename := slashpath.split(filepath)
 	outfile := fmt.tprintf("%s.%s.netlist.v", directory, strings.trim_suffix(filename, ".v")) // '/path/adder.v' becomes '/path/.adder.netlist.v'
 	yosys_proc: os.Process_Desc = {
@@ -22,7 +17,7 @@ run_yosys :: proc(
 			fmt.tprintf("OUTPUT_NETLIST=%v", outfile),
 		},
 	}
-	state, stdout, stderr, err := os.process_exec(yosys_proc, context.allocator)
+	state, stdout, stderr, err := os.process_exec(yosys_proc, context.temp_allocator)
 	defer delete(stdout)
 	defer delete(stderr)
 	fmt.println("STDOUT\n", string(stdout))
@@ -44,10 +39,5 @@ main :: proc() {
 	ensure(os.exists(sky130a_lef), "lef file not found")
 	ensure(os.exists(sky130a_tlef), "tlef file not found")
 
-	run_yosys(
-		filepath = "adder/adder.v",
-		lib_file = sky130a_liberty,
-		top_module = "adder",
-		yosys_tcl_script_filepath = "netlist_creator.tcl",
-	)
+	run_yosys(filepath = "adder/adder.v", lib_file = sky130a_liberty, top_module = "adder", yosys_tcl_script_filepath = "netlist_creator.tcl")
 }

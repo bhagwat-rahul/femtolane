@@ -24,7 +24,7 @@ windows_filter_pattern :: proc(filter: File_Type_Filter) -> string {
 	return strings.join(patterns[:count], ";", context.temp_allocator) or_else ""
 }
 
-pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) -> (selection: string, ok: bool) {
+pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string, ok: bool) {
 	co_init := win32.CoInitializeEx(nil, .APARTMENTTHREADED)
 	if win32.FAILED(co_init) { return "", false }
 	defer win32.CoUninitialize()

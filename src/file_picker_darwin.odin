@@ -41,11 +41,11 @@ allowed_types_array :: proc(filters: []File_Type_Filter) -> ^Foundation.Array {
 	return value
 }
 
-clone_url_path :: #force_inline proc(url: ^Foundation.URL, allocator := context.allocator) -> string {
+clone_url_path :: #force_inline proc(url: ^Foundation.URL, allocator := context.temp_allocator) -> string {
 	return "" if url == nil else (strings.clone(string(Foundation.URL_fileSystemRepresentation(url)), allocator) or_else "")
 }
 
-pick_path :: proc(request: File_Picker_Request, allocator := context.allocator) -> (selection: string, ok: bool) {
+pick_path :: proc(request: File_Picker_Request, allocator := context.temp_allocator) -> (selection: string, ok: bool) {
 	Foundation.scoped_autoreleasepool()
 	app := Foundation.Application_sharedApplication()
 	Foundation.Application_setActivationPolicy(app, .Regular)

@@ -51,11 +51,11 @@ test_lexGraph :: proc(_: ^testing.T) {
 	netlist_paths: [dynamic]string
 	NETLISTS_DIR :: "netlist_creation/" // relative path of where netlist folders are from test.odin
 
-	design_dirs, design_dir_read_err := os.read_all_directory_by_path(NETLISTS_DIR, context.allocator)
+	design_dirs, design_dir_read_err := os.read_all_directory_by_path(NETLISTS_DIR, context.temp_allocator)
 	assert(design_dir_read_err == nil)
 
 	for d in design_dirs {
-		files, err := os.read_all_directory_by_path(d.fullpath, context.allocator)
+		files, err := os.read_all_directory_by_path(d.fullpath, context.temp_allocator)
 		defer delete(files)
 		for file in files {
 			if strings.ends_with(file.name, ".netlist.v") {
@@ -68,7 +68,7 @@ test_lexGraph :: proc(_: ^testing.T) {
 		main.lex_gate_level_netlist_and_create_hypergraph(
 			gate_netlist_path = n,
 			liberty_filepath = LIBERTY_DIR,
-			lex_graph_arena_allocator = context.allocator,
+			lex_graph_arena_allocator = context.temp_allocator,
 		)
 	}
 
