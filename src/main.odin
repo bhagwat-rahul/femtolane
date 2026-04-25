@@ -5,6 +5,7 @@ import "core:mem/virtual"
 import "core:os"
 
 main :: proc() {
+	defer free_all(context.temp_allocator)
 	args := os.args
 	if len(args) <= 1 {
 		fmt.println("TODO(rahul): no arg provided so we will run the gui for now")
