@@ -40,6 +40,8 @@ import "core:os"
 import "core:strings"
 
 LEF_COMMENT :: '#'
+LEF_DEFAULT_BUS_BIT_CHARS :: "[]"
+LEF_DEFAULT_DIVIDER_CHAR :: '/'
 
 LefKeyword :: enum {
 	NONE,
@@ -152,9 +154,9 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 	}
 
 	lef_config: LefConfig = {
-		bus_bit_chars            = "[]",
+		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
 		clearance_measure        = .EUCLIDEAN,
-		divider_char             = '/',
+		divider_char             = LEF_DEFAULT_DIVIDER_CHAR,
 		extensions               = make([dynamic]LefExtension, allocator), // store all extensions in this
 		fixed_mask               = false, // default false, make true if sttmt found
 		layers                   = make([dynamic]LefLayer, allocator),
