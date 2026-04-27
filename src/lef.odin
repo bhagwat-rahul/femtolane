@@ -80,18 +80,19 @@ ClearanceMeasure :: enum {
 	EUCLIDEAN, // Uses the euclidean distance for spacing between objects, i.e. sqrt(x2 + y2) (default)
 }
 
-LefLayer :: struct {
-	name:       string,
-	type:       LefLayerType,
-	layer_data: [dynamic]string, // TODO(rahul): add more types to this struct instead of catch-all data
+LefHardSpacing :: bool // if true, then any spacing values violating requirements are treated as 'hard' violations instead of soft errors
+
+// Min cuts allowed for any via using specified cut layer
+LefLayerMinCuts :: struct {
+	cut_layer_name: ^LefLayer, // TODO(rahul): this should only ever point to a cut layer
+	num_cuts:       u32, // minimum no. of cuts allowed for layer positive int
 }
 
-LefLayerType :: enum {
-	CUT,
-	IMPLANT,
-	MASTERSLICE,
-	OVERLAP,
-	ROUTING,
+LefLayerIndex :: distinct u8
+
+LefLayer :: struct {
+	name:      string,
+	layer_idx: LefLayerIndex,
 }
 
 LefVersion :: enum {
@@ -134,7 +135,10 @@ LefMaxViaStack :: struct {
 }
 
 LefNonDefaultRule :: struct {
-	name: string,
+	name:         string,
+	diag_width:   f64, // diagonal width for layerName when 45 degree routing used (microns)
+	hard_spacing: LefHardSpacing,
+	min_cuts:     LefLayerMinCuts,
 }
 
 read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator) {
