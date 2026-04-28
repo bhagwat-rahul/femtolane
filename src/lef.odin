@@ -99,7 +99,7 @@ LefLayer :: struct {
 
 LefVersion :: enum {
 	LEF_58, // v5.80
-	LEF_60, // v 6.0 (not supported by us yet)
+	LEF_60, // v6.0 (not supported by us yet)
 }
 
 LefLibraryProperties :: enum {
