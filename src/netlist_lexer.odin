@@ -413,6 +413,7 @@ create_instance :: proc(hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator, ins
 	inst := new(Instance, arena_alloc)
 	inst^ = inst_val
 	inst.id = InstanceID(len(hgr.instances))
+	inst.ports = make([dynamic]^InstancePort, arena_alloc)
 	hgr.instance_hash_map[inst.name] = inst
 	append(&hgr.instances, inst)
 	return inst
