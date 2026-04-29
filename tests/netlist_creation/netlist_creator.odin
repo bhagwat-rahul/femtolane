@@ -40,6 +40,7 @@ main :: proc() {
 			mem.tracking_allocator_destroy(&track)
 		}
 	}
+	defer free_all(context.temp_allocator)
 	SKY130A_PDK_ROOT :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A"
 	SKY130B_PDK_ROOT :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130B"
 	LIBFILE_CORNER_25C_1V80 := "/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib" // 25C and 1.8V corner libfile
