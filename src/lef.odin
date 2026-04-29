@@ -86,29 +86,29 @@ LefHardSpacing :: bool // if true, then any spacing values violating requirement
 
 // Min cuts allowed for any via using specified cut layer
 LefLayerMinCuts :: struct {
-	cut_layer_name: ^LefLayer, // TODO(rahul): this should only ever point to a cut layer (for now assert, ideally want compile time check)
+	cut_layer_name: ^LefCutLayer, // TODO(rahul): this should only ever point to a cut layer (for now assert, ideally want compile time check)
 	num_cuts:       u32, // minimum no. of cuts allowed for layer positive int
 }
 
 LefLayerIndex :: distinct u8
 
-LefLayer :: struct {
-	name:      string,
-	layer_idx: LefLayerIndex,
-	layer:     union {
-		LefCutLayer,
-		LefImplantLayer,
-	},
+LefLayer :: union {
+	LefCutLayer,
+	LefImplantLayer,
 }
 
 // TODO(rahul): Incomplete
 LefCutLayer :: struct {
+	name:                         string,
+	layer_idx:                    LefLayerIndex,
 	ac_current_density:           LefAcCurrentDensity,
 	antenna_area_diff_reduce_pwl: []f64, // defaults to 1.0 ANTENNAAREADIFFREDUCEPWL
 	antenna_area_factor:          f64, // default 1.0 ANTENNAAREAFACTOR (multiply factor for antenna metal calc)
 }
 
 LefImplantLayer :: struct {
+	name:         string,
+	layer_idx:    LefLayerIndex,
 	layer_name_2: ^LefImplantLayer, // another implant layer requiring extra spacing >= minspacing from this layer
 	mask_num:     u8, // how many double / triple patterning masks used here, has to be >= 2, usually 2 or 3
 	property_val: ^LefPropertyDefinitions, // numerical or string val for prop that applies here (we use pointer cz easier)
