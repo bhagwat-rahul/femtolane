@@ -86,7 +86,7 @@ LefHardSpacing :: bool // if true, then any spacing values violating requirement
 
 // Min cuts allowed for any via using specified cut layer
 LefLayerMinCuts :: struct {
-	cut_layer_name: ^LefLayer, // TODO(rahul): this should only ever point to a cut layer
+	cut_layer_name: ^LefLayer, // TODO(rahul): this should only ever point to a cut layer (for now assert, ideally want compile time check)
 	num_cuts:       u32, // minimum no. of cuts allowed for layer positive int
 }
 
@@ -95,6 +95,47 @@ LefLayerIndex :: distinct u8
 LefLayer :: struct {
 	name:      string,
 	layer_idx: LefLayerIndex,
+	layer:     union {
+		LefCutLayer,
+		LefImplantLayer,
+	},
+}
+
+// TODO(rahul): Incomplete
+LefCutLayer :: struct {
+	ac_current_density:           LefAcCurrentDensity,
+	antenna_area_diff_reduce_pwl: []f64, // defaults to 1.0 ANTENNAAREADIFFREDUCEPWL
+	antenna_area_factor:          f64, // default 1.0 ANTENNAAREAFACTOR (multiply factor for antenna metal calc)
+}
+
+LefImplantLayer :: struct {
+	layer_name_2: ^LefImplantLayer, // another implant layer requiring extra spacing >= minspacing from this layer
+	mask_num:     u8, // how many double / triple patterning masks used here, has to be >= 2, usually 2 or 3
+	property_val: ^LefPropertyDefinitions, // numerical or string val for prop that applies here (we use pointer cz easier)
+	min_spacing:  f64, // min spacing, float in microns
+	min_width:    f64, // float, microns
+	width_rule:   LefWidthRule,
+}
+
+LefWidthRule :: struct {
+	length: f64, // microns
+	width:  f64, // microns
+}
+
+LefAcCurrentDensity :: struct {
+	value:         f64, // max val for layer in mA/um
+	type:          LefAcCurrentDensityType,
+	cut_area_vals: []f64, // um^2 (CUTAREA)
+	// maybe use int for all these
+	frequency:     []f64, // if a single val of 1 provided, ignore, just used to satisfy syntax (freq values, mega-hertz)
+	width:         []f64, // wire width vals, microns
+	table_entries: []f64, // max current for each freq / width pair
+}
+
+LefAcCurrentDensityType :: enum {
+	PEAK,
+	AVERAGE,
+	RMS,
 }
 
 LefVersion :: enum {
