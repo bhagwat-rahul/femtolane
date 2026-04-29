@@ -211,14 +211,14 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 	for l.idx < len(l.src) {
 		switch peek(&l) {
 		case LEF_COMMENT: lef_skip_comments(l = &l)
-		case: handle_keyword(&l)
+		case: handle_keyword(&l, &lef_config)
 		}
 	}
 }
 
 lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advance(l) } }
 
-handle_keyword :: proc(l: ^Lexer) {
+handle_keyword :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	ident := scan_ident(l)
 	keyword := return_lef_keyword_from_ident(ident)
 
@@ -228,7 +228,7 @@ handle_keyword :: proc(l: ^Lexer) {
 	case .CLEARANCEMEASURE: // which of 2 enums
 	case .DIVIDERCHAR: // single byte in quotes
 	case .BEGINEXT: // Parse from BEGINEXT to ENDEXT
-	case .FIXEDMASK: // flip lef_config.fixed_mask to true
+	case .FIXEDMASK: lef_config.fixed_mask = true
 	case .LAYER: // parse layer -> END layername
 	case .PROPERTYDEFINITIONS: // This has a bunch of diff cases and metadata
 	case .MACRO: // Parse Macro
