@@ -37,6 +37,7 @@ package main
 import "core:fmt"
 import "core:mem"
 import "core:os"
+import "core:reflect"
 import "core:strings"
 
 LEF_COMMENT :: '#'
@@ -241,17 +242,11 @@ handle_keyword :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 }
 
 return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
-	if strings.equal_fold(ident, "BUSBITCHARS") { return .BUSBITCHARS }
-	if strings.equal_fold(ident, "CLEARANCEMEASURE") { return .CLEARANCEMEASURE }
-	if strings.equal_fold(ident, "DIVIDERCHAR") { return .DIVIDERCHAR }
-	if strings.equal_fold(ident, "BEGINEXT") { return .BEGINEXT }
-	if strings.equal_fold(ident, "FIXEDMASK") { return .FIXEDMASK }
-	if strings.equal_fold(ident, "LAYER") { return .LAYER }
-	if strings.equal_fold(ident, "PROPERTYDEFINITIONS") { return .PROPERTYDEFINITIONS }
-	if strings.equal_fold(ident, "MACRO") { return .MACRO }
-	if strings.equal_fold(ident, "MANUFACTURINGGRID") { return .MANUFACTURINGGRID }
-	if strings.equal_fold(ident, "MAXVIASTACK") { return .MAXVIASTACK }
-	if strings.equal_fold(ident, "NONDEFAULTRULE") { return .NONDEFAULTRULE }
-
+	// TODO(rahul): Just init as rodata or something, doing this to feel clever rn
+	lef_keyword_id := typeid_of(LefKeyword)
+	names := reflect.enum_field_names(lef_keyword_id)
+	for Keyword in LefKeyword {
+		if strings.equal_fold(ident, names[Keyword]) { return Keyword }
+	}
 	return .NONE
 }
