@@ -15,7 +15,7 @@ advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
 }
 
 lexer_panic :: #force_inline proc(l: ^Lexer, err_msg: string) {
-	panic(fmt.tprintf("Error: %s at byte %d for char %r in file '%s'", err_msg, l.idx, l.src[l.idx], l.filepath))
+	panic(fmt.tprintfln("Error: %s at byte %d for char %r in file '%s'", err_msg, l.idx, l.src[l.idx], l.filepath))
 }
 
 lexer_ensure :: #force_inline proc(l: ^Lexer, condition: bool, err_msg: string) { if !condition { lexer_panic(l, err_msg) } }
