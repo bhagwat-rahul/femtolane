@@ -1,5 +1,6 @@
 package netlist_creator
 
+import " core:mem"
 import "core:fmt"
 import "core:os"
 import "core:path/slashpath"
@@ -18,8 +19,6 @@ run_yosys :: proc(filepath: string, lib_file: string, top_module: string, yosys_
 		},
 	}
 	state, stdout, stderr, err := os.process_exec(yosys_proc, context.temp_allocator)
-	defer delete(stdout)
-	defer delete(stderr)
 	fmt.println("STDOUT\n", string(stdout))
 	ensure(err == nil, fmt.tprintln("SPAWN ERROR:", err))
 	ensure(state.exit_code == 0, fmt.tprintfln("YOSYS FAILED:\n%s", stderr))
@@ -27,6 +26,20 @@ run_yosys :: proc(filepath: string, lib_file: string, top_module: string, yosys_
 }
 
 main :: proc() {
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+		defer {
+			if len(track.allocation_map) > 0 {
+				fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
+	}
 	SKY130A_PDK_ROOT :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A"
 	SKY130B_PDK_ROOT :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130B"
 	LIBFILE_CORNER_25C_1V80 := "/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib" // 25C and 1.8V corner libfile
