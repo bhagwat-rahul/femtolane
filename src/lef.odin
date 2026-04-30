@@ -117,8 +117,10 @@ LefCutLayer :: struct {
 	name:                         string,
 	layer_idx:                    LefLayerIndex,
 	ac_current_density:           LefAcCurrentDensity,
-	antenna_area_diff_reduce_pwl: []f64, // defaults to 1.0 ANTENNAAREADIFFREDUCEPWL
-	antenna_area_factor:          f64, // default 1.0 ANTENNAAREAFACTOR (multiply factor for antenna metal calc)
+	antenna_area_diff_reduce_pwl: LefAntennaAreaDiffReducePwl,
+	antenna_area_factor:          LefAntennaAreaFactor,
+	antenna_area_ratio:           LefAntennaAreaRatio,
+	antenna_cum_area_ratio:       LefAntennaCumAreaRatio,
 }
 
 LefImplantLayer :: struct {
@@ -132,10 +134,27 @@ LefImplantLayer :: struct {
 	width_rule:   LefWidthRule,
 }
 
+LefRoutingLayer :: struct {
+	name:                         string,
+	layer_idx:                    LefLayerIndex,
+	ac_current_density:           LefAcCurrentDensity,
+	antenna_area_diff_reduce_pwl: LefAntennaAreaDiffReducePwl,
+	antenna_area_factor:          LefAntennaAreaFactor,
+	antenna_area_ratio:           LefAntennaAreaRatio,
+	antenna_cum_area_ratio:       LefAntennaCumAreaRatio,
+}
+
 LefWidthRule :: struct {
 	length: f64, // microns
 	width:  f64, // microns
 }
+
+LefAntennaAreaDiffReducePwl :: []f64 // defaults to 1.0 ANTENNAAREADIFFREDUCEPWL
+LefAntennaAreaFactor :: f64 // default 1.0 ANTENNAAREAFACTOR (multiply factor for antenna metal calc)
+LefAntennaAreaMinusDiff :: f64 // default 0.0; antenna ratio cut_area should subtract connected diffusion area
+LefAntennaAreaRatio :: f64 // max legal antenna ratio using metal wire area NOT connected to diffusion diode
+LefAntennaCumAreaRatio :: f64 // cumulative antenna ratio using metal wire area NOT connected to diffusion diode
+LefAntennaCumDiffAreaRatio :: f64 // cumulative antenna ratio using metal wire area CONNECTED to diffusion diode, specify val or using piecewise linear format
 
 LefAcCurrentDensity :: struct {
 	value:         f64, // max val for layer in mA/um
