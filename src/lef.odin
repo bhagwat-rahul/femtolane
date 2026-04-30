@@ -44,19 +44,31 @@ LEF_COMMENT :: '#'
 LEF_DEFAULT_BUS_BIT_CHARS :: "[]"
 LEF_DEFAULT_DIVIDER_CHAR :: '/'
 
+/*
+LefKeywords can be used in any order in a lef file, can't use something before defining (no forward declarations.)
+The LefKeyword enum is ordered so that if things are defined in this order, all data will be defined before being used.
+*/
 LefKeyword :: enum {
 	NONE,
+	VERSION,
 	BUSBITCHARS,
-	CLEARANCEMEASURE,
 	DIVIDERCHAR,
-	BEGINEXT,
+	UNITS,
+	MANUFACTURINGGRID,
+	USEMINSPACING,
+	CLEARANCEMEASURE,
+	PROPERTYDEFINITIONS, // applicable to 32/28 nm and below nodes (lef 5.8)
 	FIXEDMASK,
 	LAYER,
-	PROPERTYDEFINITIONS, // applicable to 32/28 nm and below nodes (lef 5.8)
-	MACRO,
-	MANUFACTURINGGRID,
 	MAXVIASTACK,
+	VIARULE_GENERATE,
+	VIA,
+	VIARULE,
 	NONDEFAULTRULE,
+	SITE,
+	MACRO,
+	BEGINEXT,
+	END,
 }
 
 LefExtension :: struct {
@@ -223,7 +235,7 @@ handle_keyword :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	ident := scan_ident(l)
 	keyword := return_lef_keyword_from_ident(ident)
 
-	switch keyword {
+	#partial switch keyword {
 	case .NONE: fmt.println("Unable to match keyword")
 	case .BUSBITCHARS: // get 2 byte pair enclosed in quotes
 	case .CLEARANCEMEASURE: // which of 2 enums
@@ -237,6 +249,7 @@ handle_keyword :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	case .MAXVIASTACK: // Parse int + check if lower/upper bound given else applies to all
 	case .NONDEFAULTRULE: // Parse non-default rules
 
+	case: fmt.println("TODO(rahul): Implement")
 	}
 
 }
