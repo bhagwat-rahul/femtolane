@@ -43,6 +43,7 @@ import "core:strings"
 LEF_COMMENT :: '#'
 LEF_DEFAULT_BUS_BIT_CHARS :: "[]"
 LEF_DEFAULT_DIVIDER_CHAR :: '/'
+LEF_STATEMENT_END_SEMICOLON :: ';'
 
 /*
 LefKeywords can be used in any order in a lef file, can't use something before defining (no forward declarations.)
@@ -77,6 +78,7 @@ LefExtension :: struct {
 }
 
 LefConfig :: struct {
+	version:                  LefVersion,
 	bus_bit_chars:            [2]byte, // delimiters on buses (escape if used elsewhere) (default [])
 	clearance_measure:        ClearanceMeasure, // default euclidean
 	divider_char:             byte, // express hierarchy when lef names mapped to/from other dbs (default "/", escape if used elsewhere)
@@ -208,6 +210,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 	}
 
 	lef_config: LefConfig = {
+		version                  = nil,
 		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
 		clearance_measure        = .EUCLIDEAN,
 		divider_char             = LEF_DEFAULT_DIVIDER_CHAR,
@@ -222,21 +225,23 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 	}
 
 	for l.idx < len(l.src) {
+		skip_newlines_and_whitespaces(&l)
 		switch peek(&l) {
 		case LEF_COMMENT: lef_skip_comments(l = &l)
-		case: handle_keyword(&l, &lef_config)
+		case: lef_handle_statement(&l, &lef_config)
 		}
 	}
 }
 
 lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advance(l) } }
 
-handle_keyword :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	ident := scan_ident(l)
 	keyword := return_lef_keyword_from_ident(ident)
 
 	#partial switch keyword {
 	case .NONE: fmt.println("Unable to match keyword")
+	case .VERSION: parse_lef_version(l, lef_config)
 	case .BUSBITCHARS: // get 2 byte pair enclosed in quotes
 	case .CLEARANCEMEASURE: // which of 2 enums
 	case .DIVIDERCHAR: // single byte in quotes
@@ -262,4 +267,16 @@ return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
 		if strings.equal_fold(ident, names[Keyword]) { return Keyword }
 	}
 	return .NONE
+}
+
+parse_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
+	fmt.println("versioning")
+	skip_newlines_and_whitespaces(l)
+	version := scan_ident(l) // TODO(rahul): Doesn't parse dots.
+	switch version {
+	case "5.8": lef_config.version = .LEF_58
+	case "6.0": lef_config.version = .LEF_60
+	case: lexer_panic(l, "We don't handle the lef version used")
+	}
+	skip_newlines_and_whitespaces(l)
 }
