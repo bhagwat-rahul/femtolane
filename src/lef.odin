@@ -306,12 +306,15 @@ lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
 parse_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
 	fmt.println("versioning")
 	skip_newlines_and_whitespaces(l)
-	version := scan_ident(l) // TODO(rahul): Doesn't parse dots.
-	switch version {
-	case "5.8": lef_config.version = .LEF_58
-	case "6.0": lef_config.version = .LEF_60
+	major_version := scan_ident(l)
+	consume(l, DOT)
+	minor_version := scan_ident(l)
+	if peek(l) == DOT { consume(l, DOT) } 	// we don't care about sub minor versions for now
+	switch major_version {
+	case "5": lef_config.version = .LEF_58 // TODO(rahul) : Handle minor versions
+	case "6": lef_config.version = .LEF_60 // TODO(rahul) : Handle minor versions
 	case: lexer_panic(l, "We don't handle the lef version used")
 	}
+	fmt.println("TODO(rahul): Maybe we set property definition prefix based on parsed version num")
 	lef_consume_statement_end(l)
-
 }
