@@ -80,6 +80,7 @@ LefConfig :: struct {
 	version:                  LefVersion,
 	bus_bit_chars:            [2]byte, // delimiters on buses (escape if used elsewhere) (default [])
 	clearance_measure:        ClearanceMeasure, // default euclidean
+	units:                    LefUnits,
 	divider_char:             byte, // express hierarchy when lef names mapped to/from other dbs (default "/", escape if used elsewhere)
 	extensions:               [dynamic]LefExtension, // adds customized syntax, can be ignored by tools that don't use this syntax
 	fixed_mask:               bool, // disallow mask shifting if true. all lef macro pin shapes need MASK assignments if true
@@ -217,6 +218,17 @@ LefNonDefaultRule :: struct {
 	min_cuts:     LefLayerMinCuts,
 }
 
+LefUnits :: struct {
+	time:        f64,
+	capacitance: f64,
+	resistance:  f64,
+	power:       f64,
+	current:     f64,
+	voltage:     f64,
+	database:    f64,
+	frequency:   f64,
+}
+
 read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator) {
 	data, err := os.read_entire_file_from_path(filepath, allocator)
 	ensure(err == nil, "Error reading file")
@@ -228,10 +240,11 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 	}
 
 	lef_config: LefConfig = {
-		version                  = nil,
+		version                  = LefVersion{},
 		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
 		clearance_measure        = .EUCLIDEAN,
 		divider_char             = LEF_DEFAULT_DIVIDER_CHAR,
+		units                    = LefUnits{},
 		extensions               = make([dynamic]LefExtension, allocator), // store all extensions in this
 		fixed_mask               = false, // default false, make true if sttmt found
 		layers                   = make([dynamic]LefLayer, allocator),
@@ -260,7 +273,6 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	switch keyword {
 	case .VERSION: parse_lef_version(l, lef_config)
 	case .BUSBITCHARS: parse_bus_bit_chars(l, lef_config)
-	case .CLEARANCEMEASURE: // which of 2 enums
 	case .DIVIDERCHAR: parse_divider_char(l, lef_config)
 	case .UNITS:
 	case .MANUFACTURINGGRID: // Get float val (maybe scaled to int)
