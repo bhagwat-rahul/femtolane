@@ -284,9 +284,7 @@ parse_bus_bit_chars :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	lexer_ensure(l = l, condition = len(delimiters) == 2, err_msg = "Found more than 2 chars in bus bit chars")
 	lef_config.bus_bit_chars[0] = delimiters[0]
 	lef_config.bus_bit_chars[1] = delimiters[1]
-	skip_newlines_and_whitespaces(l)
-	consume(l, SEMICOLON)
-	skip_newlines_and_whitespaces(l)
+	lef_consume_statement_end(l)
 }
 
 return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
@@ -299,6 +297,12 @@ return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
 	return .NONE
 }
 
+lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
+	skip_newlines_and_whitespaces(l)
+	consume(l, SEMICOLON)
+	skip_newlines_and_whitespaces(l)
+}
+
 parse_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
 	fmt.println("versioning")
 	skip_newlines_and_whitespaces(l)
@@ -308,7 +312,6 @@ parse_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
 	case "6.0": lef_config.version = .LEF_60
 	case: lexer_panic(l, "We don't handle the lef version used")
 	}
-	skip_newlines_and_whitespaces(l)
-	consume(l, SEMICOLON)
-	skip_newlines_and_whitespaces(l)
+	lef_consume_statement_end(l)
+
 }
