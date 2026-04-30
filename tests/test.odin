@@ -98,3 +98,9 @@ test_liberty_cell_creation :: proc(_: ^testing.T) {
 		fmt.println(len(hgr.cells))
 	}
 }
+
+@(test)
+test_lef_parse :: proc(_: ^testing.T) {
+	LEF_FILE :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef"
+	main.read_lef(LEF_FILE)
+}

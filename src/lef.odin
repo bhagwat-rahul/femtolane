@@ -50,7 +50,6 @@ LefKeywords can be used in any order in a lef file, can't use something before d
 The LefKeyword enum is ordered so that if things are defined in this order, all data will be defined before being used.
 */
 LefKeyword :: enum {
-	NONE,
 	VERSION,
 	BUSBITCHARS,
 	DIVIDERCHAR,
@@ -259,11 +258,10 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	keyword := return_lef_keyword_from_ident(ident)
 
 	#partial switch keyword {
-	case .NONE: fmt.println("Unable to match keyword")
 	case .VERSION: parse_lef_version(l, lef_config)
 	case .BUSBITCHARS: parse_bus_bit_chars(l, lef_config)
 	case .CLEARANCEMEASURE: // which of 2 enums
-	case .DIVIDERCHAR: // single byte in quotes
+	case .DIVIDERCHAR: parse_divider_char(l, lef_config)
 	case .BEGINEXT: // Parse from BEGINEXT to ENDEXT
 	case .FIXEDMASK: lef_config.fixed_mask = true
 	case .LAYER: // parse layer -> END layername
@@ -273,7 +271,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	case .MAXVIASTACK: // Parse int + check if lower/upper bound given else applies to all
 	case .NONDEFAULTRULE: // Parse non-default rules
 
-	case: fmt.println("TODO(rahul): Implement")
+	case: lexer_panic(l = l, err_msg = fmt.tprintf("Found unimplemented keyword %s", keyword))
 	}
 
 }
@@ -287,6 +285,14 @@ parse_bus_bit_chars :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	lef_consume_statement_end(l)
 }
 
+parse_divider_char :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+	skip_newlines_and_whitespaces(l)
+	divider := scan_double_quote_wrapped_string(l)
+	lexer_ensure(l = l, condition = len(divider) == 1, err_msg = "Divider should be a single char")
+	lef_config.divider_char = divider[0]
+	lef_consume_statement_end(l)
+}
+
 return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
 	// TODO(rahul): Just init as rodata or something, doing this to feel clever rn
 	lef_keyword_id := typeid_of(LefKeyword)
@@ -294,7 +300,7 @@ return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
 	for Keyword in LefKeyword {
 		if strings.equal_fold(ident, names[Keyword]) { return Keyword }
 	}
-	return .NONE
+	return nil
 }
 
 lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
