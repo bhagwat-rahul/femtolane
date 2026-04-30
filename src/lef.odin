@@ -242,7 +242,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	#partial switch keyword {
 	case .NONE: fmt.println("Unable to match keyword")
 	case .VERSION: parse_lef_version(l, lef_config)
-	case .BUSBITCHARS: // get 2 byte pair enclosed in quotes
+	case .BUSBITCHARS: parse_bus_bit_chars(l, lef_config)
 	case .CLEARANCEMEASURE: // which of 2 enums
 	case .DIVIDERCHAR: // single byte in quotes
 	case .BEGINEXT: // Parse from BEGINEXT to ENDEXT
@@ -257,6 +257,17 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	case: fmt.println("TODO(rahul): Implement")
 	}
 
+}
+
+parse_bus_bit_chars :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+	skip_newlines_and_whitespaces(l)
+	delimiters := scan_double_quote_wrapped_string(l)
+	lexer_ensure(l = l, condition = len(delimiters) == 2, err_msg = "Found more than 2 chars in bus bit chars")
+	lef_config.bus_bit_chars[0] = delimiters[0]
+	lef_config.bus_bit_chars[1] = delimiters[1]
+	skip_newlines_and_whitespaces(l)
+	consume(l, SEMICOLON)
+	skip_newlines_and_whitespaces(l)
 }
 
 return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
@@ -278,5 +289,7 @@ parse_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
 	case "6.0": lef_config.version = .LEF_60
 	case: lexer_panic(l, "We don't handle the lef version used")
 	}
+	skip_newlines_and_whitespaces(l)
+	consume(l, SEMICOLON)
 	skip_newlines_and_whitespaces(l)
 }
