@@ -257,20 +257,27 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	ident := scan_ident(l)
 	keyword := return_lef_keyword_from_ident(ident)
 
-	#partial switch keyword {
+	switch keyword {
 	case .VERSION: parse_lef_version(l, lef_config)
 	case .BUSBITCHARS: parse_bus_bit_chars(l, lef_config)
 	case .CLEARANCEMEASURE: // which of 2 enums
 	case .DIVIDERCHAR: parse_divider_char(l, lef_config)
-	case .BEGINEXT: // Parse from BEGINEXT to ENDEXT
+	case .UNITS:
+	case .MANUFACTURINGGRID: // Get float val (maybe scaled to int)
+	case .USEMINSPACING:
+	case .CLEARANCEMEASURE: // which of 2 enums
+	case .PROPERTYDEFINITIONS: // This has a bunch of diff cases and metadata
 	case .FIXEDMASK: lef_config.fixed_mask = true
 	case .LAYER: // parse layer -> END layername
-	case .PROPERTYDEFINITIONS: // This has a bunch of diff cases and metadata
-	case .MACRO: // Parse Macro
-	case .MANUFACTURINGGRID: // Get float val (maybe scaled to int)
 	case .MAXVIASTACK: // Parse int + check if lower/upper bound given else applies to all
+	case .VIARULE_GENERATE:
+	case .VIA:
+	case .VIARULE:
 	case .NONDEFAULTRULE: // Parse non-default rules
-
+	case .SITE:
+	case .MACRO: // Parse Macro
+	case .BEGINEXT: // Parse from BEGINEXT to ENDEXT
+	case .END:
 	case: lexer_panic(l = l, err_msg = fmt.tprintf("Found unimplemented keyword %s", keyword))
 	}
 
