@@ -71,6 +71,17 @@ LefKeyword :: enum {
 	END,
 }
 
+LEF_EXPECTED_UNITS :: [LefUnitType]string {
+	.TIME        = "NANOSECONDS",
+	.CAPACITANCE = "PICOFARADS",
+	.RESISTANCE  = "OHMS",
+	.POWER       = "MILLIWATTS",
+	.CURRENT     = "MILLIAMPS",
+	.VOLTAGE     = "VOLTS",
+	.DATABASE    = "MICRONS",
+	.FREQUENCY   = "MEGAHERTZ",
+}
+
 LefExtension :: struct {
 	tag:      string,
 	contents: string,
@@ -80,7 +91,7 @@ LefConfig :: struct {
 	version:                  LefVersion,
 	bus_bit_chars:            [2]byte, // delimiters on buses (escape if used elsewhere) (default [])
 	clearance_measure:        ClearanceMeasure, // default euclidean
-	units:                    LefUnits,
+	units:                    [LefUnitType]LefUnit,
 	divider_char:             byte, // express hierarchy when lef names mapped to/from other dbs (default "/", escape if used elsewhere)
 	extensions:               [dynamic]LefExtension, // adds customized syntax, can be ignored by tools that don't use this syntax
 	fixed_mask:               bool, // disallow mask shifting if true. all lef macro pin shapes need MASK assignments if true
@@ -218,15 +229,16 @@ LefNonDefaultRule :: struct {
 	min_cuts:     LefLayerMinCuts,
 }
 
-LefUnits :: struct {
-	time:        f64,
-	capacitance: f64,
-	resistance:  f64,
-	power:       f64,
-	current:     f64,
-	voltage:     f64,
-	database:    f64,
-	frequency:   f64,
+LefUnit :: f64
+LefUnitType :: enum {
+	TIME,
+	CAPACITANCE,
+	RESISTANCE,
+	POWER,
+	CURRENT,
+	VOLTAGE,
+	DATABASE,
+	FREQUENCY,
 }
 
 read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator) {
@@ -244,7 +256,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
 		clearance_measure        = .EUCLIDEAN,
 		divider_char             = LEF_DEFAULT_DIVIDER_CHAR,
-		units                    = LefUnits{},
+		units                    = [LefUnitType]LefUnit{},
 		extensions               = make([dynamic]LefExtension, allocator), // store all extensions in this
 		fixed_mask               = false, // default false, make true if sttmt found
 		layers                   = make([dynamic]LefLayer, allocator),
@@ -267,7 +279,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advance(l) } }
 
 lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
-	ident := scan_ident(l)
+	ident := scan_ident_ascii_upper(l)
 	keyword := return_lef_keyword_from_ident(ident)
 
 	switch keyword {
@@ -314,12 +326,16 @@ parse_divider_char :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 
 return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
 	// TODO(rahul): Just init as rodata or something, doing this to feel clever rn, also this doesn't handle cases like viarule generate etc, since enum name and it's string rep don't match
-	lef_keyword_id := typeid_of(LefKeyword)
-	names := reflect.enum_field_names(lef_keyword_id)
-	for Keyword in LefKeyword {
-		if strings.equal_fold(ident, names[Keyword]) { return Keyword }
-	}
+	names := to_upper_ascii_bytes(ident)
+	for Keyword in LefKeyword { if ident == names[Keyword] { return Keyword } }
 	return nil
+}
+
+to_upper_ascii_bytes :: #force_inline proc(b: []byte) {
+	for i in 0 ..< len(b) {
+		c := b[i]
+		if c >= 'a' && c <= 'z' { b[i] = c - 32 }
+	}
 }
 
 lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
@@ -328,12 +344,48 @@ lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
 	skip_newlines_and_whitespaces(l)
 }
 
+lef_consume_section_end :: #force_inline proc(l: ^Lexer, statement: string) {
+	lexer_ensure(
+		l = l,
+		condition = strings.equal_fold(scan_ident_ascii_upper(l), statement),
+		err_msg = "Statement end keyword not what it should be",
+	)
+	skip_newlines_and_whitespaces(l)
+}
+
+lef_parse_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+	for {
+		skip_newlines_and_whitespaces(l)
+		ident := scan_ident_ascii_upper(l)
+		if ident == "END" { break }
+		kind: LefUnitType
+		switch ident {
+		case "TIME": kind = .TIME
+		case "CAPACITANCE": kind = .CAPACITANCE
+		case "RESISTANCE": kind = .RESISTANCE
+		case "POWER": kind = .POWER
+		case "CURRENT": kind = .CURRENT
+		case "VOLTAGE": kind = .VOLTAGE
+		case "DATABASE": kind = .DATABASE
+		case "FREQUENCY": kind = .FREQUENCY
+		case: lexer_panic(l, "Unknown unit type")
+		}
+		unit_name := scan_ident_ascii_upper(l)
+		lexer_ensure(l, unit_name == LEF_EXPECTED_UNITS[kind], "Wrong unit for type")
+		value := parse_f64(scan_ident(l)) // TODO(rahul): Replace w number parser, also this won't be f64 for long
+		lef_config.units[kind] = value
+		lef_consume_statement_end(l)
+	}
+	skip_newlines_and_whitespaces(l)
+	lef_consume_section_end(l, "UNITS")
+}
+
 parse_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
 	fmt.println("versioning")
 	skip_newlines_and_whitespaces(l)
-	major_version := scan_ident(l)
+	major_version := scan_ident_ascii_upper(l)
 	consume(l, DOT)
-	minor_version := scan_ident(l)
+	minor_version := scan_ident_ascii_upper(l)
 	if peek(l) == DOT { consume(l, DOT) } 	// we don't care about sub minor versions for now
 	switch major_version {
 	case "5": lef_config.version = .LEF_58 // TODO(rahul) : Handle minor versions
