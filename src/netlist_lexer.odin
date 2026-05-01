@@ -104,42 +104,6 @@ GREATER_THAN :: '>'
 COLON :: ':'
 DOT :: '.'
 
-
-IDENT_START, IDENT_CHAR: [256]bool
-
-@(init) // init directive makes this run before main since we don't have compile time generation
-init_ident_tables :: proc "contextless" () {
-	// true for ident start and ident char (this can show up anywhere in ident)
-	for c in 'a' ..= 'z' { IDENT_START[c] = true; IDENT_CHAR[c] = true }
-	for c in 'A' ..= 'Z' { IDENT_START[c] = true; IDENT_CHAR[c] = true }
-	IDENT_START['_'] = true; IDENT_CHAR['_'] = true
-
-	// only true for ident char, cannot see this at the beginning of an ident
-	for c in '0' ..= '9' { IDENT_CHAR[c] = true }
-	IDENT_CHAR['$'] = true
-}
-
-is_ident_start :: #force_inline proc(b: byte) -> bool { return IDENT_START[b] }
-is_ident_char :: #force_inline proc(b: byte) -> bool { return IDENT_CHAR[b] }
-
-// Scan identifiers handling escape symbols
-scan_ident :: #force_inline proc(l: ^Lexer) -> string {
-	start: int
-	if peek(l) == ESCAPE_SYMBOL {
-		advance(l) // skip '\'
-		start = l.idx
-		for {
-			c := peek(l)
-			if c == WHITESPACE || c == WHITESPACE_TAB || c == NEWLINE || c == NEWLINE_CARRIAGE_RETURN || c == 0 { break }
-			advance(l)
-		}
-	} else {
-		start = l.idx
-		for is_ident_char(peek(l)) { advance(l) }
-	}
-	return string(l.src[start:l.idx])
-}
-
 // Main lexer function to single pass lex -> convert netlist to hypergraph,
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
