@@ -37,7 +37,6 @@ package main
 import "core:fmt"
 import "core:mem"
 import "core:os"
-import "core:reflect"
 import "core:strings"
 
 LEF_COMMENT :: '#'
@@ -71,7 +70,8 @@ LefKeyword :: enum {
 	END,
 }
 
-LEF_EXPECTED_UNITS :: [LefUnitType]string {
+@(rodata)
+LEF_EXPECTED_UNITS := [LefUnitType]string {
 	.TIME        = "NANOSECONDS",
 	.CAPACITANCE = "PICOFARADS",
 	.RESISTANCE  = "OHMS",
@@ -280,7 +280,7 @@ lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advan
 
 lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	ident := scan_ident_ascii_upper(l)
-	keyword := return_lef_keyword_from_ident(ident)
+	keyword := lef_return_keyword_from_ident(ident)
 
 	switch keyword {
 	case .VERSION: parse_lef_version(l, lef_config)
@@ -324,17 +324,28 @@ parse_divider_char :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	lef_consume_statement_end(l)
 }
 
-return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
-	// TODO(rahul): Just init as rodata or something, doing this to feel clever rn, also this doesn't handle cases like viarule generate etc, since enum name and it's string rep don't match
-	names := to_upper_ascii_bytes(ident)
-	for Keyword in LefKeyword { if ident == names[Keyword] { return Keyword } }
-	return nil
-}
-
-to_upper_ascii_bytes :: #force_inline proc(b: []byte) {
-	for i in 0 ..< len(b) {
-		c := b[i]
-		if c >= 'a' && c <= 'z' { b[i] = c - 32 }
+lef_return_keyword_from_ident :: proc(ident: string) -> LefKeyword {
+	switch ident {
+	case "VERSION": return .VERSION
+	case "BUSBITCHARS": return .BUSBITCHARS
+	case "DIVIDERCHAR": return .DIVIDERCHAR
+	case "UNITS": return .UNITS
+	case "MANUFACTURINGGRID": return .MANUFACTURINGGRID
+	case "USEMINSPACING": return .USEMINSPACING
+	case "CLEARANCEMEASURE": return .CLEARANCEMEASURE
+	case "PROPERTYDEFINITIONS": return .PROPERTYDEFINITIONS
+	case "FIXEDMASK": return .FIXEDMASK
+	case "LAYER": return .LAYER
+	case "MAXVIASTACK": return .MAXVIASTACK
+	case "VIARULE_GENERATE": return .VIARULE_GENERATE
+	case "VIA": return .VIA
+	case "VIARULE": return .VIARULE
+	case "NONDEFAULTRULE": return .NONDEFAULTRULE
+	case "SITE": return .SITE
+	case "MACRO": return .MACRO
+	case "BEGINEXT": return .BEGINEXT
+	case "END": return .END
+	case: return nil
 	}
 }
 
@@ -372,7 +383,7 @@ lef_parse_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 		}
 		unit_name := scan_ident_ascii_upper(l)
 		lexer_ensure(l, unit_name == LEF_EXPECTED_UNITS[kind], "Wrong unit for type")
-		value := parse_f64(scan_ident(l)) // TODO(rahul): Replace w number parser, also this won't be f64 for long
+		value: f64 // TODO(rahul): Parse value w right data type
 		lef_config.units[kind] = value
 		lef_consume_statement_end(l)
 	}
