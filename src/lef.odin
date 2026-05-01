@@ -313,7 +313,7 @@ parse_divider_char :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 }
 
 return_lef_keyword_from_ident :: proc(ident: string) -> LefKeyword {
-	// TODO(rahul): Just init as rodata or something, doing this to feel clever rn
+	// TODO(rahul): Just init as rodata or something, doing this to feel clever rn, also this doesn't handle cases like viarule generate etc, since enum name and it's string rep don't match
 	lef_keyword_id := typeid_of(LefKeyword)
 	names := reflect.enum_field_names(lef_keyword_id)
 	for Keyword in LefKeyword {
