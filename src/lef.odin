@@ -47,7 +47,6 @@ LEF_STATEMENT_END_SEMICOLON :: ';'
 /*
 LefKeywords can be used in any order in a lef file, can't use something before defining (no forward declarations.)
 The LefKeyword enum is ordered so that if things are defined in this order, all data will be defined before being used.
-*/
 LefKeyword :: enum {
 	VERSION,
 	BUSBITCHARS,
@@ -69,6 +68,7 @@ LefKeyword :: enum {
 	BEGINEXT,
 	END,
 }
+*/
 
 @(rodata)
 LEF_EXPECTED_UNITS := [LefUnitType]string {
@@ -280,31 +280,27 @@ lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advan
 
 lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	ident := scan_ident_ascii_upper(l)
-	keyword := lef_return_keyword_from_ident(ident)
-
-	switch keyword {
-	case .VERSION: parse_lef_version(l, lef_config)
-	case .BUSBITCHARS: parse_bus_bit_chars(l, lef_config)
-	case .DIVIDERCHAR: parse_divider_char(l, lef_config)
-	case .UNITS:
-	case .MANUFACTURINGGRID: // Get float val (maybe scaled to int)
-	case .USEMINSPACING:
-	case .CLEARANCEMEASURE: // which of 2 enums
-	case .PROPERTYDEFINITIONS: // This has a bunch of diff cases and metadata
-	case .FIXEDMASK: lef_config.fixed_mask = true
-	case .LAYER: // parse layer -> END layername
-	case .MAXVIASTACK: // Parse int + check if lower/upper bound given else applies to all
-	case .VIARULE_GENERATE:
-	case .VIA:
-	case .VIARULE:
-	case .NONDEFAULTRULE: // Parse non-default rules
-	case .SITE:
-	case .MACRO: // Parse Macro
-	case .BEGINEXT: // Parse from BEGINEXT to ENDEXT
-	case .END:
-	case: lexer_panic(l = l, err_msg = fmt.tprintf("Found unimplemented keyword %s", keyword))
+	switch ident {
+	case "VERSION": parse_lef_version(l, lef_config)
+	case "BUSBITCHARS": parse_bus_bit_chars(l, lef_config)
+	case "DIVIDERCHAR": parse_divider_char(l, lef_config)
+	case "UNITS":
+	case "MANUFACTURINGGRID": // Get float val (maybe scaled to int)
+	case "USEMINSPACING":
+	case "CLEARANCEMEASURE": // which of 2 enums
+	case "PROPERTYDEFINITIONS": // This has a bunch of diff cases and metadata
+	case "FIXEDMASK": lef_config.fixed_mask = true
+	case "LAYER": // parse layer -> END layername
+	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
+	case "VIA":
+	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
+	case "NONDEFAULTRULE": // Parse non-default rules
+	case "SITE":
+	case "MACRO": // Parse Macro
+	case "BEGINEXT": // Parse from BEGINEXT to ENDEXT
+	case "END":
+	case: lexer_panic(l = l, err_msg = fmt.tprintf("Found unimplemented keyword %s", ident))
 	}
-
 }
 
 parse_bus_bit_chars :: proc(l: ^Lexer, lef_config: ^LefConfig) {
@@ -322,31 +318,6 @@ parse_divider_char :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	lexer_ensure(l = l, condition = len(divider) == 1, err_msg = "Divider should be a single char")
 	lef_config.divider_char = divider[0]
 	lef_consume_statement_end(l)
-}
-
-lef_return_keyword_from_ident :: proc(ident: string) -> LefKeyword {
-	switch ident {
-	case "VERSION": return .VERSION
-	case "BUSBITCHARS": return .BUSBITCHARS
-	case "DIVIDERCHAR": return .DIVIDERCHAR
-	case "UNITS": return .UNITS
-	case "MANUFACTURINGGRID": return .MANUFACTURINGGRID
-	case "USEMINSPACING": return .USEMINSPACING
-	case "CLEARANCEMEASURE": return .CLEARANCEMEASURE
-	case "PROPERTYDEFINITIONS": return .PROPERTYDEFINITIONS
-	case "FIXEDMASK": return .FIXEDMASK
-	case "LAYER": return .LAYER
-	case "MAXVIASTACK": return .MAXVIASTACK
-	case "VIARULE_GENERATE": return .VIARULE_GENERATE
-	case "VIA": return .VIA
-	case "VIARULE": return .VIARULE
-	case "NONDEFAULTRULE": return .NONDEFAULTRULE
-	case "SITE": return .SITE
-	case "MACRO": return .MACRO
-	case "BEGINEXT": return .BEGINEXT
-	case "END": return .END
-	case: return nil
-	}
 }
 
 lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
