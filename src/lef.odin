@@ -196,9 +196,9 @@ LefLibraryProperties :: enum {
 
 LefPropertyDefinitions :: struct {
 	name:                  string,
-	lef_version:           LefVersion,
-	library_property_type: LefLibraryProperties, // prop type string prefixed with version num like 'LEF58_' for v5.8
-	// TODO(rahul): this has more metadata in it (need it to support advanced nodes)
+	library_property_type: LefLibraryProperties, // prefixed with version num like 'LEF58_' for v5.8
+
+	// TODO(rahul): this has more metadata (needed to support advanced nodes)
 }
 
 LefMacro :: struct {
@@ -363,7 +363,6 @@ lef_parse_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 }
 
 parse_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
-	fmt.println("versioning")
 	skip_newlines_and_whitespaces(l)
 	major_version := scan_ident_ascii_upper(l)
 	consume(l, DOT)
@@ -374,6 +373,5 @@ parse_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
 	case "6": lef_config.version = .LEF_60 // TODO(rahul) : Handle minor versions
 	case: lexer_panic(l, "We don't handle the lef version used")
 	}
-	fmt.println("TODO(rahul): Maybe we set property definition prefix based on parsed version num")
 	lef_consume_statement_end(l)
 }
