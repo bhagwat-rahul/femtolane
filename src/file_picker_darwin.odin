@@ -1,5 +1,4 @@
 package main
-
 import "base:intrinsics"
 import "core:strings"
 import "core:sys/darwin/Foundation"

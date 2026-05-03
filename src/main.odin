@@ -1,6 +1,6 @@
 // Main entry-point
 package main
-import " core:fmt"
+import "core:fmt"
 import "core:mem"
 import "core:mem/virtual"
 import "core:os"
