@@ -6,6 +6,7 @@ import "core:mem/virtual"
 import "core:os"
 
 main :: proc() {
+
 	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&track, context.allocator)
@@ -20,25 +21,24 @@ main :: proc() {
 			mem.tracking_allocator_destroy(&track)
 		}
 	}
-	defer free_all(context.temp_allocator)
-	args := os.args
-	if len(args) <= 1 {
-		fmt.println("TODO(rahul): no arg provided so we will run the gui for now")
-		run_gui()
-	} else {
-		if args[1] == "lexgraph" {
-			gl_netlist_path := args[2] if len(args) >= 3 else ""
-			liberty_filepath := args[3] if len(args) >= 4 else ""
-			lex_graph_arena: virtual.Arena
-			ensure(virtual.arena_init_growing(&lex_graph_arena) == nil, "Error init'ing lex_graph_arena")
-			lex_graph_arena_allocator := virtual.arena_allocator(&lex_graph_arena)
-			defer virtual.arena_destroy(&lex_graph_arena)
-			lex_gate_level_netlist_and_create_hypergraph(
-				liberty_filepath = liberty_filepath,
-				gate_netlist_path = gl_netlist_path,
-				lex_graph_arena_allocator = lex_graph_arena_allocator,
-			)
 
-		} else { fmt.println("TODO(rahul): Unsupported arg, this should show help menu") }
+	defer free_all(context.temp_allocator)
+
+	lex_graph_arena: virtual.Arena
+	ensure(virtual.arena_init_growing(&lex_graph_arena) == nil, "Error init'ing lex_graph_arena")
+	lex_graph_arena_allocator := virtual.arena_allocator(&lex_graph_arena)
+	defer virtual.arena_destroy(&lex_graph_arena)
+
+	args := os.args
+	gl_netlist_path := ""
+	liberty_filepath := ""
+	if len(args) > 1 && args[1] == "lexgraph" {
+		gl_netlist_path = args[2] if len(args) >= 3 else ""
+		liberty_filepath = args[3] if len(args) >= 4 else ""
 	}
+	lex_gate_level_netlist_and_create_hypergraph(
+		liberty_filepath = liberty_filepath,
+		gate_netlist_path = gl_netlist_path,
+		lex_graph_arena_allocator = lex_graph_arena_allocator,
+	)
 }

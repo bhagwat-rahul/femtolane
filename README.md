@@ -11,7 +11,6 @@ Meant to be a much faster and frictionless version of [OpenROAD](https://github.
 
 - To build the project you will need the Odin compiler and stdlib.
 - You can install it by following the instuctions on [Odin's Official Website](https://odin-lang.org/docs/install/)
-- While the GUI is not functional yet, it uses raylib, you can install raylib [here](https://www.raylib.com/)
 - Once Odin is installed build the program by doing `odin build src` from repo root.
 - Then run the created binary with `./<binary_name> lexgraph tests/netlist_creation/adder/.adder.netlist.v`
 - This will run the lex -> hypergraph creation step.
