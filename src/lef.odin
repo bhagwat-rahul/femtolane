@@ -217,6 +217,7 @@ LefMacroClass :: enum {
 
 LefMaxViaStack :: struct {
 	value:        int,
+	// NOTE(rahul) : Maybe just pass layer index instead of pointer?
 	bottom_layer: ^LefLayer,
 	top_layer:    ^LefLayer,
 }
