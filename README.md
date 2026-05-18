@@ -2,22 +2,28 @@
 
 A performant, simple *physical design tool* to convert your RTL (Register-Transfer Level) design to an OASIS (Open Artwork System Interchange Standard) binary.
 
-Will be written in Odin with no dependencies except odin stdlib, and possibly `vendor:raylib` for the ui.
-Will be statically linked and shipped platform-native for frictionless use.
+Will be written in Odin with no dependencies except odin stdlib, and *maybe* `vendor:raylib` for the rendering since it handles platform specific rendering.
+Platform native, statically linked binaries will be shipped for frictionless use.
 
-Meant to be a much faster and frictionless version of [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD)
+Meant to be a more performant and simpler alternative to:
+1. [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD)
+2. [Cadence Genus/Innovus](https://www.cadence.com/en_US/home/resources/white-papers/innovus-plus-synthesis-implementation-system-wp.html)
+3. [Synopsys Design Compiler](https://www.synopsys.com/content/dam/synopsys/implementation&signoff/datasheets/design-compiler-nxt-ds.pdf)
 
-## How to run
+## Usage (Download a release or build from source)
+
+### 1. Download
+
+We will ship binaries for all major operating systems (windows, linux/unix based OSes, macOS) once the software is in alpha stage
+
+### 2. From source (if you would like to inspect the code / run experiments or make changes)
 
 - To build the project you will need the Odin compiler and stdlib.
 - You can install it by following the instuctions on [Odin's Official Website](https://odin-lang.org/docs/install/)
-- Once Odin is installed build the program by doing `odin build src` from repo root.
-- Then run the created binary with `./<binary_name> lexgraph tests/netlist_creation/adder/.adder.netlist.v`
-- This will run the lex -> hypergraph creation step.
-- This is not fully implemented so you might have to read the code or my notes in `notes.md` to understand what it is supposed to do.
+- Once Odin is installed you can either run the program by running `odin run src` or build it using `odin build src` (both from repository root)
+- On Linux, you need to explicitly pass a linker flag for dbus like `--extra-linker-flags:"-ldbus-1"` since that is what we use to show native file dialogs. (eg. `odin run src --extra-linker-flags:"-ldbus-1"` / `odin build src --extra-linker-flags:"-ldbus-1"`)
 
-
-## Naming / Styling Conventions
+## Codebase Naming / Styling Conventions
 
 1. Constants are all caps with `_` for spaces like `EXAMPLE_CONSTANT`
 2. Functions are all lowercase with `_` spaces like `example_function`
