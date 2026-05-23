@@ -162,14 +162,6 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 	)
 }
 
-skip_newlines_and_whitespaces :: #force_inline proc(l: ^Lexer) {
-	for {
-		c := peek(l)
-		if c != NEWLINE && c != NEWLINE_CARRIAGE_RETURN && c != WHITESPACE && c != WHITESPACE_TAB { break }
-		advance(l)
-	}
-}
-
 netlist_handle_comments :: #force_inline proc(l: ^Lexer) {
 	if (peek(l) == '/' && peek(l, 1) == '/') {
 		advance(l, 2)
