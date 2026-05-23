@@ -365,10 +365,12 @@ set_config_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 
 set_config_manufacturing_grid :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	// set lef_config.manufacturing_grid_value by parsing the float val
+	// lef_consume_statement_end(l)
 }
 
 set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
 	lef_config.clearance_measure = .MAXXY if scan_ident_ascii_upper(l) == "MAXXY" else .EUCLIDEAN
+	lef_consume_statement_end(l)
 }
 
 // TODO(rahul): don't be so defensive here, can be cleaner
