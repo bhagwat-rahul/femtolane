@@ -41,6 +41,7 @@ LEF_COMMENT :: '#'
 LEF_DEFAULT_BUS_BIT_CHARS :: "[]"
 LEF_DEFAULT_DIVIDER_CHAR :: '/'
 LEF_STATEMENT_END_SEMICOLON :: ';'
+LEF_DEFAULT_CLEARANCE_MEASURE: ClearanceMeasure : .EUCLIDEAN
 
 /*
 LefKeywords can be used in any order in a lef file, can't use something before defining (no forward declarations.)
@@ -254,7 +255,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 	lef_config: LefConfig = {
 		version                  = LefVersion{},
 		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
-		clearance_measure        = .EUCLIDEAN,
+		clearance_measure        = LEF_DEFAULT_CLEARANCE_MEASURE,
 		divider_char             = LEF_DEFAULT_DIVIDER_CHAR,
 		units                    = [LefUnitType]LefUnit{},
 		use_min_spacing          = false, // default false since reccomended in spec
@@ -289,9 +290,9 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	case "UNITS": set_config_units(l, lef_config)
 	case "MANUFACTURINGGRID": set_config_manufacturing_grid(l, lef_config)
 	case "USEMINSPACING": set_config_use_min_spacing(l, lef_config)
-	case "CLEARANCEMEASURE": // which of 2 enums
+	case "CLEARANCEMEASURE": set_config_clearance_measure(l, lef_config)
 	case "PROPERTYDEFINITIONS": // This has a bunch of diff cases and metadata
-	case "FIXEDMASK": lef_config.fixed_mask = true
+	case "FIXEDMASK": lef_config.fixed_mask = true // true if statement exists
 	case "LAYER": // parse layer -> END layername
 	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
 	case "VIA":
@@ -364,6 +365,10 @@ set_config_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 
 set_config_manufacturing_grid :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	// set lef_config.manufacturing_grid_value by parsing the float val
+}
+
+set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
+	lef_config.clearance_measure = .MAXXY if scan_ident_ascii_upper(l) == "MAXXY" else .EUCLIDEAN
 }
 
 // TODO(rahul): don't be so defensive here, can be cleaner
