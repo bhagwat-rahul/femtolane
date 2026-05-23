@@ -210,8 +210,7 @@ handle_assign_statement :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
 	}
 	rhs_net: ^Net = hgr.net_hash_map[scan_ident(l)]
 	skip_newlines_and_whitespaces(l)
-	lexer_ensure(l = l, condition = peek(l) == SEMICOLON, err_msg = "No semicolon post assign statement")
-	advance(l)
+	lexer_consume(l, SEMICOLON)
 	skip_newlines_and_whitespaces(l)
 	fmt.println("TODO(rahul):Merge lhs / rhs here and delete/mark alias non-canonical from final rep")
 }
@@ -349,8 +348,7 @@ handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, 
 
 // Parse bus of form [1023:0], which indicates 1024 elements, return msb (1023) and lsb (0)
 parse_bus :: proc(l: ^Lexer) -> (msb: int, lsb: int) {
-	lexer_ensure(l = l, condition = peek(l) == L_SQUARE_BRACKET, err_msg = "parse_bus called with a non [ char")
-	advance(l)
+	lexer_consume(l, L_SQUARE_BRACKET)
 	for peek(l) != COLON && peek(l) != 0 {
 		msb = msb * 10 + int(peek(l) - '0')
 		advance(l)

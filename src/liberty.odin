@@ -358,7 +358,7 @@ LibertyNode :: struct {
 parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 	args := make([dynamic]string, alloc)
 
-	consume(l, '(')
+	lexer_consume(l, '(')
 	liberty_skip_whitespace_and_comments(l)
 
 	for peek(l) != ')' {
@@ -383,7 +383,7 @@ parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 		}
 	}
 
-	consume(l, ')')
+	lexer_consume(l, ')')
 	return args
 }
 
@@ -407,7 +407,7 @@ liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode
 		}
 
 		node.value = string(l.src[start:l.idx])
-		consume(l, ';')
+		lexer_consume(l, ';')
 		return node
 	}
 
@@ -420,7 +420,7 @@ liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode
 		if peek(l) == '{' {
 			node.children = make([dynamic]^LibertyNode, alloc)
 
-			consume(l, '{')
+			lexer_consume(l, '{')
 			liberty_skip_whitespace_and_comments(l)
 
 			for peek(l) != '}' {
@@ -429,12 +429,12 @@ liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode
 				liberty_skip_whitespace_and_comments(l)
 			}
 
-			consume(l, '}')
+			lexer_consume(l, '}')
 			return node
 		}
 
 		// COMPLEX ATTR
-		consume(l, ';')
+		lexer_consume(l, ';')
 		return node
 	}
 

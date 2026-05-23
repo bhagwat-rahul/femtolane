@@ -367,9 +367,9 @@ set_config_divider_char :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 
 set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
 	major_version := scan_ident_ascii_upper(l)
-	consume(l, DOT)
+	lexer_consume(l, DOT)
 	minor_version := scan_ident_ascii_upper(l)
-	if peek(l) == DOT { consume(l, DOT) } 	// we don't care about sub minor versions for now
+	if peek(l) == DOT { lexer_consume(l, DOT) } 	// we don't care about sub minor versions for now
 	switch major_version {
 	case "5": lef_config.version = .LEF_58 // TODO(rahul) : Handle minor versions
 	case "6": lef_config.version = .LEF_60 // TODO(rahul) : Handle minor versions
@@ -428,7 +428,7 @@ set_config_use_min_spacing :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 
 lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
 	skip_newlines_and_whitespaces(l)
-	consume(l, SEMICOLON)
+	lexer_consume(l, SEMICOLON)
 	skip_newlines_and_whitespaces(l)
 }
 
