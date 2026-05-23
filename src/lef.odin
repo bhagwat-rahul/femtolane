@@ -36,7 +36,6 @@ package main
 import "core:fmt"
 import "core:mem"
 import "core:os"
-import "core:strings"
 
 LEF_COMMENT :: '#'
 LEF_DEFAULT_BUS_BIT_CHARS :: "[]"
@@ -93,6 +92,7 @@ LefConfig :: struct {
 	units:                    [LefUnitType]LefUnit,
 	divider_char:             byte, // express hierarchy when lef names mapped to/from other dbs (default "/", escape if used elsewhere)
 	extensions:               [dynamic]LefExtension, // adds customized syntax, can be ignored by tools that don't use this syntax
+	use_min_spacing:          bool, // OBS {ON / OFF}
 	fixed_mask:               bool, // disallow mask shifting if true. all lef macro pin shapes need MASK assignments if true
 	layers:                   [dynamic]LefLayer,
 	property_definitions:     [dynamic]LefPropertyDefinitions,
@@ -257,6 +257,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		clearance_measure        = .EUCLIDEAN,
 		divider_char             = LEF_DEFAULT_DIVIDER_CHAR,
 		units                    = [LefUnitType]LefUnit{},
+		use_min_spacing          = false, // default false since reccomended in spec
 		extensions               = make([dynamic]LefExtension, allocator), // store all extensions in this
 		fixed_mask               = false, // default false, make true if sttmt found
 		layers                   = make([dynamic]LefLayer, allocator),
@@ -280,13 +281,14 @@ lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advan
 
 lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	ident := scan_ident_ascii_upper(l)
+	skip_newlines_and_whitespaces(l)
 	switch ident {
-	case "VERSION": parse_lef_version(l, lef_config)
-	case "BUSBITCHARS": parse_bus_bit_chars(l, lef_config)
-	case "DIVIDERCHAR": parse_divider_char(l, lef_config)
-	case "UNITS":
-	case "MANUFACTURINGGRID": // Get float val (maybe scaled to int)
-	case "USEMINSPACING":
+	case "VERSION": set_config_lef_version(l, lef_config)
+	case "BUSBITCHARS": set_config_bus_bit_chars(l, lef_config)
+	case "DIVIDERCHAR": set_config_divider_char(l, lef_config)
+	case "UNITS": set_config_units(l, lef_config)
+	case "MANUFACTURINGGRID": set_config_manufacturing_grid(l, lef_config)
+	case "USEMINSPACING": set_config_use_min_spacing(l, lef_config)
 	case "CLEARANCEMEASURE": // which of 2 enums
 	case "PROPERTYDEFINITIONS": // This has a bunch of diff cases and metadata
 	case "FIXEDMASK": lef_config.fixed_mask = true
@@ -303,8 +305,9 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	}
 }
 
-parse_bus_bit_chars :: proc(l: ^Lexer, lef_config: ^LefConfig) {
-	skip_newlines_and_whitespaces(l)
+/* Start set config functions */
+
+set_config_bus_bit_chars :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	delimiters := scan_double_quote_wrapped_string(l)
 	lexer_ensure(l = l, condition = len(delimiters) == 2, err_msg = "Found more than 2 chars in bus bit chars")
 	lef_config.bus_bit_chars[0] = delimiters[0]
@@ -312,30 +315,27 @@ parse_bus_bit_chars :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	lef_consume_statement_end(l)
 }
 
-parse_divider_char :: proc(l: ^Lexer, lef_config: ^LefConfig) {
-	skip_newlines_and_whitespaces(l)
+set_config_divider_char :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	divider := scan_double_quote_wrapped_string(l)
 	lexer_ensure(l = l, condition = len(divider) == 1, err_msg = "Divider should be a single char")
 	lef_config.divider_char = divider[0]
 	lef_consume_statement_end(l)
 }
 
-lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
-	skip_newlines_and_whitespaces(l)
-	consume(l, SEMICOLON)
-	skip_newlines_and_whitespaces(l)
+set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
+	major_version := scan_ident_ascii_upper(l)
+	consume(l, DOT)
+	minor_version := scan_ident_ascii_upper(l)
+	if peek(l) == DOT { consume(l, DOT) } 	// we don't care about sub minor versions for now
+	switch major_version {
+	case "5": lef_config.version = .LEF_58 // TODO(rahul) : Handle minor versions
+	case "6": lef_config.version = .LEF_60 // TODO(rahul) : Handle minor versions
+	case: lexer_panic(l, "We don't handle the lef version used")
+	}
+	lef_consume_statement_end(l)
 }
 
-lef_consume_section_end :: #force_inline proc(l: ^Lexer, statement: string) {
-	lexer_ensure(
-		l = l,
-		condition = strings.equal_fold(scan_ident_ascii_upper(l), statement),
-		err_msg = "Statement end keyword not what it should be",
-	)
-	skip_newlines_and_whitespaces(l)
-}
-
-lef_parse_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+set_config_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	for {
 		skip_newlines_and_whitespaces(l)
 		ident := scan_ident_ascii_upper(l)
@@ -362,16 +362,28 @@ lef_parse_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	lef_consume_section_end(l, "UNITS")
 }
 
-parse_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
+set_config_manufacturing_grid :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+	// set lef_config.manufacturing_grid_value by parsing the float val
+}
+
+// TODO(rahul): don't be so defensive here, can be cleaner
+set_config_use_min_spacing :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+	obs_ident := scan_ident_ascii_upper(l)
+	lexer_ensure(l = l, condition = obs_ident == "OBS", err_msg = "No OBS keyword after USEMINSPACING")
+	min_spacing_bool := scan_ident_ascii_upper(l)
+	lexer_ensure(l = l, condition = (min_spacing_bool == "ON" || min_spacing_bool == "OFF"), err_msg = "No OBS keyword after USEMINSPACING")
+	lef_config.use_min_spacing = (min_spacing_bool == "ON")
+}
+
+/* End set config functions */
+
+lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
 	skip_newlines_and_whitespaces(l)
-	major_version := scan_ident_ascii_upper(l)
-	consume(l, DOT)
-	minor_version := scan_ident_ascii_upper(l)
-	if peek(l) == DOT { consume(l, DOT) } 	// we don't care about sub minor versions for now
-	switch major_version {
-	case "5": lef_config.version = .LEF_58 // TODO(rahul) : Handle minor versions
-	case "6": lef_config.version = .LEF_60 // TODO(rahul) : Handle minor versions
-	case: lexer_panic(l, "We don't handle the lef version used")
-	}
-	lef_consume_statement_end(l)
+	consume(l, SEMICOLON)
+	skip_newlines_and_whitespaces(l)
+}
+
+lef_consume_section_end :: #force_inline proc(l: ^Lexer, statement: string) {
+	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == statement, err_msg = "Incorrect keyword after section end")
+	skip_newlines_and_whitespaces(l)
 }
