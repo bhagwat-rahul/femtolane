@@ -95,6 +95,7 @@ LefConfig :: struct {
 	extensions:               [dynamic]LefExtension, // adds customized syntax, can be ignored by tools that don't use this syntax
 	use_min_spacing:          bool, // OBS {ON / OFF}
 	fixed_mask:               bool, // disallow mask shifting if true. all lef macro pin shapes need MASK assignments if true
+	placement_sites:          [dynamic]LefPlacementSite,
 	layers:                   [dynamic]LefLayer,
 	property_definitions:     [dynamic]LefPropertyDefinitions,
 	macros:                   [dynamic]LefMacro,
@@ -106,6 +107,46 @@ LefConfig :: struct {
 ClearanceMeasure :: enum {
 	MAXXY, // Uses the largest x or y distances for spacing between objects.
 	EUCLIDEAN, // Uses the euclidean distance for spacing between objects, i.e. sqrt(x2 + y2) (default)
+}
+
+// Defines placement grids for macro families like I/O, core, block, analog, digital, short, tall, etc.
+LefPlacementSiteName :: distinct string // Not sure if i should ref things by name or pointer or pos in arr
+LefPlacementSite :: struct {
+	site_name:           LefPlacementSiteName,
+	site_class:          LefPlacementSiteClass,
+	size_width_microns:  u32, // spec specifies microns, but we need to think about DBU's as well
+	size_height_microns: u32,
+	symmetry:            LefPlacementSiteSymmetry,
+	row_pattern:         [dynamic]LefPlacementSiteRowPattern, // maybe define a "basic" site without row pattern or have a union type thing
+}
+
+// Specifies previous sites that together form this site (prev sites have to be "basic" w no pattern)
+LefPlacementSiteRowPattern :: struct {
+	previous_site_name:   LefPlacementSiteName,
+	previous_site_orient: LefPlacementSiteOrient,
+}
+
+LefPlacementSiteOrient :: enum {
+	N,
+	S,
+	E,
+	W,
+	FN,
+	FS,
+	FE,
+	FW,
+}
+
+LefPlacementSiteSymmetry :: enum {
+	X, // Site symmetric about X axis (N=FS, S=FN)
+	Y, // Site symmetric about Y axis (N=FN, S=FS)
+	XY, // Site symmetric about X & Y axis (N=S=FN=FS)
+	R90, // Site symmetric when rotated 90 degrees (val typically not used)
+}
+
+LefPlacementSiteClass :: enum {
+	PAD,
+	CORE,
 }
 
 LefHardSpacing :: bool // if true, then any spacing values violating requirements are treated as 'hard' violations instead of soft errors
@@ -252,12 +293,13 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		filepath = filepath,
 	}
 
-	lef_config: LefConfig = {
+	lef_config := LefConfig {
 		version                  = LefVersion{},
 		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
 		clearance_measure        = LEF_DEFAULT_CLEARANCE_MEASURE,
 		divider_char             = LEF_DEFAULT_DIVIDER_CHAR,
 		units                    = [LefUnitType]LefUnit{},
+		placement_sites          = make([dynamic]LefPlacementSite),
 		use_min_spacing          = false, // default false since reccomended in spec
 		extensions               = make([dynamic]LefExtension, allocator), // store all extensions in this
 		fixed_mask               = false, // default false, make true if sttmt found
@@ -298,7 +340,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	case "VIA":
 	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
 	case "NONDEFAULTRULE": // Parse non-default rules
-	case "SITE":
+	case "SITE": // create new macro-placement site
 	case "MACRO": // Parse Macro
 	case "BEGINEXT": // Parse from BEGINEXT to ENDEXT
 	case "END":
