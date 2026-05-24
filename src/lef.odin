@@ -322,7 +322,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 
 lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advance(l) } }
 
-lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig, allocator: mem.Allocator = context.temp_allocator) {
 	ident := scan_ident_ascii_upper(l)
 	skip_newlines_and_whitespaces(l)
 	switch ident {
@@ -340,7 +340,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 	case "VIA":
 	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
 	case "NONDEFAULTRULE": // Parse non-default rules
-	case "SITE": // create new macro-placement site
+	case "SITE": lef_create_macro_placement_site(l, allocator)
 	case "MACRO": // Parse Macro
 	case "BEGINEXT": // Parse from BEGINEXT to ENDEXT
 	case "END":
@@ -426,6 +426,55 @@ set_config_use_min_spacing :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 
 /* End set config functions */
 
+/* Begin LEF data structure creation */
+
+// SITE siteName
+// CLASS {PAD | CORE} ;
+// [SYMMETRY {X | Y | R90} ... ;]
+// [ROWPATTERN {previousSiteName siteOrient} ... ;]
+// SIZE width BY height ;
+// END siteName
+
+// SITE Fsite
+// CLASS CORE ;
+// SIZE 4.0 BY 7.0 ; #4.0 um width, 7.0 um height
+// END Fsite
+// SITE Lsite
+// CLASS CORE ;
+// SIZE 6.0 BY 7.0 ; #6.0 um width, 7.0 um height
+// END Lsite
+// SITE mySite
+// ROWPATTERN Fsite N Lsite N Lsite FS ; #Pattern of F + L + flipped L
+// SIZE 16.0 BY 7.0 ; #Width = width(F + L + L)
+// END mySite
+lef_create_macro_placement_site :: proc(l: ^Lexer, arena_alloc: mem.Allocator = context.temp_allocator) {
+	created_site_ptr, err := new(LefPlacementSite, arena_alloc)
+	created_site := created_site_ptr^
+	created_site.site_name = LefPlacementSiteName(scan_ident_ascii_upper(l))
+	placement_loop: for {
+		skip_newlines_and_whitespaces(l)
+		ident := scan_ident_ascii_upper(l)
+		skip_newlines_and_whitespaces(l)
+		switch ident {
+		case "CLASS":
+			placement_class := scan_ident_ascii_upper(l)
+			lexer_ensure(l, placement_class == "CORE" || placement_class == "PAD", "Unexpected placement class")
+			created_site.site_class = .CORE if placement_class == "CORE" else .PAD
+		case "SIZE":
+
+		case "SYMMETRY":
+		case "ROWPATTERN":
+		case "END":
+			lef_consume_section_end(l, string(created_site.site_name))
+			break placement_loop
+		case: lexer_panic(l, fmt.tprint("Unhandled keyword", ident, "in create_macro_placement for site", created_site.site_name))
+		}
+		lef_consume_statement_end(l)
+	}
+}
+
+/* End LEF data structure creation */
+
 lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
 	skip_newlines_and_whitespaces(l)
 	lexer_consume(l, SEMICOLON)
@@ -433,6 +482,7 @@ lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
 }
 
 lef_consume_section_end :: #force_inline proc(l: ^Lexer, statement: string) {
+	skip_newlines_and_whitespaces(l)
 	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == statement, err_msg = "Incorrect keyword after section end")
 	skip_newlines_and_whitespaces(l)
 }
