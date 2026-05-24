@@ -137,11 +137,12 @@ LefPlacementSiteOrient :: enum {
 	FW,
 }
 
-LefPlacementSiteSymmetry :: enum {
-	X, // Site symmetric about X axis (N=FS, S=FN)
-	Y, // Site symmetric about Y axis (N=FN, S=FS)
-	XY, // Site symmetric about X & Y axis (N=S=FN=FS)
-	R90, // Site symmetric when rotated 90 degrees (val typically not used)
+// Created as such so we can OR different values to define combos
+LefPlacementSiteSymmetry :: enum u8 {
+	None = 0000_0000,
+	X    = 0000_0001,
+	Y    = 0000_0010,
+	R90  = 0000_0100,
 }
 
 LefPlacementSiteClass :: enum {
@@ -299,7 +300,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		clearance_measure        = LEF_DEFAULT_CLEARANCE_MEASURE,
 		divider_char             = LEF_DEFAULT_DIVIDER_CHAR,
 		units                    = [LefUnitType]LefUnit{},
-		placement_sites          = make([dynamic]LefPlacementSite),
+		placement_sites          = make([dynamic]LefPlacementSite), // TODO(rahul): makes sense for soa but things will be in macros
 		use_min_spacing          = false, // default false since reccomended in spec
 		extensions               = make([dynamic]LefExtension, allocator), // store all extensions in this
 		fixed_mask               = false, // default false, make true if sttmt found
@@ -453,21 +454,41 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, arena_alloc: mem.Allocator = 
 	created_site.site_name = LefPlacementSiteName(scan_ident_ascii_upper(l))
 	placement_loop: for {
 		skip_newlines_and_whitespaces(l)
-		ident := scan_ident_ascii_upper(l)
+		placement_keyword := scan_ident_ascii_upper(l)
 		skip_newlines_and_whitespaces(l)
-		switch ident {
+		switch placement_keyword {
 		case "CLASS":
 			placement_class := scan_ident_ascii_upper(l)
 			lexer_ensure(l, placement_class == "CORE" || placement_class == "PAD", "Unexpected placement class")
 			created_site.site_class = .CORE if placement_class == "CORE" else .PAD
 		case "SIZE":
-
+			width := scan_ident_ascii_upper(l)
+			skip_newlines_and_whitespaces(l)
+			by_keyword := scan_ident_ascii_upper(l)
+			lexer_ensure(l, by_keyword == "BY", "No BY keyword between width/length")
+			height := scan_ident_ascii_upper(l)
+			// TODO(rahul): Parse micron width height as DBU
+			// created_site.size_width_microns = width
+			// created_site.size_height_microns = height
+			lef_consume_statement_end(l)
 		case "SYMMETRY":
+			sym_type := scan_ident_ascii_upper(l)
+			symmetry_loop: for {
+				skip_newlines_and_whitespaces(l)
+				if peek(l) == SEMICOLON { break symmetry_loop }
+				switch sym_type {
+				case "X": created_site.symmetry |= .X
+				case "Y": created_site.symmetry |= .Y
+				case "R90": created_site.symmetry |= .R90
+				case: lexer_panic(l, fmt.tprint("Invalid symmetry type", sym_type))
+				}
+			}
+			lef_consume_statement_end(l)
 		case "ROWPATTERN":
 		case "END":
 			lef_consume_section_end(l, string(created_site.site_name))
 			break placement_loop
-		case: lexer_panic(l, fmt.tprint("Unhandled keyword", ident, "in create_macro_placement for site", created_site.site_name))
+		case: lexer_panic(l, fmt.tprint("Unhandled keyword", placement_keyword, "in create_macro_placement for site", created_site.site_name))
 		}
 		lef_consume_statement_end(l)
 	}
