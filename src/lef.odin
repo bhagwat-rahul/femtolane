@@ -86,6 +86,11 @@ LefExtension :: struct {
 	contents: string,
 }
 
+LefSizeWidthByHeight :: struct {
+	size_width_microns:  u32,
+	size_height_microns: u32,
+}
+
 LefDatabase :: struct {
 	version:                  LefVersion,
 	bus_bit_chars:            [2]byte, // delimiters on buses (escape if used elsewhere) (default [])
@@ -112,12 +117,11 @@ ClearanceMeasure :: enum {
 // Defines placement grids for macro families like I/O, core, block, analog, digital, short, tall, etc.
 LefPlacementSiteName :: distinct string // Not sure if i should ref things by name or pointer or pos in arr
 LefPlacementSite :: struct {
-	site_name:           LefPlacementSiteName,
-	site_class:          LefPlacementSiteClass,
-	size_width_microns:  u32, // spec specifies microns, but we need to think about DBU's as well
-	size_height_microns: u32,
-	symmetry:            LefPlacementSiteSymmetry,
-	row_pattern:         [dynamic]LefPlacementSiteRowPattern, // maybe define a "basic" site without row pattern or have a union type thing
+	site_name:   LefPlacementSiteName,
+	site_class:  LefPlacementSiteClass,
+	size:        LefSizeWidthByHeight,
+	symmetry:    LefPlacementSiteSymmetry,
+	row_pattern: [dynamic]LefPlacementSiteRowPattern, // maybe define a "basic" site without row pattern or have a union type thing
 }
 
 // Specifies previous sites that together form this site (prev sites have to be "basic" w no pattern)
@@ -244,9 +248,29 @@ LefPropertyDefinitions :: struct {
 }
 
 LefMacro :: struct {
-	name:  string,
-	class: LefMacroClass,
+	name:                string,
+	class:               LefMacroClass,
+	fixed_mask:          bool,
+	foreign_cell_name:   bool, // TODO(rahul): Implement foreign keyword
+	// origin:              LefOriginPt,
+	electric_equivalent: ^LefMacro, // `EEG macroName` (Electrically equivalent, used for multiple impl's of smae OR gate, etc.)
+	size:                LefSizeWidthByHeight,
+	symmetry:            LefPlacementSiteSymmetry,
+	site:                LefPlacementSite,
+	// pin : LefPin
 	// TODO(rahul): Bunch of other things within each macro
+}
+
+LefMacroForeignOffsetOrientation :: struct {
+	x_value:     i32,
+	y_value:     i32,
+	orientation: LefPlacementSiteOrient, // Default value is N
+}
+
+LefMacroPin :: struct {
+	name: string,
+	// taper_rule: LefTaperRule,
+	// other pin statements
 }
 
 LefMacroClass :: enum {
@@ -273,15 +297,31 @@ LefNonDefaultRule :: struct {
 }
 
 LefUnit :: f64
+
+// *CURRENTLY* , all LefUnits apart from distance (DATABASE) and CAPACITANCE are fixed
 LefUnitType :: enum {
-	TIME,
-	CAPACITANCE,
-	RESISTANCE,
-	POWER,
-	CURRENT,
-	VOLTAGE,
-	DATABASE,
-	FREQUENCY,
+	TIME, // default 1 ns = 1000 DBUs
+	CAPACITANCE, // default 1 pF = 1,000,000 DBUs (user can override)
+	RESISTANCE, // default 1 ohm = 10,000 DBUs
+	POWER, // default 1 milliwatt = 10,000 DBUs
+	CURRENT, // default 1 milliamp = 10,000 DBUs
+	VOLTAGE, // default 1 volt = 1000 DBUs
+	DATABASE, // (distance) User defined
+	FREQUENCY, // default 1 ns = 10,000 DBUs
+}
+
+// How many units = 1 micron
+LefConvertFactorDistanceMicrons :: enum {
+	DBU_100,
+	DBU_200,
+	DBU_400,
+	DBU_800,
+	DBU_1000,
+	DBU_2000,
+	DBU_4000,
+	DBU_8000,
+	DBU_10000,
+	DBU_20000,
 }
 
 read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator) {
