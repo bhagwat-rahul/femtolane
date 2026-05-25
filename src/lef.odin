@@ -206,7 +206,7 @@ LefWidthRule :: struct {
 	width:  f64, // microns
 }
 
-LefAntennaAreaDiffReducePwl :: []f64 // defaults to 1.0 ANTENNAAREADIFFREDUCEPWL
+LefAntennaAreaDiffReducePwl :: []f64 // default 1.0 ANTENNAAREADIFFREDUCEPWL
 LefAntennaAreaFactor :: f64 // default 1.0 ANTENNAAREAFACTOR (multiply factor for antenna metal calc)
 LefAntennaAreaMinusDiff :: f64 // default 0.0; antenna ratio cut_area should subtract connected diffusion area
 LefAntennaAreaRatio :: f64 // max legal antenna ratio using metal wire area NOT connected to diffusion diode
