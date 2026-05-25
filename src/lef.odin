@@ -86,7 +86,7 @@ LefExtension :: struct {
 	contents: string,
 }
 
-LefConfig :: struct {
+LefDatabase :: struct {
 	version:                  LefVersion,
 	bus_bit_chars:            [2]byte, // delimiters on buses (escape if used elsewhere) (default [])
 	clearance_measure:        ClearanceMeasure, // default euclidean
@@ -294,7 +294,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		filepath = filepath,
 	}
 
-	lef_config := LefConfig {
+	lef_database := LefDatabase {
 		version                  = LefVersion{},
 		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
 		clearance_measure        = LEF_DEFAULT_CLEARANCE_MEASURE,
@@ -316,26 +316,26 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		skip_newlines_and_whitespaces(&l)
 		switch peek(&l) {
 		case LEF_COMMENT: lef_skip_comments(l = &l)
-		case: lef_handle_statement(&l, &lef_config)
+		case: lef_handle_statement(&l, &lef_database)
 		}
 	}
 }
 
 lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advance(l) } }
 
-lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig, allocator: mem.Allocator = context.temp_allocator) {
+lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: mem.Allocator = context.temp_allocator) {
 	ident := scan_ident_ascii_upper(l)
 	skip_newlines_and_whitespaces(l)
 	switch ident {
-	case "VERSION": set_config_lef_version(l, lef_config)
-	case "BUSBITCHARS": set_config_bus_bit_chars(l, lef_config)
-	case "DIVIDERCHAR": set_config_divider_char(l, lef_config)
-	case "UNITS": set_config_units(l, lef_config)
-	case "MANUFACTURINGGRID": set_config_manufacturing_grid(l, lef_config)
-	case "USEMINSPACING": set_config_use_min_spacing(l, lef_config)
-	case "CLEARANCEMEASURE": set_config_clearance_measure(l, lef_config)
+	case "VERSION": set_config_lef_version(l, lef_database)
+	case "BUSBITCHARS": set_config_bus_bit_chars(l, lef_database)
+	case "DIVIDERCHAR": set_config_divider_char(l, lef_database)
+	case "UNITS": set_config_units(l, lef_database)
+	case "MANUFACTURINGGRID": set_config_manufacturing_grid(l, lef_database)
+	case "USEMINSPACING": set_config_use_min_spacing(l, lef_database)
+	case "CLEARANCEMEASURE": set_config_clearance_measure(l, lef_database)
 	case "PROPERTYDEFINITIONS": // This has a bunch of diff cases and metadata
-	case "FIXEDMASK": lef_config.fixed_mask = true // true if statement exists
+	case "FIXEDMASK": lef_database.fixed_mask = true // true if statement exists
 	case "LAYER": // parse layer -> END layername
 	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
 	case "VIA":
@@ -351,35 +351,35 @@ lef_handle_statement :: proc(l: ^Lexer, lef_config: ^LefConfig, allocator: mem.A
 
 /* Start set config functions */
 
-set_config_bus_bit_chars :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+set_config_bus_bit_chars :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	delimiters := scan_double_quote_wrapped_string(l)
 	lexer_ensure(l = l, condition = len(delimiters) == 2, err_msg = "Found more than 2 chars in bus bit chars")
-	lef_config.bus_bit_chars[0] = delimiters[0]
-	lef_config.bus_bit_chars[1] = delimiters[1]
+	lef_database.bus_bit_chars[0] = delimiters[0]
+	lef_database.bus_bit_chars[1] = delimiters[1]
 	lef_consume_statement_end(l)
 }
 
-set_config_divider_char :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+set_config_divider_char :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	divider := scan_double_quote_wrapped_string(l)
 	lexer_ensure(l = l, condition = len(divider) == 1, err_msg = "Divider should be a single char")
-	lef_config.divider_char = divider[0]
+	lef_database.divider_char = divider[0]
 	lef_consume_statement_end(l)
 }
 
-set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
+set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	major_version := scan_ident_ascii_upper(l)
 	lexer_consume(l, DOT)
 	minor_version := scan_ident_ascii_upper(l)
 	if peek(l) == DOT { lexer_consume(l, DOT) } 	// we don't care about sub minor versions for now
 	switch major_version {
-	case "5": lef_config.version = .LEF_58 // TODO(rahul) : Handle minor versions
-	case "6": lef_config.version = .LEF_60 // TODO(rahul) : Handle minor versions
+	case "5": lef_database.version = .LEF_58 // TODO(rahul) : Handle minor versions
+	case "6": lef_database.version = .LEF_60 // TODO(rahul) : Handle minor versions
 	case: lexer_panic(l, "We don't handle the lef version used")
 	}
 	lef_consume_statement_end(l)
 }
 
-set_config_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	for {
 		skip_newlines_and_whitespaces(l)
 		ident := scan_ident_ascii_upper(l)
@@ -399,30 +399,30 @@ set_config_units :: proc(l: ^Lexer, lef_config: ^LefConfig) {
 		unit_name := scan_ident_ascii_upper(l)
 		lexer_ensure(l, unit_name == LEF_EXPECTED_UNITS[kind], "Wrong unit for type")
 		value: f64 // TODO(rahul): Parse value w right data type
-		lef_config.units[kind] = value
+		lef_database.units[kind] = value
 		lef_consume_statement_end(l)
 	}
 	skip_newlines_and_whitespaces(l)
 	lef_consume_section_end(l, "UNITS")
 }
 
-set_config_manufacturing_grid :: proc(l: ^Lexer, lef_config: ^LefConfig) {
-	// set lef_config.manufacturing_grid_value by parsing the float val
+set_config_manufacturing_grid :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+	// set lef_database.manufacturing_grid_value by parsing the float val
 	// lef_consume_statement_end(l)
 }
 
-set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_config: ^LefConfig) {
-	lef_config.clearance_measure = .MAXXY if scan_ident_ascii_upper(l) == "MAXXY" else .EUCLIDEAN
+set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_database: ^LefDatabase) {
+	lef_database.clearance_measure = .MAXXY if scan_ident_ascii_upper(l) == "MAXXY" else .EUCLIDEAN
 	lef_consume_statement_end(l)
 }
 
 // TODO(rahul): don't be so defensive here, can be cleaner
-set_config_use_min_spacing :: proc(l: ^Lexer, lef_config: ^LefConfig) {
+set_config_use_min_spacing :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	obs_ident := scan_ident_ascii_upper(l)
 	lexer_ensure(l = l, condition = obs_ident == "OBS", err_msg = "No OBS keyword after USEMINSPACING")
 	min_spacing_bool := scan_ident_ascii_upper(l)
 	lexer_ensure(l = l, condition = (min_spacing_bool == "ON" || min_spacing_bool == "OFF"), err_msg = "No OBS keyword after USEMINSPACING")
-	lef_config.use_min_spacing = (min_spacing_bool == "ON")
+	lef_database.use_min_spacing = (min_spacing_bool == "ON")
 }
 
 /* End set config functions */
