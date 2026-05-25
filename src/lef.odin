@@ -407,13 +407,15 @@ set_config_divider_char :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 }
 
 set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_database: ^LefDatabase) {
-	major_version := scan_ident_ascii_upper(l)
+	major_version := peek(l)
+	advance(l)
 	lexer_consume(l, DOT)
-	minor_version := scan_ident_ascii_upper(l)
+	minor_version := peek(l)
+	advance(l)
 	if peek(l) == DOT { lexer_consume(l, DOT) } 	// we don't care about sub minor versions for now
 	switch major_version {
-	case "5": lef_database.version = .LEF_58 // TODO(rahul) : Handle minor versions
-	case "6": lef_database.version = .LEF_60 // TODO(rahul) : Handle minor versions
+	case '5': lef_database.version = .LEF_58 // TODO(rahul) : Handle minor versions
+	case '6': lef_database.version = .LEF_60 // TODO(rahul) : Handle minor versions
 	case: lexer_panic(l, "We don't handle the lef version used")
 	}
 	lef_consume_statement_end(l)
@@ -423,6 +425,7 @@ set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	for {
 		skip_newlines_and_whitespaces(l)
 		ident := scan_ident_ascii_upper(l)
+		skip_newlines_and_whitespaces(l)
 		if ident == "END" { break }
 		kind: LefUnitType
 		switch ident {
@@ -438,6 +441,7 @@ set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		}
 		unit_name := scan_ident_ascii_upper(l)
 		lexer_ensure(l, unit_name == LEF_EXPECTED_UNITS[kind], "Wrong unit for type")
+		skip_newlines_and_whitespaces(l)
 		value: f64 // TODO(rahul): Parse value w right data type
 		lef_database.units[kind] = value
 		lef_consume_statement_end(l)
