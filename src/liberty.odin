@@ -210,46 +210,6 @@ LibertyCell :: struct {
 
 LibertyPin :: struct {}
 
-
-LIBERTY_IDENT_START, LIBERTY_IDENT_CHAR: [256]bool
-
-@(init)
-init_liberty_ident_tables :: proc "contextless" () {
-	for i in 0 ..< 256 {
-		LIBERTY_IDENT_START[i] = false
-		LIBERTY_IDENT_CHAR[i] = false
-	}
-
-	for c in 'a' ..= 'z' {
-		LIBERTY_IDENT_START[c] = true
-		LIBERTY_IDENT_CHAR[c] = true
-	}
-
-	for c in 'A' ..= 'Z' {
-		LIBERTY_IDENT_START[c] = true
-		LIBERTY_IDENT_CHAR[c] = true
-	}
-
-	LIBERTY_IDENT_START['_'] = true
-	LIBERTY_IDENT_CHAR['_'] = true
-
-	for c in '0' ..= '9' {
-		LIBERTY_IDENT_CHAR[c] = true
-	}
-
-	LIBERTY_IDENT_CHAR['$'] = true
-}
-
-is_liberty_ident_start :: #force_inline proc(b: byte) -> bool { return LIBERTY_IDENT_START[b] }
-
-is_liberty_ident_char :: #force_inline proc(b: byte) -> bool { return LIBERTY_IDENT_CHAR[b] }
-
-scan_liberty_ident :: #force_inline proc(l: ^Lexer) -> string {
-	start := l.idx
-	for l.idx < len(l.src) && is_liberty_ident_char(peek(l)) { advance(l) }
-	return string(l.src[start:l.idx])
-}
-
 liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
 	for l.idx < len(l.src) {
 		c := peek(l)
@@ -367,8 +327,8 @@ parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 
 		if c == '"' {
 			append(&args, scan_double_quote_wrapped_string(l))
-		} else if is_liberty_ident_start(c) {
-			append(&args, scan_liberty_ident(l))
+		} else if is_ident_start(c) {
+			append(&args, scan_ident(l))
 		} else {
 			start := l.idx
 			for peek(l) != ',' && peek(l) != ')' { advance(l) }
@@ -390,7 +350,7 @@ parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode {
 	liberty_skip_whitespace_and_comments(l)
 
-	name := scan_liberty_ident(l)
+	name := scan_ident(l)
 	liberty_skip_whitespace_and_comments(l)
 
 	node, _ := new(LibertyNode, alloc)
