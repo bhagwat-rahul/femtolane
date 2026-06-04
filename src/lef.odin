@@ -424,26 +424,26 @@ set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_database: ^LefDataba
 set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	for {
 		skip_newlines_and_whitespaces(l)
-		ident := scan_ident_ascii_upper(l)
+		unit_string := scan_ident_ascii_upper(l)
 		skip_newlines_and_whitespaces(l)
-		if ident == "END" { break }
-		kind: LefUnitType
-		switch ident {
-		case "TIME": kind = .TIME
-		case "CAPACITANCE": kind = .CAPACITANCE
-		case "RESISTANCE": kind = .RESISTANCE
-		case "POWER": kind = .POWER
-		case "CURRENT": kind = .CURRENT
-		case "VOLTAGE": kind = .VOLTAGE
-		case "DATABASE": kind = .DATABASE
-		case "FREQUENCY": kind = .FREQUENCY
+		if unit_string == "END" { break }
+		unit_kind: LefUnitType
+		switch unit_string {
+		case "TIME": unit_kind = .TIME
+		case "CAPACITANCE": unit_kind = .CAPACITANCE
+		case "RESISTANCE": unit_kind = .RESISTANCE
+		case "POWER": unit_kind = .POWER
+		case "CURRENT": unit_kind = .CURRENT
+		case "VOLTAGE": unit_kind = .VOLTAGE
+		case "DATABASE": unit_kind = .DATABASE
+		case "FREQUENCY": unit_kind = .FREQUENCY
 		case: lexer_panic(l, "Unknown unit type")
 		}
 		unit_name := scan_ident_ascii_upper(l)
-		lexer_ensure(l, unit_name == LEF_EXPECTED_UNITS[kind], "Wrong unit for type")
+		lexer_ensure(l = l, condition = unit_name == LEF_EXPECTED_UNITS[unit_kind], err_msg = "Wrong unit for type")
 		skip_newlines_and_whitespaces(l)
 		value: f64 // TODO(rahul): Parse value w right data type
-		lef_database.units[kind] = value
+		lef_database.units[unit_kind] = value
 		lef_consume_statement_end(l)
 	}
 	skip_newlines_and_whitespaces(l)
@@ -503,13 +503,13 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, arena_alloc: mem.Allocator = 
 		switch placement_keyword {
 		case "CLASS":
 			placement_class := scan_ident_ascii_upper(l)
-			lexer_ensure(l, placement_class == "CORE" || placement_class == "PAD", "Unexpected placement class")
+			lexer_ensure(l = l, condition = placement_class == "CORE" || placement_class == "PAD", err_msg = "Unexpected placement class")
 			created_site.site_class = .CORE if placement_class == "CORE" else .PAD
 		case "SIZE":
 			width := scan_ident_ascii_upper(l)
 			skip_newlines_and_whitespaces(l)
 			by_keyword := scan_ident_ascii_upper(l)
-			lexer_ensure(l, by_keyword == "BY", "No BY keyword between width/length")
+			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
 			height := scan_ident_ascii_upper(l)
 			// TODO(rahul): Parse micron width height as DBU
 			// created_site.size_width_microns = width
