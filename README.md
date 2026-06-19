@@ -22,6 +22,7 @@ We will ship binaries for all major operating systems (windows, linux/unix based
 - You can install it by following the instuctions on [Odin's Official Website](https://odin-lang.org/docs/install/)
 - Once Odin is installed you can either run the program by running `odin run src` or build it using `odin build src` (both from repository root)
 - On Linux, you need to explicitly pass a linker flag for dbus like `--extra-linker-flags:"-ldbus-1"` since that is what we use to show native file dialogs. (eg. `odin run src --extra-linker-flags:"-ldbus-1"` / `odin build src --extra-linker-flags:"-ldbus-1"`)
+- It may also be good to compile it as position independent code by passing `-reloc-mode:pic`, this will allow it run on Android/iOS and some other platforms.
 
 ## Codebase Naming / Styling Conventions
 
