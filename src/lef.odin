@@ -86,9 +86,10 @@ LefExtension :: struct {
 	contents: string,
 }
 
+LefDistance :: distinct i64
 LefSizeWidthByHeight :: struct {
-	size_width_microns:  u32,
-	size_height_microns: u32,
+	size_width_dbu:  LefDistance,
+	size_height_dbu: LefDistance,
 }
 
 LefDatabase :: struct {
@@ -104,7 +105,7 @@ LefDatabase :: struct {
 	layers:                   [dynamic]LefLayer,
 	property_definitions:     [dynamic]LefPropertyDefinitions,
 	macros:                   [dynamic]LefMacro,
-	manufacturing_grid_value: f64, // Maybe int instead?
+	manufacturing_grid_value: LefDistance,
 	max_via_stack:            LefMaxViaStack,
 	non_default_rules:        [dynamic]LefNonDefaultRule,
 }
@@ -296,7 +297,7 @@ LefNonDefaultRule :: struct {
 	min_cuts:     LefLayerMinCuts,
 }
 
-LefUnit :: f64
+LefUnit :: distinct i64
 
 // *CURRENTLY* , all LefUnits apart from distance (DATABASE) and CAPACITANCE are fixed
 LefUnitType :: enum {
@@ -381,7 +382,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	case "VIA":
 	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
 	case "NONDEFAULTRULE": // Parse non-default rules
-	case "SITE": lef_create_macro_placement_site(l, allocator)
+	case "SITE": lef_create_macro_placement_site(l, lef_database, allocator)
 	case "MACRO": lef_create_macro(l, lef_database, allocator)
 	case "BEGINEXT": // Parse from BEGINEXT to ENDEXT
 	case "END":
@@ -442,8 +443,9 @@ set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		unit_name := scan_ident_ascii_upper(l)
 		lexer_ensure(l = l, condition = unit_name == LEF_EXPECTED_UNITS[unit_kind], err_msg = "Wrong unit for type")
 		skip_newlines_and_whitespaces(l)
-		value: f64 // TODO(rahul): Parse value w right data type
-		lef_database.units[unit_kind] = value
+		value := scan_lef_decimal_scaled_i64(l, 1)
+		lexer_ensure(l, value > 0, "Unit conversion factor must be positive")
+		lef_database.units[unit_kind] = LefUnit(value)
 		lef_consume_statement_end(l)
 	}
 	skip_newlines_and_whitespaces(l)
@@ -451,8 +453,11 @@ set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 }
 
 set_config_manufacturing_grid :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
-	// set lef_database.manufacturing_grid_value by parsing the float val
-	// lef_consume_statement_end(l)
+	dbu_per_micron := i64(lef_database.units[.DATABASE])
+	lexer_ensure(l, dbu_per_micron > 0, "DATABASE MICRONS must precede MANUFACTURINGGRID")
+	lef_database.manufacturing_grid_value = LefDistance(scan_lef_decimal_scaled_i64(l, dbu_per_micron))
+	lexer_ensure(l, lef_database.manufacturing_grid_value > 0, "Manufacturing grid must be positive")
+	lef_consume_statement_end(l)
 }
 
 set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_database: ^LefDatabase) {
@@ -464,9 +469,11 @@ set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_database: ^Lef
 set_config_use_min_spacing :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	obs_ident := scan_ident_ascii_upper(l)
 	lexer_ensure(l = l, condition = obs_ident == "OBS", err_msg = "No OBS keyword after USEMINSPACING")
+	skip_newlines_and_whitespaces(l)
 	min_spacing_bool := scan_ident_ascii_upper(l)
 	lexer_ensure(l = l, condition = (min_spacing_bool == "ON" || min_spacing_bool == "OFF"), err_msg = "No OBS keyword after USEMINSPACING")
 	lef_database.use_min_spacing = (min_spacing_bool == "ON")
+	lef_consume_statement_end(l)
 }
 
 /* End set config functions */
@@ -492,7 +499,7 @@ set_config_use_min_spacing :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 // ROWPATTERN Fsite N Lsite N Lsite FS ; #Pattern of F + L + flipped L
 // SIZE 16.0 BY 7.0 ; #Width = width(F + L + L)
 // END mySite
-lef_create_macro_placement_site :: proc(l: ^Lexer, arena_alloc: mem.Allocator = context.temp_allocator) {
+lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase, arena_alloc: mem.Allocator = context.temp_allocator) {
 	created_site_ptr, err := new(LefPlacementSite, arena_alloc)
 	created_site := created_site_ptr^
 	created_site.site_name = LefPlacementSiteName(scan_ident_ascii_upper(l))
@@ -506,28 +513,24 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, arena_alloc: mem.Allocator = 
 			lexer_ensure(l = l, condition = placement_class == "CORE" || placement_class == "PAD", err_msg = "Unexpected placement class")
 			created_site.site_class = .CORE if placement_class == "CORE" else .PAD
 		case "SIZE":
-			width := scan_ident_ascii_upper(l)
+			dbu_per_micron := i64(lef_database.units[.DATABASE])
+			lexer_ensure(l, dbu_per_micron > 0, "DATABASE MICRONS must precede SITE SIZE")
+			created_site.size.size_width_dbu = LefDistance(scan_lef_decimal_scaled_i64(l, dbu_per_micron))
 			skip_newlines_and_whitespaces(l)
 			by_keyword := scan_ident_ascii_upper(l)
 			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
-			height := scan_ident_ascii_upper(l)
-			// TODO(rahul): Parse micron width height as DBU
-			// created_site.size_width_microns = width
-			// created_site.size_height_microns = height
-			lef_consume_statement_end(l)
-		case "SYMMETRY":
-			sym_type := scan_ident_ascii_upper(l)
-			symmetry_loop: for {
-				skip_newlines_and_whitespaces(l)
-				if peek(l) == SEMICOLON { break symmetry_loop }
-				switch sym_type {
-				case "X": created_site.symmetry |= .X
-				case "Y": created_site.symmetry |= .Y
-				case "R90": created_site.symmetry |= .R90
-				case: lexer_panic(l, fmt.tprint("Invalid symmetry type", sym_type))
+			created_site.size.size_height_dbu = LefDistance(scan_lef_decimal_scaled_i64(l, dbu_per_micron))
+		case "SYMMETRY": symmetry_loop: for {
+					skip_newlines_and_whitespaces(l)
+					if peek(l) == SEMICOLON { break symmetry_loop }
+					sym_type := scan_ident_ascii_upper(l)
+					switch sym_type {
+					case "X": created_site.symmetry |= .X
+					case "Y": created_site.symmetry |= .Y
+					case "R90": created_site.symmetry |= .R90
+					case: lexer_panic(l, fmt.tprint("Invalid symmetry type", sym_type))
+					}
 				}
-			}
-			lef_consume_statement_end(l)
 		case "ROWPATTERN":
 		case "END":
 			lef_consume_section_end(l, string(created_site.site_name))
@@ -536,6 +539,7 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, arena_alloc: mem.Allocator = 
 		}
 		lef_consume_statement_end(l)
 	}
+	append(&lef_database.placement_sites, created_site)
 }
 
 lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Allocator = context.temp_allocator) {
@@ -544,6 +548,7 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Alloc
 
 /* End LEF data structure creation */
 
+/* LEF helper procs */
 lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
 	skip_newlines_and_whitespaces(l)
 	lexer_consume(l, SEMICOLON)
@@ -555,3 +560,41 @@ lef_consume_section_end :: #force_inline proc(l: ^Lexer, statement: string) {
 	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == statement, err_msg = "Incorrect keyword after section end")
 	skip_newlines_and_whitespaces(l)
 }
+
+/* TODO(rahul): scan_lef_decimal_scaled_i64 is LLM generated, review and fix if needed */
+scan_lef_decimal_scaled_i64 :: #force_inline proc(l: ^Lexer, scale: i64) -> i64 {
+	skip_newlines_and_whitespaces(l)
+	negative := peek(l) == '-'
+	if negative { advance(l) }
+	value: i128
+	digit_count := 0
+	for '0' <= peek(l) && peek(l) <= '9' {
+		value = value * 10 + i128(peek(l) - '0'); digit_count += 1; advance(l)
+	}
+	fraction_digits := 0
+	if peek(l) == '.' {
+		advance(l)
+		for '0' <= peek(l) && peek(l) <= '9' {
+			value = value * 10 + i128(peek(l) - '0'); digit_count += 1; fraction_digits += 1; advance(l)
+		}
+	}
+	lexer_ensure(l, digit_count > 0, "Expected decimal number")
+	exponent := 0
+	if peek(l) == 'e' || peek(l) == 'E' {
+		advance(l); exponent_negative := false
+		if peek(l) == '-' || peek(l) == '+' { exponent_negative = peek(l) == '-'; advance(l) }
+		lexer_ensure(l, '0' <= peek(l) && peek(l) <= '9', "Expected decimal exponent")
+		for '0' <= peek(l) && peek(l) <= '9' { exponent = exponent * 10 + int(peek(l) - '0'); advance(l) }
+		if exponent_negative { exponent = -exponent }
+	}
+	result, power := value * i128(scale), fraction_digits - exponent
+	if power < 0 { for _ in 0 ..< -power { result *= 10 } } else {
+		divisor: i128 = 1; for _ in 0 ..< power { divisor *= 10 }
+		lexer_ensure(l, result % divisor == 0, "Decimal is not exactly representable at this scale"); result /= divisor
+	}
+	if negative { result = -result }
+	lexer_ensure(l, i128(min(i64)) <= result && result <= i128(max(i64)), "Scaled decimal exceeds i64 range")
+	return i64(result)
+}
+
+/* End LEF helper procs*/
