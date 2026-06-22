@@ -382,7 +382,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
 	case "NONDEFAULTRULE": // Parse non-default rules
 	case "SITE": lef_create_macro_placement_site(l, allocator)
-	case "MACRO": // Parse Macro
+	case "MACRO": lef_create_macro(l, lef_database, allocator)
 	case "BEGINEXT": // Parse from BEGINEXT to ENDEXT
 	case "END":
 	case: lexer_panic(l = l, err_msg = fmt.tprintf("Found unimplemented keyword %s", ident))
@@ -536,6 +536,10 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, arena_alloc: mem.Allocator = 
 		}
 		lef_consume_statement_end(l)
 	}
+}
+
+lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Allocator = context.temp_allocator) {
+	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
 }
 
 /* End LEF data structure creation */
