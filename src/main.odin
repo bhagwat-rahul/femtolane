@@ -30,14 +30,15 @@ main :: proc() {
 	defer virtual.arena_destroy(&lex_graph_arena)
 
 	args := os.args
-	gl_netlist_path := ""
-	liberty_filepath := ""
+	gl_netlist_path, liberty_filepath, lef_filepath: string
 	if len(args) > 1 && args[1] == "lexgraph" {
 		gl_netlist_path = args[2] if len(args) >= 3 else ""
 		liberty_filepath = args[3] if len(args) >= 4 else ""
+		lef_filepath = args[4] if len(args) >= 5 else ""
 	}
 	lex_gate_level_netlist_and_create_hypergraph(
 		liberty_filepath = liberty_filepath,
+		lef_filepath = lef_filepath,
 		gate_netlist_path = gl_netlist_path,
 		lex_graph_arena_allocator = lex_graph_arena_allocator,
 	)

@@ -108,7 +108,10 @@ DOT :: '.'
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
-lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, liberty_filepath: string, lex_graph_arena_allocator: mem.Allocator) {
+lex_gate_level_netlist_and_create_hypergraph :: proc(
+	gate_netlist_path, liberty_filepath, lef_filepath: string,
+	lex_graph_arena_allocator: mem.Allocator,
+) {
 	resolved_gate_netlist_path := gate_netlist_path
 	if len(resolved_gate_netlist_path) == 0 {
 		fmt.println("Please select a gate-level verilog netlist file")
@@ -135,6 +138,8 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 	}
 
 	parse_liberty_create_cells_pins(liberty_filepath = liberty_filepath, alloc = lex_graph_arena_allocator, hgr = &hgr)
+
+	read_lef(filepath = lef_filepath, allocator = lex_graph_arena_allocator)
 
 	// NOTE(rahul): this loop never changes idx only handler functions do
 	for l.idx < len(l.src) {
