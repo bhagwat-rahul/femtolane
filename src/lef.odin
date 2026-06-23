@@ -241,11 +241,34 @@ LefLibraryProperties :: enum {
 	OA_LAYER_MAP, // Open Access Layer Map
 }
 
-LefPropertyDefinitions :: struct {
-	name:                  string,
-	library_property_type: LefLibraryProperties, // prefixed with version num like 'LEF58_' for v5.8
+LefPropertyDefinitionObjectType :: enum {
+	LAYER,
+	LIBRARY,
+	MACRO,
+	NONDEFAULTRULE,
+	PIN,
+	VIA,
+	VIARULE,
+}
 
-	// TODO(rahul): this has more metadata (needed to support advanced nodes)
+LefPropertyDefinitionPropertyType :: enum {
+	INTEGER,
+	REAL,
+	STRING,
+}
+
+// [PROPERTYDEFINITIONS
+// [objectType propName propType [RANGE min max]
+// [value | "stringValue"]
+// ;] ...
+// END PROPERTYDEFINITIONS]
+LefPropertyDefinitions :: struct {
+	object_type:           LefPropertyDefinitionObjectType,
+	property_name:         string,
+	property_type:         LefPropertyDefinitionPropertyType,
+	range:                 [2]string,
+	value:                 string,
+	library_property_type: LefLibraryProperties, // prefixed with version num like 'LEF58_' for v5.8
 }
 
 LefMacro :: struct {
@@ -375,7 +398,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	case "MANUFACTURINGGRID": set_config_manufacturing_grid(l, lef_database)
 	case "USEMINSPACING": set_config_use_min_spacing(l, lef_database)
 	case "CLEARANCEMEASURE": set_config_clearance_measure(l, lef_database)
-	case "PROPERTYDEFINITIONS": // This has a bunch of diff cases and metadata
+	case "PROPERTYDEFINITIONS": set_config_property_definitions(l, lef_database)
 	case "FIXEDMASK": lef_database.fixed_mask = true // true if statement exists
 	case "LAYER": // parse layer -> END layername
 	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
@@ -420,6 +443,42 @@ set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_database: ^LefDataba
 	case: lexer_panic(l, "We don't handle the lef version used")
 	}
 	lef_consume_statement_end(l)
+}
+
+// TODO(rahul): this function is only stubbed for now, fix it for all cases
+set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+	for {
+		prop_def: LefPropertyDefinitions = {}
+		skip_newlines_and_whitespaces(l)
+		object_type := scan_ident_ascii_upper(l)
+		skip_newlines_and_whitespaces(l)
+		if object_type == "END" { break }
+		switch object_type {
+		case "LAYER": prop_def.object_type = .LAYER
+		case "LIBRARY": prop_def.object_type = .LIBRARY
+		case "MACRO": prop_def.object_type = .MACRO
+		case "NONDEFAULTRULE": prop_def.object_type = .NONDEFAULTRULE
+		case "PIN": prop_def.object_type = .PIN
+		case "VIA": prop_def.object_type = .VIA
+		case "VIARULE": prop_def.object_type = .VIARULE
+		case: lexer_panic(l, "Unknown property definition object type")
+		}
+		prop_def.property_name = scan_ident_ascii_upper(l)
+		skip_newlines_and_whitespaces(l)
+		property_type := scan_ident_ascii_upper(l)
+		switch property_type {
+		case "INTEGER": prop_def.property_type = .INTEGER
+		case "REAL": prop_def.property_type = .REAL
+		case "STRING": prop_def.property_type = .STRING
+		case: lexer_panic(l, "Unknown property definition property type")
+		}
+		skip_newlines_and_whitespaces(l)
+		prop_def.value = scan_ident_ascii_upper(l) if peek(l) != SEMICOLON else ""
+		skip_newlines_and_whitespaces(l)
+		lef_consume_statement_end(l)
+		append(&lef_database.property_definitions, prop_def)
+	}
+	lef_consume_section_end(l, "PROPERTYDEFINITIONS")
 }
 
 set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
