@@ -400,7 +400,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	case "CLEARANCEMEASURE": set_config_clearance_measure(l, lef_database)
 	case "PROPERTYDEFINITIONS": set_config_property_definitions(l, lef_database)
 	case "FIXEDMASK": lef_database.fixed_mask = true // true if statement exists
-	case "LAYER": // parse layer -> END layername
+	case "LAYER": lef_create_layer(l, lef_database, allocator)
 	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
 	case "VIA":
 	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
@@ -447,12 +447,11 @@ set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_database: ^LefDataba
 
 // TODO(rahul): this function is only stubbed for now, fix it for all cases
 set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
-	for {
+	set_prop_def_loop: for {
 		prop_def: LefPropertyDefinitions = {}
 		skip_newlines_and_whitespaces(l)
 		object_type := scan_ident_ascii_upper(l)
 		skip_newlines_and_whitespaces(l)
-		if object_type == "END" { break }
 		switch object_type {
 		case "LAYER": prop_def.object_type = .LAYER
 		case "LIBRARY": prop_def.object_type = .LIBRARY
@@ -461,6 +460,9 @@ set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		case "PIN": prop_def.object_type = .PIN
 		case "VIA": prop_def.object_type = .VIA
 		case "VIARULE": prop_def.object_type = .VIARULE
+		case "END":
+			lef_consume_section_end(l, "PROPERTYDEFINITIONS")
+			break set_prop_def_loop
 		case: lexer_panic(l, "Unknown property definition object type")
 		}
 		prop_def.property_name = scan_ident_ascii_upper(l)
@@ -478,15 +480,13 @@ set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		lef_consume_statement_end(l)
 		append(&lef_database.property_definitions, prop_def)
 	}
-	lef_consume_section_end(l, "PROPERTYDEFINITIONS")
 }
 
 set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
-	for {
+	set_units_loop: for {
 		skip_newlines_and_whitespaces(l)
 		unit_string := scan_ident_ascii_upper(l)
 		skip_newlines_and_whitespaces(l)
-		if unit_string == "END" { break }
 		unit_kind: LefUnitType
 		switch unit_string {
 		case "TIME": unit_kind = .TIME
@@ -497,7 +497,10 @@ set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		case "VOLTAGE": unit_kind = .VOLTAGE
 		case "DATABASE": unit_kind = .DATABASE
 		case "FREQUENCY": unit_kind = .FREQUENCY
-		case: lexer_panic(l, "Unknown unit type")
+		case "END":
+			lef_consume_section_end(l, "UNITS")
+			break set_units_loop
+		case: lexer_panic(l, fmt.tprint("Unkown unit type", unit_string))
 		}
 		unit_name := scan_ident_ascii_upper(l)
 		lexer_ensure(l = l, condition = unit_name == LEF_EXPECTED_UNITS[unit_kind], err_msg = "Wrong unit for type")
@@ -507,8 +510,6 @@ set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		lef_database.units[unit_kind] = LefUnit(value)
 		lef_consume_statement_end(l)
 	}
-	skip_newlines_and_whitespaces(l)
-	lef_consume_section_end(l, "UNITS")
 }
 
 set_config_manufacturing_grid :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
@@ -603,6 +604,10 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase, a
 
 lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Allocator = context.temp_allocator) {
 	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
+}
+
+lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Allocator = context.temp_allocator) {
+	// Stub
 }
 
 /* End LEF data structure creation */
