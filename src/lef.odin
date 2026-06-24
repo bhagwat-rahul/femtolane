@@ -87,6 +87,7 @@ LefExtension :: struct {
 }
 
 LefDistance :: distinct i64
+LefArea :: distinct i64
 LefSizeWidthByHeight :: struct {
 	size_width_dbu:  LefDistance,
 	size_height_dbu: LefDistance,
@@ -168,6 +169,8 @@ LefLayerIndex :: distinct u8
 LefLayer :: union {
 	LefCutLayer,
 	LefImplantLayer,
+	LefRoutingLayer,
+	LefMastersliceOverlapLayer,
 }
 
 // TODO(rahul): Incomplete
@@ -179,6 +182,20 @@ LefCutLayer :: struct {
 	antenna_area_factor:          LefAntennaAreaFactor,
 	antenna_area_ratio:           LefAntennaAreaRatio,
 	antenna_cum_area_ratio:       LefAntennaCumAreaRatio,
+	antenna_cum_dif_area_ratio:   LefAntennaCumDiffAreaRatio,
+	// antenna_gate_plus_diff:       LefAntennaGatePlusDiff,
+	// antenna_area_minus_diff:      LefAreaMinusDiff,
+	// spacing_table:                LefCutLayerSpacingTable,
+	// array_spacing:                LefCutLayerArraySpacing,
+	// min_width:                    LefDistance,
+	// enclosure:                    LefLayerEnclosure,
+	// preference_closure:           LefLayerPreferenceClosure,
+	// resistance:                   LefLayerResistance,
+	// property:                     LefProperty,
+	// dc_current_density:           LefDCCurrentDensity,
+	// antenna_model:                LefAntennaModel,
+	// antenna_diff_area_ratio:      LefAntennaDiffAreaRatio,
+	// antenna_cum_routing_plus_cut: LefAntennaCumRoutingPlusCut,
 }
 
 LefImplantLayer :: struct {
@@ -187,8 +204,8 @@ LefImplantLayer :: struct {
 	layer_name_2: ^LefImplantLayer, // another implant layer requiring extra spacing >= minspacing from this layer
 	mask_num:     u8, // how many double / triple patterning masks used here, has to be >= 2, usually 2 or 3
 	property_val: ^LefPropertyDefinitions, // numerical or string val for prop that applies here (we use pointer cz easier)
-	min_spacing:  f64, // min spacing, float in microns
-	min_width:    f64, // float, microns
+	min_spacing:  LefDistance, // min spacing, float in microns
+	min_width:    LefDistance, // float, microns
 	width_rule:   LefWidthRule,
 }
 
@@ -200,6 +217,15 @@ LefRoutingLayer :: struct {
 	antenna_area_factor:          LefAntennaAreaFactor,
 	antenna_area_ratio:           LefAntennaAreaRatio,
 	antenna_cum_area_ratio:       LefAntennaCumAreaRatio,
+}
+
+LefMastersliceOverlapLayer :: struct {
+	name:      string,
+	type:      enum {
+		MASTERSLICE,
+		OVERLAP,
+	},
+	layer_idx: LefLayerIndex,
 }
 
 LefWidthRule :: struct {
@@ -217,8 +243,7 @@ LefAntennaCumDiffAreaRatio :: f64 // cumulative antenna ratio using metal wire a
 LefAcCurrentDensity :: struct {
 	value:         f64, // max val for layer in mA/um
 	type:          LefAcCurrentDensityType,
-	cut_area_vals: []f64, // um^2 (CUTAREA)
-	// maybe use int for all these
+	cut_area_vals: []LefArea,
 	frequency:     []f64, // if a single val of 1 provided, ignore, just used to satisfy syntax (freq values, mega-hertz)
 	width:         []f64, // wire width vals, microns
 	table_entries: []f64, // max current for each freq / width pair
@@ -607,7 +632,65 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Alloc
 }
 
 lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Allocator = context.temp_allocator) {
-	// Stub
+	new_layer: LefLayer
+	layer_name := scan_ident_ascii_upper(l)
+	skip_newlines_and_whitespaces(l)
+	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == "TYPE", err_msg = "Layer type not defined right after LAYER keyword")
+	skip_newlines_and_whitespaces(l)
+	layer_type := scan_ident_ascii_upper(l)
+	switch layer_type {
+	case "CUT": new_layer = LefCutLayer{}
+	case "MASTERSLICE": new_layer = LefMastersliceOverlapLayer {
+				type = .MASTERSLICE,
+			}
+	case "OVERLAP": new_layer = LefMastersliceOverlapLayer {
+				type = .OVERLAP,
+			}
+	case "IMPLANT": new_layer = LefImplantLayer{}
+	case "ROUTING": new_layer = LefRoutingLayer{}
+	case: lexer_panic(l, "Unknown layer type")
+	}
+	lef_consume_statement_end(l)
+	switch &layer in new_layer {
+	case LefCutLayer:
+		layer.name = layer_name
+		for {
+			layer_property := scan_ident_ascii_upper(l)
+			switch layer_property {
+			case "END": break
+			case: lexer_panic(l, fmt.tprint("Unknown layer property", layer_property))
+			}
+		}
+	case LefImplantLayer:
+		layer.name = layer_name
+		for {
+			layer_property := scan_ident_ascii_upper(l)
+			switch layer_property {
+			case "END": break
+			case: lexer_panic(l, fmt.tprint("Unknown layer property", layer_property))
+			}
+		}
+	case LefRoutingLayer:
+		layer.name = layer_name
+		for {
+			layer_property := scan_ident_ascii_upper(l)
+			switch layer_property {
+			case "END": break
+			case: lexer_panic(l, fmt.tprint("Unknown layer property", layer_property))
+			}
+		}
+	case LefMastersliceOverlapLayer:
+		layer.name = layer_name
+		for {
+			layer_property := scan_ident_ascii_upper(l)
+			switch layer_property {
+			case "END": break
+			case: lexer_panic(l, fmt.tprint("Unknown layer property", layer_property))
+			}
+		}
+	case: lexer_panic(l, fmt.tprint("Unknown layer type", layer_type))
+	}
+	lef_consume_section_end(l, layer_name)
 }
 
 /* End LEF data structure creation */
@@ -660,5 +743,27 @@ scan_lef_decimal_scaled_i64 :: #force_inline proc(l: ^Lexer, scale: i64) -> i64 
 	lexer_ensure(l, i128(min(i64)) <= result && result <= i128(max(i64)), "Scaled decimal exceeds i64 range")
 	return i64(result)
 }
+
+lef_dbu_per_micron :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> i64 {
+	dbu := i64(db.units[.DATABASE])
+	lexer_ensure(l, dbu > 0, "DATABASE MICRONS must be known before parsing LEF distances")
+	return dbu
+}
+
+/* TODO(rahul): Review and uncomment as needed and when used
+scan_lef_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefDistance {
+	return LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, db)))
+}
+
+scan_lef_positive_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase, msg: string) -> LefDistance {
+	d := scan_lef_distance(l, db)
+	lexer_ensure(l, d > 0, msg)
+	return d
+}
+scan_lef_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
+	dbu := lef_dbu_per_micron(l, db)
+	return LefArea(scan_lef_decimal_scaled_i64(l, dbu * dbu))
+}
+*/
 
 /* End LEF helper procs*/
