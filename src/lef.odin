@@ -546,13 +546,11 @@ set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_database: ^Lef
 	lef_consume_statement_end(l)
 }
 
-// TODO(rahul): don't be so defensive here, can be cleaner
 set_config_use_min_spacing :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
-	obs_ident := scan_ident_ascii_upper(l)
-	lexer_ensure(l = l, condition = obs_ident == "OBS", err_msg = "No OBS keyword after USEMINSPACING")
+	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == "OBS", err_msg = "No OBS keyword after USEMINSPACING")
 	skip_newlines_and_whitespaces(l)
 	min_spacing_bool := scan_ident_ascii_upper(l)
-	lexer_ensure(l = l, condition = (min_spacing_bool == "ON" || min_spacing_bool == "OFF"), err_msg = "No OBS keyword after USEMINSPACING")
+	lexer_ensure(l = l, condition = (min_spacing_bool == "ON" || min_spacing_bool == "OFF"), err_msg = "obs is something other than on/off")
 	lef_database.use_min_spacing = (min_spacing_bool == "ON")
 	lef_consume_statement_end(l)
 }
