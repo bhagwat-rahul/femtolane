@@ -123,7 +123,7 @@ LefPlacementSite :: struct {
 	site_class:  LefPlacementSiteClass,
 	size:        LefSizeWidthByHeight,
 	symmetry:    LefPlacementSiteSymmetry,
-	row_pattern: [dynamic]LefPlacementSiteRowPattern, // maybe define a "basic" site without row pattern or have a union type thing
+	row_pattern: [16]LefPlacementSiteRowPattern, // if len(row_pattern) == 0, then this is a basic site that can be used for other sites
 }
 
 // Specifies previous sites that together form this site (prev sites have to be "basic" w no pattern)
@@ -164,19 +164,23 @@ LefLayerMinCuts :: struct {
 	num_cuts:       u32, // minimum no. of cuts allowed for layer positive int
 }
 
-LefLayerIndex :: distinct u8
+LefLayerIndex :: distinct u8 // not more than 255 layers, some pdks could have more but safe bet for now
 
-LefLayer :: union {
-	LefCutLayer,
-	LefImplantLayer,
-	LefRoutingLayer,
-	LefMastersliceOverlapLayer,
+LefLayer :: struct {
+	name:               string,
+	manufacturing_grid: LefDistance,
+	mask:               LefDistance,
+	property:           ^LefPropertyDefinitions,
+	layer_data:         union {
+		LefCutLayer,
+		LefImplantLayer,
+		LefRoutingLayer,
+		LefMastersliceOverlapLayer,
+	},
 }
 
 // TODO(rahul): Incomplete
 LefCutLayer :: struct {
-	name:                         string,
-	layer_idx:                    LefLayerIndex,
 	ac_current_density:           LefAcCurrentDensity,
 	antenna_area_diff_reduce_pwl: LefAntennaAreaDiffReducePwl,
 	antenna_area_factor:          LefAntennaAreaFactor,
@@ -199,8 +203,6 @@ LefCutLayer :: struct {
 }
 
 LefImplantLayer :: struct {
-	name:         string,
-	layer_idx:    LefLayerIndex,
 	layer_name_2: ^LefImplantLayer, // another implant layer requiring extra spacing >= minspacing from this layer
 	mask_num:     u8, // how many double / triple patterning masks used here, has to be >= 2, usually 2 or 3
 	property_val: ^LefPropertyDefinitions, // numerical or string val for prop that applies here (we use pointer cz easier)
@@ -210,8 +212,6 @@ LefImplantLayer :: struct {
 }
 
 LefRoutingLayer :: struct {
-	name:                         string,
-	layer_idx:                    LefLayerIndex,
 	ac_current_density:           LefAcCurrentDensity,
 	antenna_area_diff_reduce_pwl: LefAntennaAreaDiffReducePwl,
 	antenna_area_factor:          LefAntennaAreaFactor,
@@ -220,12 +220,10 @@ LefRoutingLayer :: struct {
 }
 
 LefMastersliceOverlapLayer :: struct {
-	name:      string,
-	type:      enum {
+	type: enum {
 		MASTERSLICE,
 		OVERLAP,
 	},
-	layer_idx: LefLayerIndex,
 }
 
 LefWidthRule :: struct {
@@ -423,13 +421,13 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	case "CLEARANCEMEASURE": set_config_clearance_measure(l, lef_database)
 	case "PROPERTYDEFINITIONS": set_config_property_definitions(l, lef_database)
 	case "FIXEDMASK": lef_database.fixed_mask = true // true if statement exists
-	case "LAYER": lef_create_layer(l, lef_database, allocator)
+	case "LAYER": lef_create_layer(l, lef_database)
 	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
 	case "VIA":
 	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
 	case "NONDEFAULTRULE": // Parse non-default rules
-	case "SITE": lef_create_macro_placement_site(l, lef_database, allocator)
-	case "MACRO": lef_create_macro(l, lef_database, allocator)
+	case "SITE": lef_create_macro_placement_site(l, lef_database)
+	case "MACRO": lef_create_macro(l, lef_database)
 	case "BEGINEXT": // Parse from BEGINEXT to ENDEXT
 	case "END":
 	case: lexer_panic(l = l, err_msg = fmt.tprintf("Found unimplemented keyword %s", ident))
@@ -582,10 +580,10 @@ set_config_use_min_spacing :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 // ROWPATTERN Fsite N Lsite N Lsite FS ; #Pattern of F + L + flipped L
 // SIZE 16.0 BY 7.0 ; #Width = width(F + L + L)
 // END mySite
-lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase, arena_alloc: mem.Allocator = context.temp_allocator) {
-	created_site_ptr, err := new(LefPlacementSite, arena_alloc)
-	created_site := created_site_ptr^
-	created_site.site_name = LefPlacementSiteName(scan_ident_ascii_upper(l))
+lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+	created_site := LefPlacementSite {
+		site_name = LefPlacementSiteName(scan_ident_ascii_upper(l)),
+	}
 	placement_loop: for {
 		skip_newlines_and_whitespaces(l)
 		placement_keyword := scan_ident_ascii_upper(l)
@@ -614,7 +612,26 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase, a
 					case: lexer_panic(l, fmt.tprint("Invalid symmetry type", sym_type))
 					}
 				}
-		case "ROWPATTERN":
+		case "ROWPATTERN": for i := 0; i <= 15 && peek(l) != SEMICOLON; i += 1 {
+					previous_site_name := LefPlacementSiteName(scan_ident_ascii_upper(l)) // we need to ensure len(row_pattern) == 0 for all
+					skip_newlines_and_whitespaces(l)
+					previous_site_orient: LefPlacementSiteOrient
+					site_orient_str := scan_ident_ascii_upper(l)
+					switch site_orient_str {
+					case "N": previous_site_orient = .N
+					case "S": previous_site_orient = .S
+					case "E": previous_site_orient = .E
+					case "W": previous_site_orient = .W
+					case "FN": previous_site_orient = .FN
+					case "FS": previous_site_orient = .FS
+					case "FE": previous_site_orient = .FE
+					case "FW": previous_site_orient = .FW
+					}
+					created_site.row_pattern[i] = LefPlacementSiteRowPattern {
+						previous_site_name   = previous_site_name,
+						previous_site_orient = previous_site_orient,
+					}
+				}
 		case "END":
 			lef_consume_section_end(l, string(created_site.site_name))
 			break placement_loop
@@ -625,11 +642,11 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase, a
 	append(&lef_database.placement_sites, created_site)
 }
 
-lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Allocator = context.temp_allocator) {
+lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
 }
 
-lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Allocator = context.temp_allocator) {
+lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	new_layer: LefLayer
 	layer_name := scan_ident_ascii_upper(l)
 	skip_newlines_and_whitespaces(l)
@@ -637,58 +654,36 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, alloc: mem.Alloc
 	skip_newlines_and_whitespaces(l)
 	layer_type := scan_ident_ascii_upper(l)
 	switch layer_type {
-	case "CUT": new_layer = LefCutLayer{}
-	case "MASTERSLICE": new_layer = LefMastersliceOverlapLayer {
+	case "CUT": new_layer.layer_data = LefCutLayer{}
+	case "MASTERSLICE": new_layer.layer_data = LefMastersliceOverlapLayer {
 				type = .MASTERSLICE,
 			}
-	case "OVERLAP": new_layer = LefMastersliceOverlapLayer {
+	case "OVERLAP": new_layer.layer_data = LefMastersliceOverlapLayer {
 				type = .OVERLAP,
 			}
-	case "IMPLANT": new_layer = LefImplantLayer{}
-	case "ROUTING": new_layer = LefRoutingLayer{}
+	case "IMPLANT": new_layer.layer_data = LefImplantLayer{}
+	case "ROUTING": new_layer.layer_data = LefRoutingLayer{}
 	case: lexer_panic(l, "Unknown layer type")
 	}
 	lef_consume_statement_end(l)
-	switch &layer in new_layer {
-	case LefCutLayer:
-		layer.name = layer_name
-		for {
-			layer_property := scan_ident_ascii_upper(l)
-			switch layer_property {
-			case "END": break
-			case: lexer_panic(l, fmt.tprint("Unknown layer property", layer_property))
-			}
+	layer_loop: for {
+		layer_property := scan_ident_ascii_upper(l)
+		switch layer_property {
+		case "END": break layer_loop
+		case "MANUFACTURINGGRID":
+		case "PROPERTY":
+		case "MASK":
 		}
-	case LefImplantLayer:
-		layer.name = layer_name
-		for {
-			layer_property := scan_ident_ascii_upper(l)
-			switch layer_property {
-			case "END": break
-			case: lexer_panic(l, fmt.tprint("Unknown layer property", layer_property))
-			}
+		switch &layer in new_layer.layer_data {
+		case LefCutLayer:
+		case LefImplantLayer:
+		case LefRoutingLayer:
+		case LefMastersliceOverlapLayer:
+		case: lexer_panic(l, fmt.tprint("Unhandled layer type", layer_type))
 		}
-	case LefRoutingLayer:
-		layer.name = layer_name
-		for {
-			layer_property := scan_ident_ascii_upper(l)
-			switch layer_property {
-			case "END": break
-			case: lexer_panic(l, fmt.tprint("Unknown layer property", layer_property))
-			}
-		}
-	case LefMastersliceOverlapLayer:
-		layer.name = layer_name
-		for {
-			layer_property := scan_ident_ascii_upper(l)
-			switch layer_property {
-			case "END": break
-			case: lexer_panic(l, fmt.tprint("Unknown layer property", layer_property))
-			}
-		}
-	case: lexer_panic(l, fmt.tprint("Unknown layer type", layer_type))
 	}
 	lef_consume_section_end(l, layer_name)
+	append(&lef_database.layers, new_layer)
 }
 
 /* End LEF data structure creation */
