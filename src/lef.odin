@@ -220,6 +220,7 @@ LefRoutingLayer :: struct {
 	antenna_area_factor:          LefAntennaAreaFactor,
 	antenna_area_ratio:           LefAntennaAreaRatio,
 	antenna_cum_area_ratio:       LefAntennaCumAreaRatio,
+	direction:                    LefRoutingLayerDirection,
 }
 
 LefMastersliceOverlapLayer :: struct {
@@ -254,6 +255,13 @@ LefAcCurrentDensityType :: enum {
 	PEAK,
 	AVERAGE,
 	RMS,
+}
+
+LefRoutingLayerDirection :: enum {
+	HORIZONTAL,
+	VERTICAL,
+	DIAG45,
+	DIAG135,
 }
 
 LefVersion :: enum {
@@ -688,10 +696,36 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 			lef_consume_statement_end(l)
 		case "MASK":
 		}
+		skip_newlines_and_whitespaces(l)
 		switch &layer in new_layer.layer_data {
 		case LefCutLayer:
 		case LefImplantLayer:
-		case LefRoutingLayer:
+		case LefRoutingLayer: switch layer_property {
+				case "DIRECTION":
+					direction := scan_ident_ascii_upper(l)
+					switch direction {
+					case "VERTICAL": layer.direction = .VERTICAL
+					case "HORIZONTAL": layer.direction = .HORIZONTAL
+					case "DIAG45": layer.direction = .DIAG45
+					case "DIAG135": layer.direction = .DIAG135
+					}
+					lef_consume_statement_end(l)
+				case "PITCH":
+				case "OFFSET":
+				case "WIDTH":
+				case "SPACING":
+				case "SPACINGTABLE":
+				case "AREA":
+				case "THICKNESS":
+				case "EDGECAPACITANCE":
+				case "CAPACITANCE":
+				case "RESISTANCE":
+				case "DCCURRENTDENSITY":
+				case "ACCURRENTDENSITY":
+				case "ANTENNAMODEL":
+				case "ANTENNADIFFSIDEAREARATIO":
+				case: lexer_panic(l, "Unhandled keyword for routing layer definition")
+				}
 		case LefMastersliceOverlapLayer:
 		case: lexer_panic(l, fmt.tprint("Unhandled layer type", layer_type))
 		}
