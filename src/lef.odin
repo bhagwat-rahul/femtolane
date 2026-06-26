@@ -165,12 +165,16 @@ LefLayerMinCuts :: struct {
 }
 
 LefLayerIndex :: distinct u8 // not more than 255 layers, some pdks could have more but safe bet for now
+LefLayerProperty :: struct {
+	property_definition: ^LefPropertyDefinitions,
+	value:               LefPropertyDefinitionPropertyType,
+}
 
 LefLayer :: struct {
 	name:               string,
 	manufacturing_grid: LefDistance,
 	mask:               LefDistance,
-	property:           ^LefPropertyDefinitions,
+	property:           LefLayerProperty,
 	layer_data:         union {
 		LefCutLayer,
 		LefImplantLayer,
@@ -205,7 +209,6 @@ LefCutLayer :: struct {
 LefImplantLayer :: struct {
 	layer_name_2: ^LefImplantLayer, // another implant layer requiring extra spacing >= minspacing from this layer
 	mask_num:     u8, // how many double / triple patterning masks used here, has to be >= 2, usually 2 or 3
-	property_val: ^LefPropertyDefinitions, // numerical or string val for prop that applies here (we use pointer cz easier)
 	min_spacing:  LefDistance, // min spacing, float in microns
 	min_width:    LefDistance, // float, microns
 	width_rule:   LefWidthRule,
@@ -274,10 +277,10 @@ LefPropertyDefinitionObjectType :: enum {
 	VIARULE,
 }
 
-LefPropertyDefinitionPropertyType :: enum {
-	INTEGER,
-	REAL,
-	STRING,
+LefPropertyDefinitionPropertyType :: union {
+	int,
+	f64,
+	string,
 }
 
 // [PROPERTYDEFINITIONS
@@ -290,7 +293,7 @@ LefPropertyDefinitions :: struct {
 	property_name:         string,
 	property_type:         LefPropertyDefinitionPropertyType,
 	range:                 [2]string,
-	value:                 string,
+	value:                 string, // for some things the implementation will select value
 	library_property_type: LefLibraryProperties, // prefixed with version num like 'LEF58_' for v5.8
 }
 
@@ -490,9 +493,9 @@ set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		skip_newlines_and_whitespaces(l)
 		property_type := scan_ident_ascii_upper(l)
 		switch property_type {
-		case "INTEGER": prop_def.property_type = .INTEGER
-		case "REAL": prop_def.property_type = .REAL
-		case "STRING": prop_def.property_type = .STRING
+		case "INTEGER": prop_def.property_type = int{}
+		case "REAL": prop_def.property_type = f64{}
+		case "STRING": prop_def.property_type = string{}
 		case: lexer_panic(l, "Unknown property definition property type")
 		}
 		skip_newlines_and_whitespaces(l)
@@ -670,6 +673,19 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		case "END": break layer_loop
 		case "MANUFACTURINGGRID":
 		case "PROPERTY":
+			skip_newlines_and_whitespaces(l)
+			prop_name := scan_ident_ascii_upper(l)
+			skip_newlines_and_whitespaces(l)
+			prop_val := scan_double_quote_wrapped_string(l)
+			for &property in lef_database.property_definitions {
+				if prop_name == property.property_name {new_layer.property = LefLayerProperty {
+						property_definition = &property,
+						value               = prop_val,
+					}
+				}
+			}
+			lexer_ensure(l, new_layer.property.property_definition != nil, "Property name not found")
+			lef_consume_statement_end(l)
 		case "MASK":
 		}
 		switch &layer in new_layer.layer_data {
