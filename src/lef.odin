@@ -332,10 +332,8 @@ LefMacroClass :: enum {
 }
 
 LefMaxViaStack :: struct {
-	value:        int,
-	// NOTE(rahul) : Maybe just pass layer index instead of pointer?
-	bottom_layer: ^LefLayer,
-	top_layer:    ^LefLayer,
+	value:            int,
+	bottom_top_layer: []LefLayer, // instead of layer index just store slice
 }
 
 LefNonDefaultRule :: struct {
