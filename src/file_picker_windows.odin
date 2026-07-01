@@ -2,6 +2,9 @@ package main
 import "core:strings"
 import "core:sys/windows"
 
+@(init)
+set :: proc "contextless" () { windows.SetProcessDpiAwarenessContext(windows.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) }
+
 first_allowed_extension :: #force_inline proc(filters: []File_Type_Filter) -> string {
 	for filter in filters {
 		for ext in filter.extensions {
