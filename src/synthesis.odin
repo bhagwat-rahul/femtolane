@@ -4,7 +4,7 @@ import "core:os"
 import "core:fmt"
 
 // convert rtl code to a gate level netlist, currently using yosys, we will do this ourselves soon
-run_synthesis :: proc(rtl_filepaths: []string, liberty_file: string, top_module: string, timing_constraints_filepath: string, output_filepath: string = "") -> (output_gate_netlist_filepath: string) {
+run_synthesis :: proc(rtl_filepaths: []string, liberty_file: string, top_module: string, timing_constraints_filepath: string = "", output_filepath: string = "") -> (output_gate_netlist_filepath: string) {
 	output_gate_netlist_filepath = output_filepath if output_filepath != "" else fmt.tprint(top_module, ".gatenetlist.v")
 	process_desc: os.Process_Desc = {
     command = {
