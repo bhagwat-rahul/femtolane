@@ -27,7 +27,7 @@ pdk_status :: enum {
 	inactive,
 }
 // Load from nodeinfo.json in .config for openpdk pdk's
-OPENPDK_METADATA :: struct {
+OpenPdkMetadata :: struct {
 	foundry:      string,
 	foundry_name: string,
 	node:         string,
