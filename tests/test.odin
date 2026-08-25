@@ -104,3 +104,9 @@ test_lef_parse :: proc(_: ^testing.T) {
 	LEF_FILE :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef"
 	main.read_lef(LEF_FILE)
 }
+
+@(test)
+test_synthesis :: proc (_: ^testing.T) {
+	gl_netlist_path := main.run_synthesis(rtl_filepaths = {"/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/tests/netlist_creation/gcd/gcd.v"}, liberty_file = "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_100C_1v80.lib", top_module="gcd")
+	fmt.println(gl_netlist_path)
+}
