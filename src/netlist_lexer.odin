@@ -342,7 +342,6 @@ handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, 
 					advance(l)
 				}
 				port_conn_name = fmt.tprintf("%s[%d]", port_conn_name, idx)
-				fmt.println(port_conn_name)
 				advance(l)
 			}
 			skip_newlines_and_whitespaces(l)
