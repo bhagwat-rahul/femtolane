@@ -85,6 +85,7 @@ KEYWORD_INPUT :: "input"
 KEYWORD_OUTPUT :: "output"
 KEYWORD_INOUT :: "inout"
 KEYWORD_WIRE :: "wire"
+KEYWORD_REG :: "reg"
 
 WHITESPACE :: ' '
 WHITESPACE_TAB :: '\t'
@@ -195,7 +196,7 @@ handle_ident :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Alloca
 	case KEYWORD_ASSIGN: handle_assign_statement(l = l, hgr = hgr)
 	case KEYWORD_MODULE: handle_module_statement(l = l, hgr = hgr, arena_alloc = arena_alloc)
 	case KEYWORD_ENDMODULE: handle_endmodule_statement(l = l)
-	case KEYWORD_WIRE, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT: handle_net_creation(l = l, hgr = hgr, ident = ident, arena_alloc = arena_alloc)
+	case KEYWORD_WIRE, KEYWORD_REG, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT: handle_net_creation(l = l, hgr = hgr, ident = ident, arena_alloc = arena_alloc)
 	case: handle_instantiation(l = l, hgr = hgr, parent_cell_name = ident, arena_alloc = arena_alloc) // since nothing else has to be instantiation
 	}
 }
@@ -243,7 +244,7 @@ handle_module_statement :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc:
 handle_net_creation :: proc(ident: string, hgr: ^NetlistHyperGraph, l: ^Lexer, arena_alloc: mem.Allocator) {
 	ident_net_type: NetType
 	switch ident {
-	case KEYWORD_WIRE: ident_net_type = .INTERNAL
+	case KEYWORD_WIRE, KEYWORD_REG: ident_net_type = .INTERNAL
 	case KEYWORD_INPUT: ident_net_type = .MODULE_INPUT
 	case KEYWORD_OUTPUT: ident_net_type = .MODULE_OUTPUT
 	case KEYWORD_INOUT: ident_net_type = .MODULE_INOUT
@@ -259,11 +260,12 @@ handle_net_creation :: proc(ident: string, hgr: ^NetlistHyperGraph, l: ^Lexer, a
 		lo, hi := min(msb, lsb), max(msb, lsb)
 		for i in lo ..= hi {
 			net_name := name if (msb == 0 && lsb == 0) else fmt.tprintf("%s[%d]", name, i)
-			create_net(
-				hgr = hgr,
-				arena_alloc = arena_alloc,
-				net_val = Net{name = net_name, net_type = ident_net_type, connections = make([dynamic]^InstancePort, arena_alloc)},
-			)
+			net := hgr.net_hash_map[net_name]
+			if net == nil {
+				create_net(hgr = hgr, arena_alloc = arena_alloc, net_val = Net{name = net_name, net_type = ident_net_type, connections = make([dynamic]^InstancePort, arena_alloc)})
+			} else if ident_net_type != .INTERNAL {
+				net.net_type = ident_net_type
+			}
 		}
 		skip_newlines_and_whitespaces(l)
 		switch peek(l) {

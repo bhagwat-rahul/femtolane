@@ -10,7 +10,7 @@ run_synthesis :: proc(rtl_filepaths: []string, liberty_file: string, top_module:
     command = {
         "yosys", "-p",
         fmt.tprintf(
-            "read_liberty -lib %v; read_verilog %v; hierarchy -top %v; synth -top %v; dfflibmap -liberty %v; abc -liberty %v; write_verilog %v",
+            "read_liberty -lib %v; read_verilog %v; hierarchy -top %v; synth -top %v; dfflibmap -liberty %v; abc -liberty %v; write_verilog -noattr -noexpr -nodec %v",
             liberty_file, rtl_filepaths[0], top_module, top_module, liberty_file, liberty_file, output_gate_netlist_filepath,
         ),
     },
