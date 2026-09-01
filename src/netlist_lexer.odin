@@ -301,6 +301,10 @@ handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, 
 	}
 	created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val, l = l)
 	skip_newlines_and_whitespaces(l)
+	if peek(l) == SLASH {
+		netlist_handle_comments(l)
+		skip_newlines_and_whitespaces(l)
+	}
 
 	if peek(l) == LPAREN && peek(l) != 0 { advance(l) } else { lexer_panic(l, "No ( after cell instantiation") }
 
