@@ -221,6 +221,10 @@ LefRoutingLayer :: struct {
 	antenna_area_ratio:           LefAntennaAreaRatio,
 	antenna_cum_area_ratio:       LefAntennaCumAreaRatio,
 	direction:                    LefRoutingLayerDirection,
+	min_spacing:                  LefDistance,
+	min_width:                    LefDistance,
+	width_rule:                   LefWidthRule,
+	pitch:                        [2]LefDistance, // if only 1 distance present then both are same x == y
 }
 
 LefMastersliceOverlapLayer :: struct {
@@ -694,6 +698,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 			}
 			lexer_ensure(l, new_layer.property.property_definition != nil, "Property name not found")
 			lef_consume_statement_end(l)
+			continue layer_loop
 		case "MASK":
 		}
 		skip_newlines_and_whitespaces(l)
@@ -709,11 +714,14 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 					case "DIAG45": layer.direction = .DIAG45
 					case "DIAG135": layer.direction = .DIAG135
 					}
-					lef_consume_statement_end(l)
 				case "PITCH":
+					layer.pitch[0] = LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, lef_database)))
+					skip_newlines_and_whitespaces(l)
+					// if only 1 pitch given then xy distance is same else different
+					layer.pitch[1] = LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, lef_database))) if peek(l) != SEMICOLON else layer.pitch[0]
 				case "OFFSET":
-				case "WIDTH":
-				case "SPACING":
+				case "WIDTH": layer.min_width = LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, lef_database)))
+				case "SPACING": layer.min_spacing = LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, lef_database)))
 				case "SPACINGTABLE":
 				case "AREA":
 				case "THICKNESS":
@@ -726,6 +734,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 				case "ANTENNADIFFSIDEAREARATIO":
 				case: lexer_panic(l, "Unhandled keyword for routing layer definition")
 				}
+				lef_consume_statement_end(l)
 		case LefMastersliceOverlapLayer:
 		case: lexer_panic(l, fmt.tprint("Unhandled layer type", layer_type))
 		}
