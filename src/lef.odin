@@ -668,12 +668,8 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	layer_type := scan_ident_ascii_upper(l)
 	switch layer_type {
 	case "CUT": new_layer.layer_data = LefCutLayer{}
-	case "MASTERSLICE": new_layer.layer_data = LefMastersliceOverlapLayer {
-				type = .MASTERSLICE,
-			}
-	case "OVERLAP": new_layer.layer_data = LefMastersliceOverlapLayer {
-				type = .OVERLAP,
-			}
+	case "MASTERSLICE": new_layer.layer_data = LefMastersliceOverlapLayer { type = .MASTERSLICE }
+	case "OVERLAP": new_layer.layer_data = LefMastersliceOverlapLayer { type = .OVERLAP }
 	case "IMPLANT": new_layer.layer_data = LefImplantLayer{}
 	case "ROUTING": new_layer.layer_data = LefRoutingLayer{}
 	case: lexer_panic(l, "Unknown layer type")
@@ -715,13 +711,13 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 					case "DIAG135": layer.direction = .DIAG135
 					}
 				case "PITCH":
-					layer.pitch[0] = LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, lef_database)))
+					layer.pitch[0] = scan_lef_distance(l, lef_database)
 					skip_newlines_and_whitespaces(l)
 					// if only 1 pitch given then xy distance is same else different
-					layer.pitch[1] = LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, lef_database))) if peek(l) != SEMICOLON else layer.pitch[0]
+					layer.pitch[1] = scan_lef_distance(l, lef_database) if peek(l) != SEMICOLON else layer.pitch[0]
 				case "OFFSET":
-				case "WIDTH": layer.min_width = LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, lef_database)))
-				case "SPACING": layer.min_spacing = LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, lef_database)))
+				case "WIDTH": layer.min_width = scan_lef_distance(l, lef_database)
+				case "SPACING": layer.min_spacing = scan_lef_distance(l, lef_database)
 				case "SPACINGTABLE":
 				case "AREA":
 				case "THICKNESS":
@@ -800,10 +796,10 @@ lef_dbu_per_micron :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> i64 {
 	return dbu
 }
 
+scan_lef_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefDistance { return LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, db))) }
+
 /* TODO(rahul): Review and uncomment as needed and when used
-scan_lef_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefDistance {
-	return LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, db)))
-}
+
 
 scan_lef_positive_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase, msg: string) -> LefDistance {
 	d := scan_lef_distance(l, db)
