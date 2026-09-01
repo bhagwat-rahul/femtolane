@@ -93,6 +93,12 @@ LefSizeWidthByHeight :: struct {
 	size_height_dbu: LefDistance,
 }
 
+LefMaskNum :: enum {
+	SINGLE, // not specified
+	DOUBLE_MASK, // 2
+	TRIPLE_MASK, // 3
+}
+
 LefDatabase :: struct {
 	version:                  LefVersion,
 	bus_bit_chars:            [2]byte, // delimiters on buses (escape if used elsewhere) (default [])
@@ -173,7 +179,7 @@ LefLayerProperty :: struct {
 LefLayer :: struct {
 	name:               string,
 	manufacturing_grid: LefDistance,
-	mask:               LefDistance,
+	mask:               LefMaskNum, // will usually be empty but can be 2 or 3 if specified
 	property:           LefLayerProperty,
 	layer_data:         union {
 		LefCutLayer,
@@ -675,11 +681,18 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	case: lexer_panic(l, "Unknown layer type")
 	}
 	lef_consume_statement_end(l)
+
+	// set defaults
+	new_layer.manufacturing_grid = lef_database.manufacturing_grid_value // Set default val if manufacturing grid not present
+	new_layer.mask = .SINGLE // not specified
+
 	layer_loop: for {
 		layer_property := scan_ident_ascii_upper(l)
 		switch layer_property {
 		case "END": break layer_loop
 		case "MANUFACTURINGGRID":
+			new_layer.manufacturing_grid = scan_lef_distance(l, lef_database) // override default
+			lef_consume_statement_end(l)
 		case "PROPERTY":
 			skip_newlines_and_whitespaces(l)
 			prop_name := scan_ident_ascii_upper(l)
@@ -694,45 +707,50 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 			}
 			lexer_ensure(l, new_layer.property.property_definition != nil, "Property name not found")
 			lef_consume_statement_end(l)
-			continue layer_loop
-		case "MASK":
-		}
-		skip_newlines_and_whitespaces(l)
-		switch &layer in new_layer.layer_data {
-		case LefCutLayer:
-		case LefImplantLayer:
-		case LefRoutingLayer: switch layer_property {
-				case "DIRECTION":
-					direction := scan_ident_ascii_upper(l)
-					switch direction {
-					case "VERTICAL": layer.direction = .VERTICAL
-					case "HORIZONTAL": layer.direction = .HORIZONTAL
-					case "DIAG45": layer.direction = .DIAG45
-					case "DIAG135": layer.direction = .DIAG135
+		case "MASK": skip_newlines_and_whitespaces(l)
+			mask_num := peek(l)
+			lexer_ensure(l, mask_num == '2' || mask_num == '3', "Invalid mask num in layer")
+			new_layer.mask = .DOUBLE_MASK if mask_num == '2' else .TRIPLE_MASK
+			lexer_consume(l,mask_num)
+			lef_consume_statement_end(l)
+		case : // If not any of common types, has to be layer data (or invalid type)
+			skip_newlines_and_whitespaces(l)
+			switch &layer in new_layer.layer_data {
+			case LefCutLayer:
+			case LefImplantLayer:
+			case LefRoutingLayer: switch layer_property {
+					case "DIRECTION":
+						direction := scan_ident_ascii_upper(l)
+						switch direction {
+						case "VERTICAL": layer.direction = .VERTICAL
+						case "HORIZONTAL": layer.direction = .HORIZONTAL
+						case "DIAG45": layer.direction = .DIAG45
+						case "DIAG135": layer.direction = .DIAG135
+						}
+					case "PITCH":
+						layer.pitch[0] = scan_lef_distance(l, lef_database)
+						skip_newlines_and_whitespaces(l)
+						// if only 1 pitch given then xy distance is same else different
+						layer.pitch[1] = scan_lef_distance(l, lef_database) if peek(l) != SEMICOLON else layer.pitch[0]
+					case "OFFSET":
+					case "WIDTH": layer.min_width = scan_lef_distance(l, lef_database)
+					case "SPACING": layer.min_spacing = scan_lef_distance(l, lef_database)
+					case "SPACINGTABLE":
+					case "AREA":
+					case "THICKNESS":
+					case "EDGECAPACITANCE":
+					case "CAPACITANCE":
+					case "RESISTANCE":
+					case "DCCURRENTDENSITY":
+					case "ACCURRENTDENSITY":
+					case "ANTENNAMODEL":
+					case "ANTENNADIFFSIDEAREARATIO":
+					case: lexer_panic(l, "Unhandled keyword for routing layer definition")
 					}
-				case "PITCH":
-					layer.pitch[0] = scan_lef_distance(l, lef_database)
-					skip_newlines_and_whitespaces(l)
-					// if only 1 pitch given then xy distance is same else different
-					layer.pitch[1] = scan_lef_distance(l, lef_database) if peek(l) != SEMICOLON else layer.pitch[0]
-				case "OFFSET":
-				case "WIDTH": layer.min_width = scan_lef_distance(l, lef_database)
-				case "SPACING": layer.min_spacing = scan_lef_distance(l, lef_database)
-				case "SPACINGTABLE":
-				case "AREA":
-				case "THICKNESS":
-				case "EDGECAPACITANCE":
-				case "CAPACITANCE":
-				case "RESISTANCE":
-				case "DCCURRENTDENSITY":
-				case "ACCURRENTDENSITY":
-				case "ANTENNAMODEL":
-				case "ANTENNADIFFSIDEAREARATIO":
-				case: lexer_panic(l, "Unhandled keyword for routing layer definition")
-				}
-				lef_consume_statement_end(l)
-		case LefMastersliceOverlapLayer:
-		case: lexer_panic(l, fmt.tprint("Unhandled layer type", layer_type))
+					lef_consume_statement_end(l)
+			case LefMastersliceOverlapLayer:
+			case: lexer_panic(l, fmt.tprint("Unhandled layer type", layer_type))
+			}
 		}
 	}
 	lef_consume_section_end(l, layer_name)
