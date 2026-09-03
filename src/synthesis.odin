@@ -21,8 +21,6 @@ run_synthesis :: proc(rtl_filepaths: []string, liberty_file: string, top_module:
 	ensure(process_start_err == nil, "Error spawning synthesis process")
 	process_state, process_run_err := os.process_wait(synthesis_process)
 	ensure(process_run_err == nil, "Error running synthesis process")
-	if process_state.exit_code != 0 {
-		panic("Error running synth") // TODO(rahul): not panic do something smarter here
-	}
+	ensure(process_state.exit_code == 0, "Synth process exit code non-zero")
 	return output_gate_netlist_filepath
 }

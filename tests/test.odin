@@ -3,21 +3,28 @@ package tests
 import main "../src"
 import "core:fmt"
 import "core:mem/virtual"
+import "core:mem"
 import "core:os"
 import "core:strings"
 import "core:testing"
 import "netlist_creation"
 
 PDK_ROOT :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A"
-LIBERTY_DIR :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_025C_1v80.lib"
+LIBERTY_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n/lib/tt/gt2_6t_w13_lvt_tt_0p7v25c.lib"
+LEF_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n/techlib/gt2_tech.lef"
+
+// Create and return a growing arena allocator for use within tests
+test_create_arena_allocator :: #force_inline proc (arena : ^virtual.Arena) -> mem.Allocator {
+	ensure(virtual.arena_init_growing(arena) == nil)
+	return virtual.arena_allocator(arena)
+}
 
 // Tests the frontend yosys netlist creation flow that goes from behavioral RTL -> Gate Level Netlist
 @(test)
 test_netlist_creation :: proc(_: ^testing.T) {
-	netlist_creation_test_arena: virtual.Arena
-	ensure(virtual.arena_init_growing(&netlist_creation_test_arena) == nil)
-	defer virtual.arena_destroy(&netlist_creation_test_arena)
-	arena_allocator := virtual.arena_allocator(&netlist_creation_test_arena)
+	netlist_creation_arena: virtual.Arena
+	netlist_creation_allocator := test_create_arena_allocator(&netlist_creation_arena)
+	defer virtual.arena_destroy(&netlist_creation_arena)
 	sky130a_liberty := fmt.tprint(PDK_ROOT, "/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_100C_1v65.lib", sep = "")
 	verilog_src := "netlist_creation/adder/adder.v"
 	top := "adder"
@@ -28,14 +35,14 @@ test_netlist_creation :: proc(_: ^testing.T) {
 		top_module = top,
 		yosys_tcl_script_filepath = yosys_tcl_script_filepath,
 	)
-	outfile_src, read_err := os.read_entire_file_from_path(outfile, arena_allocator)
+	outfile_src, read_err := os.read_entire_file_from_path(outfile, netlist_creation_allocator)
 	assert(read_err == nil, fmt.tprintln("file read error", read_err))
-	lines, _ := strings.split_lines(string(outfile_src), arena_allocator)
+	lines, _ := strings.split_lines(string(outfile_src), netlist_creation_allocator)
 	for line in lines {
-		fields := strings.fields(line, arena_allocator)
+		fields := strings.fields(line, netlist_creation_allocator)
 		if len(fields) < 2 { continue }
 		cell := fields[0]
-		ensure(cell[0] != '$', fmt.tprintln("Non tech-mapped cell %s", cell))
+		ensure(cell[0] != '$', fmt.tprintln("Non tech-mapped cell %s", cell)) // if first char is $ then unmapped
 	}
 }
 
@@ -47,53 +54,49 @@ test_pdk_loader :: proc(_: ^testing.T) {
 
 @(test)
 test_lexGraph :: proc(_: ^testing.T) {
-	// TODO(rahul): This test should NOT be this verbose, find better way to express, also fix mem leaks.
-	netlist_paths: [dynamic]string
-	NETLISTS_DIR :: "netlist_creation/" // relative path of where netlist folders are from test.odin
+	lex_graph_arena: virtual.Arena
+	lex_graph_allocator := test_create_arena_allocator(&lex_graph_arena)
+	defer virtual.arena_destroy(&lex_graph_arena)
+	netlist_paths:= make([dynamic]string, lex_graph_allocator)
+	NETLISTS_DIR :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/tests/netlist_creation/"
 
-	design_dirs, design_dir_read_err := os.read_all_directory_by_path(NETLISTS_DIR, context.temp_allocator)
-	assert(design_dir_read_err == nil)
+	design_dirs, design_dir_read_err := os.read_all_directory_by_path(NETLISTS_DIR, lex_graph_allocator)
+	ensure(design_dir_read_err == nil, fmt.tprint(design_dir_read_err))
 
-	for d in design_dirs {
-		files, err := os.read_all_directory_by_path(d.fullpath, context.temp_allocator)
-		defer delete(files)
-		for file in files {
-			if strings.ends_with(file.name, ".netlist.v") {
-				append(&netlist_paths, file.fullpath)
-			}
-		}
+	for dir in design_dirs {
+		if dir.type != .Directory { break }
+		files, err := os.read_all_directory_by_path(dir.fullpath, lex_graph_allocator)
+		ensure(err == nil, fmt.tprint(err))
+		for file in files { if strings.ends_with(file.name, ".netlist.v") { append(&netlist_paths, file.fullpath) } }
 	}
 
-	for n in netlist_paths {
+	for netlist_path in netlist_paths {
 		main.lex_gate_level_netlist_and_create_hypergraph(
-			gate_netlist_path = n,
-			liberty_filepath = LIBERTY_DIR,
-			lex_graph_arena_allocator = context.temp_allocator,
+			gate_netlist_path = netlist_path,
+			lef_filepath = LEF_FILEPATH,
+			liberty_filepath = LIBERTY_FILEPATH,
+			lex_graph_arena_allocator = lex_graph_allocator,
 		)
 	}
-
-	defer delete(design_dirs)
-	defer delete(netlist_paths)
 }
 
 @(test)
 test_liberty_cell_creation :: proc(_: ^testing.T) {
 	LIBERTY_DIR :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A/libs.ref/sky130_fd_sc_hd/lib/"
-	lex_graph_arena: virtual.Arena
-	ensure(virtual.arena_init_growing(&lex_graph_arena) == nil, "Error init'ing lex_graph_arena")
-	lex_graph_arena_allocator := virtual.arena_allocator(&lex_graph_arena)
-	defer virtual.arena_destroy(&lex_graph_arena)
-	files, _ := os.read_all_directory_by_path(LIBERTY_DIR, lex_graph_arena_allocator)
+	liberty_cell_creation_arena: virtual.Arena
+	liberty_cell_creation_allocator := test_create_arena_allocator(&liberty_cell_creation_arena)
+	defer virtual.arena_destroy(&liberty_cell_creation_arena)
+	files, _ := os.read_all_directory_by_path(LIBERTY_DIR, liberty_cell_creation_allocator)
 	hgr := main.NetlistHyperGraph {
-		instances         = make([dynamic]^main.Instance, lex_graph_arena_allocator),
-		nets              = make([dynamic]^main.Net, lex_graph_arena_allocator),
-		cells             = make([dynamic]^main.Cell, lex_graph_arena_allocator),
-		cell_hash_map     = make(main.CellHashMap, lex_graph_arena_allocator),
-		instance_hash_map = make(main.InstanceHashMap, lex_graph_arena_allocator),
-		net_hash_map      = make(main.NetHashMap, lex_graph_arena_allocator),
+		instances         = make([dynamic]^main.Instance, liberty_cell_creation_allocator),
+		nets              = make([dynamic]^main.Net, liberty_cell_creation_allocator),
+		cells             = make([dynamic]^main.Cell, liberty_cell_creation_allocator),
+		cell_hash_map     = make(main.CellHashMap, liberty_cell_creation_allocator),
+		instance_hash_map = make(main.InstanceHashMap, liberty_cell_creation_allocator),
+		net_hash_map      = make(main.NetHashMap, liberty_cell_creation_allocator),
 	}
 	for file in files {
-		main.parse_liberty_create_cells_pins(liberty_filepath = file.fullpath, hgr = &hgr, alloc = lex_graph_arena_allocator)
+		main.parse_liberty_create_cells_pins(liberty_filepath = file.fullpath, hgr = &hgr, alloc = liberty_cell_creation_allocator)
 		fmt.println(file.name, "done")
 		fmt.println(len(hgr.cells))
 	}
@@ -101,8 +104,10 @@ test_liberty_cell_creation :: proc(_: ^testing.T) {
 
 @(test)
 test_lef_parse :: proc(_: ^testing.T) {
-	LEF_FILE :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A/libs.ref/sky130_fd_sc_hd/techlef/sky130_fd_sc_hd__nom.tlef"
-	main.read_lef(LEF_FILE)
+	lef_parse_arena: virtual.Arena
+	lef_parse_allocator := test_create_arena_allocator(&lef_parse_arena)
+	defer virtual.arena_destroy(&lef_parse_arena)
+	main.read_lef(LEF_FILEPATH, lef_parse_allocator)
 }
 
 @(test)
