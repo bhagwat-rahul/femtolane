@@ -87,7 +87,7 @@ LefExtension :: struct {
 }
 
 LefDistance :: distinct i64
-LefArea :: distinct i64
+LefArea :: distinct u64
 LefSizeWidthByHeight :: struct {
 	size_width_dbu:  LefDistance,
 	size_height_dbu: LefDistance,
@@ -201,7 +201,8 @@ LefCutLayer :: struct {
 	// antenna_area_minus_diff:      LefAreaMinusDiff,
 	// spacing_table:                LefCutLayerSpacingTable,
 	// array_spacing:                LefCutLayerArraySpacing,
-	// min_width:                    LefDistance,
+	min_width:                    LefDistance,
+	min_spacing :                 LefDistance,
 	// enclosure:                    LefLayerEnclosure,
 	// preference_closure:           LefLayerPreferenceClosure,
 	// resistance:                   LefLayerResistance,
@@ -231,6 +232,8 @@ LefRoutingLayer :: struct {
 	min_width:                    LefDistance,
 	width_rule:                   LefWidthRule,
 	pitch:                        [2]LefDistance, // if only 1 distance present then both are same x == y
+	area:                         LefArea,
+	min_size:                     [dynamic][2]LefDistance, // array of minwidth, minlength
 }
 
 LefMastersliceOverlapLayer :: struct {
@@ -442,7 +445,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	case "CLEARANCEMEASURE": set_config_clearance_measure(l, lef_database)
 	case "PROPERTYDEFINITIONS": set_config_property_definitions(l, lef_database)
 	case "FIXEDMASK": lef_database.fixed_mask = true // true if statement exists
-	case "LAYER": lef_create_layer(l, lef_database)
+	case "LAYER": lef_create_layer(l, lef_database, allocator)
 	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
 	case "VIA":
 	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
@@ -665,7 +668,7 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
 }
 
-lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : mem.Allocator) {
 	new_layer: LefLayer
 	layer_name := scan_ident_ascii_upper(l)
 	skip_newlines_and_whitespaces(l)
@@ -692,7 +695,6 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		case "END": break layer_loop
 		case "MANUFACTURINGGRID":
 			new_layer.manufacturing_grid = scan_lef_distance(l, lef_database) // override default
-			lef_consume_statement_end(l)
 		case "PROPERTY":
 			skip_newlines_and_whitespaces(l)
 			prop_name := scan_ident_ascii_upper(l)
@@ -706,18 +708,21 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 				}
 			}
 			lexer_ensure(l, new_layer.property.property_definition != nil, "Property name not found")
-			lef_consume_statement_end(l)
 		case "MASK": skip_newlines_and_whitespaces(l)
 			mask_num := peek(l)
 			lexer_ensure(l, mask_num == '2' || mask_num == '3', "Invalid mask num in layer")
 			new_layer.mask = .DOUBLE_MASK if mask_num == '2' else .TRIPLE_MASK
 			lexer_consume(l,mask_num)
-			lef_consume_statement_end(l)
 		case : // If not any of common types, has to be layer data (or invalid type)
 			skip_newlines_and_whitespaces(l)
 			switch &layer in new_layer.layer_data {
-			case LefCutLayer:
-			case LefImplantLayer:
+			case LefCutLayer:  switch layer_property {
+				case "SPACING": layer.min_spacing = scan_lef_distance(l, lef_database)
+				case "WIDTH": layer.min_width = scan_lef_distance(l, lef_database)
+				}
+			case LefImplantLayer: switch layer_property {
+				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
+				}
 			case LefRoutingLayer: switch layer_property {
 					case "DIRECTION":
 						direction := scan_ident_ascii_upper(l)
@@ -736,7 +741,18 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 					case "WIDTH": layer.min_width = scan_lef_distance(l, lef_database)
 					case "SPACING": layer.min_spacing = scan_lef_distance(l, lef_database)
 					case "SPACINGTABLE":
-					case "AREA":
+					case "AREA": layer.area = scan_lef_area(l, lef_database)
+					case "MINSIZE":
+						// TODO(rahul): think about how to allocate here and for other dynamic layer property types
+						layer.min_size = make([dynamic][2]LefDistance, lef_allocator)
+						for peek(l) != SEMICOLON {
+						skip_newlines_and_whitespaces((l))
+						min_width := scan_lef_distance(l, lef_database)
+						skip_newlines_and_whitespaces((l))
+						min_length := scan_lef_distance(l, lef_database)
+						append(&layer.min_size, [2]LefDistance{min_width, min_length})
+						skip_newlines_and_whitespaces((l))
+					}
 					case "THICKNESS":
 					case "EDGECAPACITANCE":
 					case "CAPACITANCE":
@@ -745,13 +761,15 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 					case "ACCURRENTDENSITY":
 					case "ANTENNAMODEL":
 					case "ANTENNADIFFSIDEAREARATIO":
-					case: lexer_panic(l, "Unhandled keyword for routing layer definition")
+					case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
 					}
-					lef_consume_statement_end(l)
-			case LefMastersliceOverlapLayer:
+			case LefMastersliceOverlapLayer: switch layer_property {
+				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
+				}
 			case: lexer_panic(l, fmt.tprint("Unhandled layer type", layer_type))
 			}
 		}
+		lef_consume_statement_end(l)
 	}
 	lef_consume_section_end(l, layer_name)
 	append(&lef_database.layers, new_layer)
@@ -815,6 +833,13 @@ lef_dbu_per_micron :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> i64 {
 }
 
 scan_lef_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefDistance { return LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, db))) }
+
+scan_lef_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
+    dbu := lef_dbu_per_micron(l, db)
+    area := scan_lef_decimal_scaled_i64(l, dbu * dbu)
+    lexer_ensure(l, area >= 0, "LEF area cannot be negative")
+    return LefArea(area)
+}
 
 /* TODO(rahul): Review and uncomment as needed and when used
 
