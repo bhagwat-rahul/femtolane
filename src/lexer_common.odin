@@ -4,6 +4,7 @@ import "core:fmt"
 Lexer :: struct {
 	src:      []byte,
 	idx:      int,
+	newlines: u32,
 	filepath: string,
 }
 
@@ -28,7 +29,7 @@ advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
 }
 
 lexer_panic :: #force_inline proc(l: ^Lexer, err_msg: string) {
-	panic(fmt.tprintfln("Error: %s at byte %d for char %r in file '%s'", err_msg, l.idx, l.src[l.idx], l.filepath))
+	panic(fmt.tprintfln("Error: %s at byte %d for char %r in file '%s' on line %d", err_msg, l.idx, l.src[l.idx], l.filepath, l.newlines + 1))
 }
 
 lexer_ensure :: #force_inline proc(l: ^Lexer, condition: bool, err_msg: string) { if !condition { lexer_panic(l, err_msg) } }
@@ -97,6 +98,7 @@ scan_ident_ascii_upper :: #force_inline proc(l: ^Lexer) -> string {
 skip_newlines_and_whitespaces :: #force_inline proc(l: ^Lexer) {
 	for {
 		c := peek(l)
+		if c == NEWLINE { l.newlines += 1 }
 		if c != NEWLINE && c != NEWLINE_CARRIAGE_RETURN && c != WHITESPACE && c != WHITESPACE_TAB { break }
 		advance(l)
 	}

@@ -203,7 +203,7 @@ LefCutLayer :: struct {
 	// array_spacing:                LefCutLayerArraySpacing,
 	min_width:                    LefDistance,
 	min_spacing :                 LefDistance,
-	// enclosure:                    LefLayerEnclosure,
+	enclosures:                   [4]LefDistance, // 0 and 1 is ABOVE overhang 1-2, 2 and 3 is BELOW overhang 1-2
 	// preference_closure:           LefLayerPreferenceClosure,
 	// resistance:                   LefLayerResistance,
 	// property:                     LefProperty,
@@ -228,12 +228,22 @@ LefRoutingLayer :: struct {
 	antenna_area_ratio:           LefAntennaAreaRatio,
 	antenna_cum_area_ratio:       LefAntennaCumAreaRatio,
 	direction:                    LefRoutingLayerDirection,
-	min_spacing:                  LefDistance,
+	spacing_rules:                LefRoutingLayerSpacingRules,
 	min_width:                    LefDistance,
 	width_rule:                   LefWidthRule,
 	pitch:                        [2]LefDistance, // if only 1 distance present then both are same x == y
+	offset:                       [2]LefDistance, // if 1 specified then it's for preffered direction routing tracks, if 2 then 1st is x offset for vertical 2nd is y for horizontal
 	area:                         LefArea,
 	min_size:                     [dynamic][2]LefDistance, // array of minwidth, minlength
+}
+
+LefRoutingLayerSpacingRules :: struct
+{
+	min_spacing  : LefDistance,
+	samenet      : bool, // min spacing rule only applies to same-net metal
+	pgonly       : bool, // min spacing only applies to same-net that's also power or gnd
+	notch_length : LefDistance,
+	// TODO(rahul): a lot more semantic stuff here
 }
 
 LefMastersliceOverlapLayer :: struct {
@@ -717,8 +727,22 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 			skip_newlines_and_whitespaces(l)
 			switch &layer in new_layer.layer_data {
 			case LefCutLayer:  switch layer_property {
+				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
 				case "SPACING": layer.min_spacing = scan_lef_distance(l, lef_database)
 				case "WIDTH": layer.min_width = scan_lef_distance(l, lef_database)
+				case "ENCLOSURE":
+					type :=  scan_ident_ascii_upper(l)
+					skip_newlines_and_whitespaces(l)
+					overhang_1 := scan_lef_distance(l, lef_database)
+					skip_newlines_and_whitespaces(l)
+					overhang_2 := scan_lef_distance(l, lef_database)
+					if type == "ABOVE" {
+						layer.enclosures[0] = overhang_1
+						layer.enclosures[1] = overhang_2
+					} else if type == "BELOW" {
+						layer.enclosures[2] = overhang_1
+						layer.enclosures[3] = overhang_2
+					}
 				}
 			case LefImplantLayer: switch layer_property {
 				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
@@ -738,8 +762,32 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						// if only 1 pitch given then xy distance is same else different
 						layer.pitch[1] = scan_lef_distance(l, lef_database) if peek(l) != SEMICOLON else layer.pitch[0]
 					case "OFFSET":
+						layer.offset[0] = scan_lef_distance(l, lef_database)
+						skip_newlines_and_whitespaces(l)
+						layer.offset[1] = scan_lef_distance(l, lef_database) if peek(l) != SEMICOLON else layer.offset[0]
 					case "WIDTH": layer.min_width = scan_lef_distance(l, lef_database)
-					case "SPACING": layer.min_spacing = scan_lef_distance(l, lef_database)
+					case "SPACING":
+						layer.spacing_rules.min_spacing = scan_lef_distance(l, lef_database)
+						skip_newlines_and_whitespaces(l)
+						for peek(l) != SEMICOLON {
+							spacing_attribute := scan_ident_ascii_upper(l)
+							switch spacing_attribute {
+							case "RANGE":
+							case "INFLUENCE":
+							case "SAMENET":
+								layer.spacing_rules.samenet = true
+								skip_newlines_and_whitespaces(l)
+								if peek(l) != SEMICOLON {
+									lexer_ensure(l, scan_ident_ascii_upper(l) == "PGONLY", "Unknown string after samenet statement")
+									layer.spacing_rules.pgonly = true
+							 }
+							case "ENDOFLINE":
+							case "PARALLELEDGE":
+							case "NOTCHLENGTH":
+							case "ENDOFNOTCHWIDTH":
+							case : lexer_panic(l, fmt.tprint("Unknown spacing attribute", spacing_attribute, "for layer", layer_type))
+							}
+						}
 					case "SPACINGTABLE":
 					case "AREA": layer.area = scan_lef_area(l, lef_database)
 					case "MINSIZE":
