@@ -162,6 +162,15 @@ LefPlacementSiteClass :: enum {
 	CORE,
 }
 
+LefVia :: struct {
+	name:       string,
+	default:    bool,
+	mask_num:   LefMaskNum,
+	enclosures: [4]LefDistance,
+	offset:     [4]LefDistance,
+	origin:     [2]LefDistance,
+}
+
 LefHardSpacing :: bool // if true, then any spacing values violating requirements are treated as 'hard' violations instead of soft errors
 
 // Min cuts allowed for any via using specified cut layer
@@ -457,7 +466,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	case "FIXEDMASK": lef_database.fixed_mask = true // true if statement exists
 	case "LAYER": lef_create_layer(l, lef_database, allocator)
 	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
-	case "VIA":
+	case "VIA": lef_create_via(l, lef_database, allocator)
 	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
 	case "NONDEFAULTRULE": // Parse non-default rules
 	case "SITE": lef_create_macro_placement_site(l, lef_database)
@@ -822,6 +831,8 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 	lef_consume_section_end(l, layer_name)
 	append(&lef_database.layers, new_layer)
 }
+
+lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem.Allocator) {  }
 
 /* End LEF data structure creation */
 
