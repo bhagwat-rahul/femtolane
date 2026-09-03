@@ -110,6 +110,7 @@ LefDatabase :: struct {
 	fixed_mask:               bool, // disallow mask shifting if true. all lef macro pin shapes need MASK assignments if true
 	placement_sites:          [dynamic]LefPlacementSite,
 	layers:                   [dynamic]LefLayer,
+	vias:                     [dynamic]LefVia,
 	property_definitions:     [dynamic]LefPropertyDefinitions,
 	macros:                   [dynamic]LefMacro,
 	manufacturing_grid_value: LefDistance,
@@ -169,6 +170,7 @@ LefVia :: struct {
 	enclosures: [4]LefDistance,
 	offset:     [4]LefDistance,
 	origin:     [2]LefDistance,
+	layers:     [3]^LefLayer, // [bottomMetalLayer, CutLayer, TopMetalLayer]
 }
 
 LefHardSpacing :: bool // if true, then any spacing values violating requirements are treated as 'hard' violations instead of soft errors
@@ -433,6 +435,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		extensions               = make([dynamic]LefExtension, allocator), // store all extensions in this
 		fixed_mask               = false, // default false, make true if sttmt found
 		layers                   = make([dynamic]LefLayer, allocator),
+		vias                     = make([dynamic]LefVia, allocator),
 		property_definitions     = make([dynamic]LefPropertyDefinitions, allocator),
 		macros                   = make([dynamic]LefMacro, allocator),
 		manufacturing_grid_value = 0, // not sure yet if good to start w 0 default
@@ -832,7 +835,29 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 	append(&lef_database.layers, new_layer)
 }
 
-lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem.Allocator) {  }
+lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem.Allocator) {
+	via : LefVia
+	via.name = scan_ident_ascii_upper(l)
+	skip_newlines_and_whitespaces(l)
+	if peek(l) != SEMICOLON {
+		lexer_ensure(l, scan_ident_ascii_upper(l) == "DEFAULT", "TODO(rahul): check for things other than default")
+		via.default = true
+	}
+	lef_consume_statement_end(l)
+	via_loop : for {
+		via_property := scan_ident_ascii_upper(l)
+		switch via_property {
+		case "LAYER":
+			skip_newlines_and_whitespaces(l)
+			layer_name := scan_ident_ascii_upper(l)
+
+		case "END": break via_loop
+		case: lexer_panic(l, fmt.tprint("Unknown via property", via_property, "for via", via.name))
+		}
+	}
+	lef_consume_section_end(l, via.name)
+	append(&lef_database.vias, via)
+}
 
 /* End LEF data structure creation */
 
