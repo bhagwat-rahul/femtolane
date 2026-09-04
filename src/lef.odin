@@ -839,24 +839,43 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 	via : LefVia
 	via.name = scan_ident_ascii_upper(l)
 	skip_newlines_and_whitespaces(l)
-	if peek(l) != SEMICOLON {
-		lexer_ensure(l, scan_ident_ascii_upper(l) == "DEFAULT", "TODO(rahul): check for things other than default")
-		via.default = true
-	}
-	lef_consume_statement_end(l)
+	ident := scan_ident_ascii_upper(l)
+	if ident == "DEFAULT" { via.default = true; skip_newlines_and_whitespaces(l) }
 	via_loop : for {
-		via_property := scan_ident_ascii_upper(l)
-		switch via_property {
+		layer_index := 0
+		via_property := scan_ident_ascii_upper(l) if ident == "DEFAULT" else ident
+		via_switch : switch via_property {
 		case "LAYER":
 			skip_newlines_and_whitespaces(l)
 			layer_name := scan_ident_ascii_upper(l)
-
+			find_layer : for &layer in lef_database.layers
+			{
+				if layer.name == layer_name {
+					lexer_ensure(l, layer_index < len(via.layers), fmt.tprintf("VIA %s has more than 3 layers", via.name))
+					via.layers[layer_index] = &layer
+					layer_index += 1
+					break find_layer
+				}
+			}
+			// TODO(rahul): Handle rectangles and other layer stuff, will be tricky giving back control to the loop since no end layer statement present
+		case "LAYERS": lef_add_layers_to_via(l, lef_database, &via)
 		case "END": break via_loop
-		case: lexer_panic(l, fmt.tprint("Unknown via property", via_property, "for via", via.name))
+		case: lexer_panic(l, fmt.tprintf("Unknown via property %s for via %s", via_property, via.name))
 		}
+		lef_consume_statement_end(l)
 	}
 	lef_consume_section_end(l, via.name)
 	append(&lef_database.vias, via)
+}
+
+lef_add_layers_to_via :: proc (l: ^Lexer, lef_database: ^LefDatabase, via: ^LefVia)
+{
+	for i in 0..<3 {
+		skip_newlines_and_whitespaces(l)
+		layer_name := scan_ident_ascii_upper(l)
+		for &layer in lef_database.layers { if layer_name == layer.name { via.layers[i] = &layer } }
+	}
+	lef_consume_statement_end(l)
 }
 
 /* End LEF data structure creation */
