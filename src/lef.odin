@@ -426,16 +426,7 @@ LefConvertFactorDistanceMicrons :: enum {
 	DBU_20000,
 }
 
-read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator) {
-	data, err := os.read_entire_file_from_path(filepath, allocator)
-	ensure(err == nil, "Error reading file")
-
-	l: Lexer = {
-		src      = data,
-		idx      = 0,
-		filepath = filepath,
-	}
-
+lef_database :: proc(allocator : mem.Allocator) -> LefDatabase {
 	lef_database := LefDatabase {
 		version                  = LefVersion{},
 		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
@@ -455,12 +446,24 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		max_via_stack            = LefMaxViaStack{},
 		non_default_rules        = make([dynamic]LefNonDefaultRule, allocator),
 	}
+	return lef_database
+}
+
+read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator, lef_database : ^LefDatabase) {
+	data, err := os.read_entire_file_from_path(filepath, allocator)
+	ensure(err == nil, "Error reading file")
+
+	l: Lexer = {
+		src      = data,
+		idx      = 0,
+		filepath = filepath,
+	}
 
 	for l.idx < len(l.src) {
 		skip_newlines_and_whitespaces(&l)
 		switch peek(&l) {
 		case LEF_COMMENT: lef_skip_comments(l = &l)
-		case: lef_handle_statement(&l, &lef_database)
+		case: lef_handle_statement(&l, lef_database)
 		}
 	}
 }
@@ -701,6 +704,28 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 
 lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
+	skip_newlines_and_whitespaces(l)
+	macro : LefMacro
+	macro.name = scan_ident_ascii_upper(l)
+	skip_newlines_and_whitespaces(l)
+	macro_loop: for {
+		keyword := scan_ident_ascii_upper(l)
+		switch keyword {
+		case "CLASS":
+			skip_newlines_and_whitespaces(l)
+			class := scan_ident_ascii_upper(l)
+		case "ORIGIN":
+		case "SYMMETRY":
+		case "SITE":
+		case "FOREIGN":
+		case "SIZE":
+		case "PIN":
+		case "END":
+		}
+		lef_consume_statement_end(l)
+	}
+	lef_consume_section_end(l, macro.name)
+	append(&lef_database.macros, macro)
 }
 
 lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : mem.Allocator) {

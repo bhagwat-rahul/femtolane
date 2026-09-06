@@ -11,7 +11,8 @@ import "netlist_creation"
 
 PDK_ROOT :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A"
 LIBERTY_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n/lib/tt/gt2_6t_w13_lvt_tt_0p7v25c.lib"
-LEF_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n/techlib/gt2_tech.lef"
+TECHLEF_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n/techlib/gt2_tech.lef"
+LEF_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n/lef/tt/gt2_6t_w31_lvt.lef"
 
 // Create and return a growing arena allocator for use within tests
 test_create_arena_allocator :: #force_inline proc (arena : ^virtual.Arena) -> mem.Allocator {
@@ -107,7 +108,9 @@ test_lef_parse :: proc(_: ^testing.T) {
 	lef_parse_arena: virtual.Arena
 	lef_parse_allocator := test_create_arena_allocator(&lef_parse_arena)
 	defer virtual.arena_destroy(&lef_parse_arena)
-	main.read_lef(LEF_FILEPATH, lef_parse_allocator)
+	lef_database := main.lef_database(lef_parse_allocator)
+	main.read_lef(TECHLEF_FILEPATH, lef_parse_allocator, &lef_database)
+	main.read_lef(LEF_FILEPATH, lef_parse_allocator, &lef_database)
 }
 
 @(test)
