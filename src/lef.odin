@@ -111,6 +111,7 @@ LefDatabase :: struct {
 	placement_sites:          [dynamic]LefPlacementSite,
 	layers:                   [dynamic]LefLayer,
 	vias:                     [dynamic]LefVia,
+	via_rules:                [dynamic]LefViaRule,
 	property_definitions:     [dynamic]LefPropertyDefinitions,
 	macros:                   [dynamic]LefMacro,
 	manufacturing_grid_value: LefDistance,
@@ -172,6 +173,16 @@ LefVia :: struct {
 	origin:     [2]LefDistance,
 	layers:     [3]^LefLayer, // [bottomMetalLayer, CutLayer, TopMetalLayer]
 	layer_shapes: [3][dynamic]LefDistance,
+}
+
+LefViaRule :: struct {
+	name:          string,
+	generate:      bool, // is it a viarule generate? typically yes unless legacy lef
+	mask_num:      LefMaskNum,
+	enclosures:    [3][2]LefDistance,
+	layers:        [3]^LefLayer,
+	layer_shapes:  [3][dynamic]LefDistance,
+	spacing:       [3][2]LefDistance, // can be overridden by SPACING ADJACENTCUTS in cut layer statement.
 }
 
 LefHardSpacing :: bool // if true, then any spacing values violating requirements are treated as 'hard' violations instead of soft errors
@@ -437,6 +448,7 @@ read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_
 		fixed_mask               = false, // default false, make true if sttmt found
 		layers                   = make([dynamic]LefLayer, allocator),
 		vias                     = make([dynamic]LefVia, allocator),
+		via_rules                = make([dynamic]LefViaRule, allocator),
 		property_definitions     = make([dynamic]LefPropertyDefinitions, allocator),
 		macros                   = make([dynamic]LefMacro, allocator),
 		manufacturing_grid_value = 0, // not sure yet if good to start w 0 default
@@ -471,12 +483,12 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	case "LAYER": lef_create_layer(l, lef_database, allocator)
 	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
 	case "VIA": lef_create_via(l, lef_database, allocator)
-	case "VIARULE": // NOTE(rahul): Handle both regular viarule and viarule generate here
+	case "VIARULE": lef_create_viarule(l, lef_database, allocator)
 	case "NONDEFAULTRULE": // Parse non-default rules
 	case "SITE": lef_create_macro_placement_site(l, lef_database)
 	case "MACRO": lef_create_macro(l, lef_database)
 	case "BEGINEXT": // Parse from BEGINEXT to ENDEXT
-	case "END":
+	case "END": lef_consume_section_end(l, "LIBRARY")
 	case: lexer_panic(l = l, err_msg = fmt.tprintf("Found unimplemented keyword %s", ident))
 	}
 }
@@ -858,7 +870,7 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 					break find_layer
 				}
 			}
-			lexer_panic(l, fmt.tprintf("Layer %s not found", layer_name))
+			lexer_ensure(l, via.layers[layer_index-1] != nil, fmt.tprintf("Layer %s not found", layer_name))
 		case "RECT", "POLYGON":
 			for peek(l) != SEMICOLON {
 				skip_newlines_and_whitespaces(l)
@@ -876,7 +888,7 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 	append(&lef_database.vias, via)
 }
 
-lef_add_layers_to_via :: proc (l: ^Lexer, lef_database: ^LefDatabase, via: ^LefVia)
+lef_add_layers_to_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, via: ^LefVia)
 {
 	for i in 0..<3 {
 		skip_newlines_and_whitespaces(l)
@@ -884,6 +896,56 @@ lef_add_layers_to_via :: proc (l: ^Lexer, lef_database: ^LefDatabase, via: ^LefV
 		for &layer in lef_database.layers { if layer_name == layer.name { via.layers[i] = &layer } }
 	}
 	lef_consume_statement_end(l)
+}
+
+lef_create_viarule :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : mem.Allocator) {
+	skip_newlines_and_whitespaces(l)
+	viarule : LefViaRule
+	viarule.name = scan_ident_ascii_upper(l)
+	skip_newlines_and_whitespaces(l)
+	lexer_ensure(l, scan_ident_ascii_upper(l) == "GENERATE", "Old via syntax found, TODO(rahul): Maybe support this case if it pops up?")
+	skip_newlines_and_whitespaces(l)
+	layer_index := 0
+	viarule_loop : for {
+		keyword := scan_ident_ascii_upper(l)
+		switch keyword {
+		case "LAYER":
+			skip_newlines_and_whitespaces(l)
+			layer_name := scan_ident_ascii_upper(l)
+			find_layer : for &layer in lef_database.layers
+			{
+				if layer.name == layer_name {
+					lexer_ensure(l, layer_index < len(viarule.layers), fmt.tprintf("VIARULE %s has more than 3 layers", viarule.name))
+					viarule.layers[layer_index] = &layer
+					layer_index += 1
+					break find_layer
+				}
+			}
+			lexer_ensure(l, viarule.layers[layer_index-1] != nil, fmt.tprintf("Layer %s not found", layer_name))
+		case "ENCLOSURE":
+			skip_newlines_and_whitespaces(l)
+			viarule.enclosures[layer_index-1][0] = scan_lef_distance(l, lef_database)
+			skip_newlines_and_whitespaces(l)
+			viarule.enclosures[layer_index-1][1] = scan_lef_distance(l, lef_database)
+		case "RECT", "POLYGON":
+			for peek(l) != SEMICOLON {
+				skip_newlines_and_whitespaces(l)
+				point := scan_lef_distance(l, lef_database)
+				append(&viarule.layer_shapes[layer_index-1], point)
+				skip_newlines_and_whitespaces(l)
+			}
+		case "SPACING":
+			skip_newlines_and_whitespaces(l)
+			viarule.spacing[layer_index-1][0] = scan_lef_distance(l, lef_database)
+			skip_newlines_and_whitespaces(l)
+			lexer_ensure(l, scan_ident_ascii_upper(l) == "BY", "By keyword not found")
+			viarule.spacing[layer_index-1][1] = scan_lef_distance(l, lef_database)
+		case "END": break viarule_loop
+		}
+		lef_consume_statement_end(l)
+	}
+	lef_consume_section_end(l, viarule.name)
+	append(&lef_database.via_rules, viarule)
 }
 
 /* End LEF data structure creation */
