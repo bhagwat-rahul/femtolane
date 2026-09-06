@@ -208,7 +208,20 @@ LibertyCell :: struct {
 	pins: [dynamic]LibertyPin,
 }
 
-LibertyPin :: struct {}
+LibertyPinFunction :: enum {
+	INVERT_PREVIOUS, // '
+	INVERT_FOLLOWING, // !
+	LOGICAL_XOR, // ^
+	LOGICAL_AND, // *, &, "SPACE"
+	LOGICAL_OR, // +, |
+	SIGNAL_ONE, // 1
+	SIGNAL_ZERO // 0
+}
+
+LibertyPin :: struct {
+	name     : string,
+	function : LibertyPinFunction
+}
 
 liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
 	for l.idx < len(l.src) {
