@@ -171,6 +171,7 @@ LefVia :: struct {
 	offset:     [4]LefDistance,
 	origin:     [2]LefDistance,
 	layers:     [3]^LefLayer, // [bottomMetalLayer, CutLayer, TopMetalLayer]
+	layer_shapes: [3][dynamic]LefDistance,
 }
 
 LefHardSpacing :: bool // if true, then any spacing values violating requirements are treated as 'hard' violations instead of soft errors
@@ -692,7 +693,7 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 
 lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : mem.Allocator) {
 	new_layer: LefLayer
-	layer_name := scan_ident_ascii_upper(l)
+	new_layer.name = scan_ident_ascii_upper(l)
 	skip_newlines_and_whitespaces(l)
 	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == "TYPE", err_msg = "Layer type not defined right after LAYER keyword")
 	skip_newlines_and_whitespaces(l)
@@ -831,7 +832,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 		}
 		lef_consume_statement_end(l)
 	}
-	lef_consume_section_end(l, layer_name)
+	lef_consume_section_end(l, new_layer.name)
 	append(&lef_database.layers, new_layer)
 }
 
@@ -841,8 +842,8 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 	skip_newlines_and_whitespaces(l)
 	ident := scan_ident_ascii_upper(l)
 	if ident == "DEFAULT" { via.default = true; skip_newlines_and_whitespaces(l) }
+	layer_index : u8 = 0
 	via_loop : for {
-		layer_index := 0
 		via_property := scan_ident_ascii_upper(l) if ident == "DEFAULT" else ident
 		via_switch : switch via_property {
 		case "LAYER":
@@ -857,7 +858,14 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 					break find_layer
 				}
 			}
-			// TODO(rahul): Handle rectangles and other layer stuff, will be tricky giving back control to the loop since no end layer statement present
+			lexer_panic(l, fmt.tprintf("Layer %s not found", layer_name))
+		case "RECT", "POLYGON":
+			for peek(l) != SEMICOLON {
+				skip_newlines_and_whitespaces(l)
+				point := scan_lef_distance(l, lef_database)
+				append(&via.layer_shapes[layer_index-1], point)
+				skip_newlines_and_whitespaces(l)
+			}
 		case "LAYERS": lef_add_layers_to_via(l, lef_database, &via)
 		case "END": break via_loop
 		case: lexer_panic(l, fmt.tprintf("Unknown via property %s for via %s", via_property, via.name))
