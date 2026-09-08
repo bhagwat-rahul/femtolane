@@ -1039,18 +1039,4 @@ scan_lef_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
     return LefArea(area)
 }
 
-/* TODO(rahul): Review and uncomment as needed and when used
-
-
-scan_lef_positive_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase, msg: string) -> LefDistance {
-	d := scan_lef_distance(l, db)
-	lexer_ensure(l, d > 0, msg)
-	return d
-}
-scan_lef_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
-	dbu := lef_dbu_per_micron(l, db)
-	return LefArea(scan_lef_decimal_scaled_i64(l, dbu * dbu))
-}
-*/
-
 /* End LEF helper procs*/
