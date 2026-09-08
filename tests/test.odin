@@ -15,7 +15,7 @@ TECHLEF_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.r
 LEF_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n/lef/tt/gt2_6t_w31_lvt.lef"
 
 // Create and return a growing arena allocator for use within tests
-test_create_arena_allocator :: #force_inline proc (arena : ^virtual.Arena) -> mem.Allocator {
+test_create_arena_allocator :: #force_inline proc(arena : ^virtual.Arena) -> mem.Allocator {
 	ensure(virtual.arena_init_growing(arena) == nil)
 	return virtual.arena_allocator(arena)
 }
@@ -108,13 +108,13 @@ test_lef_parse :: proc(_: ^testing.T) {
 	lef_parse_arena: virtual.Arena
 	lef_parse_allocator := test_create_arena_allocator(&lef_parse_arena)
 	defer virtual.arena_destroy(&lef_parse_arena)
-	lef_database := main.lef_database(lef_parse_allocator)
-	main.read_lef(TECHLEF_FILEPATH, lef_parse_allocator, &lef_database)
-	main.read_lef(LEF_FILEPATH, lef_parse_allocator, &lef_database)
+	lef_database := main.lef_create_new_database(lef_parse_allocator)
+	main.lef_read_file_into_database(TECHLEF_FILEPATH, lef_parse_allocator, &lef_database)
+	main.lef_read_file_into_database(LEF_FILEPATH, lef_parse_allocator, &lef_database)
 }
 
 @(test)
-test_synthesis :: proc (_: ^testing.T) {
+test_synthesis :: proc(_: ^testing.T) {
 	gl_netlist_path := main.run_synthesis(rtl_filepaths = {"/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/tests/netlist_creation/gcd/gcd.v"}, liberty_file = "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__tt_100C_1v80.lib", top_module="gcd")
 	fmt.println(gl_netlist_path)
 }

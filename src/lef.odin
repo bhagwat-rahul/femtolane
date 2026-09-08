@@ -41,7 +41,7 @@ LEF_COMMENT :: '#'
 LEF_DEFAULT_BUS_BIT_CHARS :: "[]"
 LEF_DEFAULT_DIVIDER_CHAR :: '/'
 LEF_STATEMENT_END_SEMICOLON :: ';'
-LEF_DEFAULT_CLEARANCE_MEASURE: ClearanceMeasure : .EUCLIDEAN
+LEF_DEFAULT_CLEARANCE_MEASURE: LefClearanceMeasure : .EUCLIDEAN
 
 /*
 LefKeywords can be used in any order in a lef file, can't use something before defining (no forward declarations.)
@@ -102,7 +102,7 @@ LefMaskNum :: enum {
 LefDatabase :: struct {
 	version:                  LefVersion,
 	bus_bit_chars:            [2]byte, // delimiters on buses (escape if used elsewhere) (default [])
-	clearance_measure:        ClearanceMeasure, // default euclidean
+	clearance_measure:        LefClearanceMeasure, // default euclidean
 	units:                    [LefUnitType]LefUnit,
 	divider_char:             byte, // express hierarchy when lef names mapped to/from other dbs (default "/", escape if used elsewhere)
 	extensions:               [dynamic]LefExtension, // adds customized syntax, can be ignored by tools that don't use this syntax
@@ -119,7 +119,7 @@ LefDatabase :: struct {
 	non_default_rules:        [dynamic]LefNonDefaultRule,
 }
 
-ClearanceMeasure :: enum {
+LefClearanceMeasure :: enum {
 	MAXXY, // Uses the largest x or y distances for spacing between objects.
 	EUCLIDEAN, // Uses the euclidean distance for spacing between objects, i.e. sqrt(x2 + y2) (default)
 }
@@ -184,8 +184,6 @@ LefViaRule :: struct {
 	layer_shapes:  [3][dynamic]LefDistance,
 	spacing:       [3][2]LefDistance, // can be overridden by SPACING ADJACENTCUTS in cut layer statement.
 }
-
-LefHardSpacing :: bool // if true, then any spacing values violating requirements are treated as 'hard' violations instead of soft errors
 
 // Min cuts allowed for any via using specified cut layer
 LefLayerMinCuts :: struct {
@@ -394,7 +392,7 @@ LefMaxViaStack :: struct {
 LefNonDefaultRule :: struct {
 	name:         string,
 	diag_width:   f64, // diagonal width for layerName when 45 degree routing used (microns)
-	hard_spacing: LefHardSpacing,
+	hard_spacing: bool, // if true, then any spacing values violating requirements are treated as 'hard' violations instead of soft errors
 	min_cuts:     LefLayerMinCuts,
 }
 
@@ -426,7 +424,7 @@ LefConvertFactorDistanceMicrons :: enum {
 	DBU_20000,
 }
 
-lef_database :: proc(allocator : mem.Allocator) -> LefDatabase {
+lef_create_new_database :: proc(allocator : mem.Allocator) -> LefDatabase {
 	lef_database := LefDatabase {
 		version                  = LefVersion{},
 		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
@@ -449,7 +447,7 @@ lef_database :: proc(allocator : mem.Allocator) -> LefDatabase {
 	return lef_database
 }
 
-read_lef :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator, lef_database : ^LefDatabase) {
+lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator, lef_database : ^LefDatabase) {
 	data, err := os.read_entire_file_from_path(filepath, allocator)
 	ensure(err == nil, "Error reading file")
 
@@ -474,14 +472,14 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	ident := scan_ident_ascii_upper(l)
 	skip_newlines_and_whitespaces(l)
 	switch ident {
-	case "VERSION": set_config_lef_version(l, lef_database)
-	case "BUSBITCHARS": set_config_bus_bit_chars(l, lef_database)
-	case "DIVIDERCHAR": set_config_divider_char(l, lef_database)
-	case "UNITS": set_config_units(l, lef_database)
-	case "MANUFACTURINGGRID": set_config_manufacturing_grid(l, lef_database)
-	case "USEMINSPACING": set_config_use_min_spacing(l, lef_database)
-	case "CLEARANCEMEASURE": set_config_clearance_measure(l, lef_database)
-	case "PROPERTYDEFINITIONS": set_config_property_definitions(l, lef_database)
+	case "VERSION": lef_set_config_version(l, lef_database)
+	case "BUSBITCHARS": lef_set_config_bus_bit_chars(l, lef_database)
+	case "DIVIDERCHAR": lef_set_config_divider_char(l, lef_database)
+	case "UNITS": lef_set_config_units(l, lef_database)
+	case "MANUFACTURINGGRID": lef_set_config_manufacturing_grid(l, lef_database)
+	case "USEMINSPACING": lef_set_config_use_min_spacing(l, lef_database)
+	case "CLEARANCEMEASURE": lef_set_config_clearance_measure(l, lef_database)
+	case "PROPERTYDEFINITIONS": lef_set_config_property_definitions(l, lef_database)
 	case "FIXEDMASK": lef_database.fixed_mask = true // true if statement exists
 	case "LAYER": lef_create_layer(l, lef_database, allocator)
 	case "MAXVIASTACK": // Parse int + check if lower/upper bound given else applies to all
@@ -498,7 +496,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 
 /* Start set config functions */
 
-set_config_bus_bit_chars :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_set_config_bus_bit_chars :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	delimiters := scan_double_quote_wrapped_string(l)
 	lexer_ensure(l = l, condition = len(delimiters) == 2, err_msg = "Found more than 2 chars in bus bit chars")
 	lef_database.bus_bit_chars[0] = delimiters[0]
@@ -506,14 +504,14 @@ set_config_bus_bit_chars :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	lef_consume_statement_end(l)
 }
 
-set_config_divider_char :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_set_config_divider_char :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	divider := scan_double_quote_wrapped_string(l)
 	lexer_ensure(l = l, condition = len(divider) == 1, err_msg = "Divider should be a single char")
 	lef_database.divider_char = divider[0]
 	lef_consume_statement_end(l)
 }
 
-set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_set_config_version :: #force_inline proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	major_version := peek(l)
 	advance(l)
 	lexer_consume(l, DOT)
@@ -529,7 +527,7 @@ set_config_lef_version :: #force_inline proc(l: ^Lexer, lef_database: ^LefDataba
 }
 
 // TODO(rahul): this function is only stubbed for now, fix it for all cases
-set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	set_prop_def_loop: for {
 		prop_def: LefPropertyDefinitions = {}
 		skip_newlines_and_whitespaces(l)
@@ -565,7 +563,7 @@ set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	}
 }
 
-set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	set_units_loop: for {
 		skip_newlines_and_whitespaces(l)
 		unit_string := scan_ident_ascii_upper(l)
@@ -588,27 +586,27 @@ set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		unit_name := scan_ident_ascii_upper(l)
 		lexer_ensure(l = l, condition = unit_name == LEF_EXPECTED_UNITS[unit_kind], err_msg = "Wrong unit for type")
 		skip_newlines_and_whitespaces(l)
-		value := scan_lef_decimal_scaled_i64(l, 1)
+		value := lef_scan_decimal_scaled_i64(l, 1)
 		lexer_ensure(l, value > 0, "Unit conversion factor must be positive")
 		lef_database.units[unit_kind] = LefUnit(value)
 		lef_consume_statement_end(l)
 	}
 }
 
-set_config_manufacturing_grid :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_set_config_manufacturing_grid :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	dbu_per_micron := i64(lef_database.units[.DATABASE])
 	lexer_ensure(l, dbu_per_micron > 0, "DATABASE MICRONS must precede MANUFACTURINGGRID")
-	lef_database.manufacturing_grid_value = LefDistance(scan_lef_decimal_scaled_i64(l, dbu_per_micron))
+	lef_database.manufacturing_grid_value = LefDistance(lef_scan_decimal_scaled_i64(l, dbu_per_micron))
 	lexer_ensure(l, lef_database.manufacturing_grid_value > 0, "Manufacturing grid must be positive")
 	lef_consume_statement_end(l)
 }
 
-set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	lef_database.clearance_measure = .MAXXY if scan_ident_ascii_upper(l) == "MAXXY" else .EUCLIDEAN
 	lef_consume_statement_end(l)
 }
 
-set_config_use_min_spacing :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_set_config_use_min_spacing :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == "OBS", err_msg = "No OBS keyword after USEMINSPACING")
 	skip_newlines_and_whitespaces(l)
 	min_spacing_bool := scan_ident_ascii_upper(l)
@@ -656,11 +654,11 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		case "SIZE":
 			dbu_per_micron := i64(lef_database.units[.DATABASE])
 			lexer_ensure(l, dbu_per_micron > 0, "DATABASE MICRONS must precede SITE SIZE")
-			created_site.size.size_width_dbu = LefDistance(scan_lef_decimal_scaled_i64(l, dbu_per_micron))
+			created_site.size.size_width_dbu = LefDistance(lef_scan_decimal_scaled_i64(l, dbu_per_micron))
 			skip_newlines_and_whitespaces(l)
 			by_keyword := scan_ident_ascii_upper(l)
 			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
-			created_site.size.size_height_dbu = LefDistance(scan_lef_decimal_scaled_i64(l, dbu_per_micron))
+			created_site.size.size_height_dbu = LefDistance(lef_scan_decimal_scaled_i64(l, dbu_per_micron))
 		case "SYMMETRY": symmetry_loop: for {
 					skip_newlines_and_whitespaces(l)
 					if peek(l) == SEMICOLON { break symmetry_loop }
@@ -754,7 +752,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 		switch layer_property {
 		case "END": break layer_loop
 		case "MANUFACTURINGGRID":
-			new_layer.manufacturing_grid = scan_lef_distance(l, lef_database) // override default
+			new_layer.manufacturing_grid = lef_scan_distance(l, lef_database) // override default
 		case "PROPERTY":
 			skip_newlines_and_whitespaces(l)
 			prop_name := scan_ident_ascii_upper(l)
@@ -778,14 +776,14 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 			switch &layer in new_layer.layer_data {
 			case LefCutLayer:  switch layer_property {
 				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
-				case "SPACING": layer.min_spacing = scan_lef_distance(l, lef_database)
-				case "WIDTH": layer.min_width = scan_lef_distance(l, lef_database)
+				case "SPACING": layer.min_spacing = lef_scan_distance(l, lef_database)
+				case "WIDTH": layer.min_width = lef_scan_distance(l, lef_database)
 				case "ENCLOSURE":
 					type :=  scan_ident_ascii_upper(l)
 					skip_newlines_and_whitespaces(l)
-					overhang_1 := scan_lef_distance(l, lef_database)
+					overhang_1 := lef_scan_distance(l, lef_database)
 					skip_newlines_and_whitespaces(l)
-					overhang_2 := scan_lef_distance(l, lef_database)
+					overhang_2 := lef_scan_distance(l, lef_database)
 					if type == "ABOVE" {
 						layer.enclosures[0] = overhang_1
 						layer.enclosures[1] = overhang_2
@@ -807,17 +805,17 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						case "DIAG135": layer.direction = .DIAG135
 						}
 					case "PITCH":
-						layer.pitch[0] = scan_lef_distance(l, lef_database)
+						layer.pitch[0] = lef_scan_distance(l, lef_database)
 						skip_newlines_and_whitespaces(l)
 						// if only 1 pitch given then xy distance is same else different
-						layer.pitch[1] = scan_lef_distance(l, lef_database) if peek(l) != SEMICOLON else layer.pitch[0]
+						layer.pitch[1] = lef_scan_distance(l, lef_database) if peek(l) != SEMICOLON else layer.pitch[0]
 					case "OFFSET":
-						layer.offset[0] = scan_lef_distance(l, lef_database)
+						layer.offset[0] = lef_scan_distance(l, lef_database)
 						skip_newlines_and_whitespaces(l)
-						layer.offset[1] = scan_lef_distance(l, lef_database) if peek(l) != SEMICOLON else layer.offset[0]
-					case "WIDTH": layer.min_width = scan_lef_distance(l, lef_database)
+						layer.offset[1] = lef_scan_distance(l, lef_database) if peek(l) != SEMICOLON else layer.offset[0]
+					case "WIDTH": layer.min_width = lef_scan_distance(l, lef_database)
 					case "SPACING":
-						layer.spacing_rules.min_spacing = scan_lef_distance(l, lef_database)
+						layer.spacing_rules.min_spacing = lef_scan_distance(l, lef_database)
 						skip_newlines_and_whitespaces(l)
 						for peek(l) != SEMICOLON {
 							spacing_attribute := scan_ident_ascii_upper(l)
@@ -839,15 +837,15 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 							}
 						}
 					case "SPACINGTABLE":
-					case "AREA": layer.area = scan_lef_area(l, lef_database)
+					case "AREA": layer.area = lef_scan_area(l, lef_database)
 					case "MINSIZE":
 						// TODO(rahul): think about how to allocate here and for other dynamic layer property types
 						layer.min_size = make([dynamic][2]LefDistance, lef_allocator)
 						for peek(l) != SEMICOLON {
 						skip_newlines_and_whitespaces((l))
-						min_width := scan_lef_distance(l, lef_database)
+						min_width := lef_scan_distance(l, lef_database)
 						skip_newlines_and_whitespaces((l))
-						min_length := scan_lef_distance(l, lef_database)
+						min_length := lef_scan_distance(l, lef_database)
 						append(&layer.min_size, [2]LefDistance{min_width, min_length})
 						skip_newlines_and_whitespaces((l))
 					}
@@ -899,7 +897,7 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 		case "RECT", "POLYGON":
 			for peek(l) != SEMICOLON {
 				skip_newlines_and_whitespaces(l)
-				point := scan_lef_distance(l, lef_database)
+				point := lef_scan_distance(l, lef_database)
 				append(&via.layer_shapes[layer_index-1], point)
 				skip_newlines_and_whitespaces(l)
 			}
@@ -949,22 +947,22 @@ lef_create_viarule :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : me
 			lexer_ensure(l, viarule.layers[layer_index-1] != nil, fmt.tprintf("Layer %s not found", layer_name))
 		case "ENCLOSURE":
 			skip_newlines_and_whitespaces(l)
-			viarule.enclosures[layer_index-1][0] = scan_lef_distance(l, lef_database)
+			viarule.enclosures[layer_index-1][0] = lef_scan_distance(l, lef_database)
 			skip_newlines_and_whitespaces(l)
-			viarule.enclosures[layer_index-1][1] = scan_lef_distance(l, lef_database)
+			viarule.enclosures[layer_index-1][1] = lef_scan_distance(l, lef_database)
 		case "RECT", "POLYGON":
 			for peek(l) != SEMICOLON {
 				skip_newlines_and_whitespaces(l)
-				point := scan_lef_distance(l, lef_database)
+				point := lef_scan_distance(l, lef_database)
 				append(&viarule.layer_shapes[layer_index-1], point)
 				skip_newlines_and_whitespaces(l)
 			}
 		case "SPACING":
 			skip_newlines_and_whitespaces(l)
-			viarule.spacing[layer_index-1][0] = scan_lef_distance(l, lef_database)
+			viarule.spacing[layer_index-1][0] = lef_scan_distance(l, lef_database)
 			skip_newlines_and_whitespaces(l)
 			lexer_ensure(l, scan_ident_ascii_upper(l) == "BY", "By keyword not found")
-			viarule.spacing[layer_index-1][1] = scan_lef_distance(l, lef_database)
+			viarule.spacing[layer_index-1][1] = lef_scan_distance(l, lef_database)
 		case "END": break viarule_loop
 		}
 		lef_consume_statement_end(l)
@@ -989,7 +987,7 @@ lef_consume_section_end :: #force_inline proc(l: ^Lexer, statement: string) {
 }
 
 /* TODO(rahul): scan_lef_decimal_scaled_i64 is LLM generated, review and fix if needed */
-scan_lef_decimal_scaled_i64 :: #force_inline proc(l: ^Lexer, scale: i64) -> i64 {
+lef_scan_decimal_scaled_i64 :: #force_inline proc(l: ^Lexer, scale: i64) -> i64 {
 	skip_newlines_and_whitespaces(l)
 	negative := peek(l) == '-'
 	if negative { advance(l) }
@@ -1030,11 +1028,11 @@ lef_dbu_per_micron :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> i64 {
 	return dbu
 }
 
-scan_lef_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefDistance { return LefDistance(scan_lef_decimal_scaled_i64(l, lef_dbu_per_micron(l, db))) }
+lef_scan_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefDistance { return LefDistance(lef_scan_decimal_scaled_i64(l, lef_dbu_per_micron(l, db))) }
 
-scan_lef_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
+lef_scan_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
     dbu := lef_dbu_per_micron(l, db)
-    area := scan_lef_decimal_scaled_i64(l, dbu * dbu)
+    area := lef_scan_decimal_scaled_i64(l, dbu * dbu)
     lexer_ensure(l, area >= 0, "LEF area cannot be negative")
     return LefArea(area)
 }
