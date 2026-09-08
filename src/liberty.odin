@@ -51,7 +51,7 @@ TRIP_POINT_MAX :: 100.0
 TRIP_POINT_DEFAULT :: TripPoint(50.0)
 /* End Trip Point Type */
 
-Library :: struct {
+LibertyLibrary :: struct {
 	name:                          string,
 	description:                   string,
 	type:                          LibraryType,
