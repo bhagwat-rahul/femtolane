@@ -449,7 +449,7 @@ lef_create_new_database :: proc(allocator : mem.Allocator) -> LefDatabase {
 
 lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator, lef_database : ^LefDatabase) {
 	data, err := os.read_entire_file_from_path(filepath, allocator)
-	ensure(err == nil, "Error reading file")
+	ensure(err == nil, fmt.tprint("Lef File Read Error:", err))
 
 	l: Lexer = {
 		src      = data,
