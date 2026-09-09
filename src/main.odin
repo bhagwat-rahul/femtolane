@@ -24,22 +24,31 @@ main :: proc() {
 
 	defer free_all(context.temp_allocator)
 
-	lex_graph_arena: virtual.Arena
-	ensure(virtual.arena_init_growing(&lex_graph_arena) == nil, "Error init'ing lex_graph_arena")
-	lex_graph_arena_allocator := virtual.arena_allocator(&lex_graph_arena)
-	defer virtual.arena_destroy(&lex_graph_arena)
+	core_db_arena: virtual.Arena
+	ensure(virtual.arena_init_growing(&core_db_arena) == nil, "Error init'ing lex_graph_arena")
+	core_db_allocator := virtual.arena_allocator(&core_db_arena)
+	defer virtual.arena_destroy(&core_db_arena)
 
 	args := os.args
-	gl_netlist_path, liberty_filepath, lef_filepath: string
+	gate_netlist_filepath, liberty_filepath, lef_filepath: string
 	if len(args) > 1 && args[1] == "lexgraph" {
-		gl_netlist_path = args[2] if len(args) >= 3 else ""
+		gate_netlist_filepath = args[2] if len(args) >= 3 else ""
 		liberty_filepath = args[3] if len(args) >= 4 else ""
 		lef_filepath = args[4] if len(args) >= 5 else ""
 	}
+
+	// Read and construct Lef Data
+	lef_database := lef_create_new_database(core_db_allocator)
+	lef_read_file_into_database(lef_filepath, core_db_allocator, &lef_database)
+
+	// Read and construct Liberty Data
+	// TODO(rahul): Liberty data pointer allocates inside hypergraph cells, make this on demand and controllable
+
+	// Read gate level netlist and construct hypergraph
 	lex_gate_level_netlist_and_create_hypergraph(
 		liberty_filepath = liberty_filepath,
 		lef_filepath = lef_filepath,
-		gate_netlist_path = gl_netlist_path,
-		lex_graph_arena_allocator = lex_graph_arena_allocator,
+		gate_netlist_path = gate_netlist_filepath,
+		lex_graph_arena_allocator = core_db_allocator,
 	)
 }
