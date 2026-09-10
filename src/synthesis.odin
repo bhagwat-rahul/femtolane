@@ -1,10 +1,8 @@
 package main
 
-import " core:mem"
 import "core:fmt"
 import "core:os"
 import "core:path/slashpath"
-import "core:strings"
 
 // uses yosys to convert RTL to gate netlist (synthesis), will use our own later, maybe with an option for single pass rtl->hypergraph using gl netlist as just a debug artifact?
 convert_rtl_to_gate_netlist :: proc(rtl_filepath: string, lib_file: string, top_module: string, yosys_tcl_script_filepath: string) -> (gate_netlist_filepath : string) {
@@ -17,7 +15,8 @@ convert_rtl_to_gate_netlist :: proc(rtl_filepath: string, lib_file: string, top_
 	ensure(len(resolved_rtl_path) > 0, "Program terminated as you did not select a liberty file")
 
 	directory, filename := slashpath.split(resolved_rtl_path)
-	gate_netlist_filepath = fmt.tprintf("%s.%s.netlist.v", directory, strings.trim_suffix(filename, ".v")) // '/path/adder.v' becomes '/path/.adder.netlist.v'
+	// change '/path/adder.v' to '/path/.netlist.adder.v' (dotfile cz we gitignore those)
+	gate_netlist_filepath = fmt.tprint(directory, "netlist", filename, sep = ".")
 	yosys_proc: os.Process_Desc = {
 		command = {"yosys", "-c", yosys_tcl_script_filepath},
 		env     = {
