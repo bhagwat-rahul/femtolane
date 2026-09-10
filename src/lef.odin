@@ -376,11 +376,11 @@ LefMacroPin :: struct {
 }
 
 LefMacroClass :: enum {
+	CORE, // default class if unspecified
 	COVER,
 	RING,
 	BLOCK,
 	PAD,
-	CORE,
 	ENDCAP,
 }
 
