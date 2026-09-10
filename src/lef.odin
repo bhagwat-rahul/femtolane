@@ -36,6 +36,7 @@ package main
 import "core:fmt"
 import "core:mem"
 import "core:os"
+import "core:reflect"
 
 LEF_COMMENT :: '#'
 LEF_DEFAULT_BUS_BIT_CHARS :: "[]"
@@ -566,19 +567,13 @@ lef_set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabas
 		skip_newlines_and_whitespaces(l)
 		object_type := scan_ident_ascii_upper(l)
 		skip_newlines_and_whitespaces(l)
-		switch object_type {
-		case "LAYER": prop_def.object_type = .LAYER
-		case "LIBRARY": prop_def.object_type = .LIBRARY
-		case "MACRO": prop_def.object_type = .MACRO
-		case "NONDEFAULTRULE": prop_def.object_type = .NONDEFAULTRULE
-		case "PIN": prop_def.object_type = .PIN
-		case "VIA": prop_def.object_type = .VIA
-		case "VIARULE": prop_def.object_type = .VIARULE
-		case "END":
+		if object_type == "END" {
 			lef_consume_section_end(l, "PROPERTYDEFINITIONS")
 			break set_prop_def_loop
-		case: lexer_panic(l, "Unknown property definition object type")
 		}
+		value, ok := reflect.enum_from_name(LefPropertyDefinitionObjectType, object_type)
+		lexer_ensure(l, ok, "Unknown property definition object type")
+		prop_def.object_type = value
 		prop_def.property_name = scan_ident_ascii_upper(l)
 		skip_newlines_and_whitespaces(l)
 		property_type := scan_ident_ascii_upper(l)
@@ -601,21 +596,12 @@ lef_set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		skip_newlines_and_whitespaces(l)
 		unit_string := scan_ident_ascii_upper(l)
 		skip_newlines_and_whitespaces(l)
-		unit_kind: LefUnitType
-		switch unit_string {
-		case "TIME": unit_kind = .TIME
-		case "CAPACITANCE": unit_kind = .CAPACITANCE
-		case "RESISTANCE": unit_kind = .RESISTANCE
-		case "POWER": unit_kind = .POWER
-		case "CURRENT": unit_kind = .CURRENT
-		case "VOLTAGE": unit_kind = .VOLTAGE
-		case "DATABASE": unit_kind = .DATABASE
-		case "FREQUENCY": unit_kind = .FREQUENCY
-		case "END":
+		if unit_string == "END" {
 			lef_consume_section_end(l, "UNITS")
 			break set_units_loop
-		case: lexer_panic(l, fmt.tprint("Unkown unit type", unit_string))
 		}
+		unit_kind, ok := reflect.enum_from_name(LefUnitType, unit_string)
+		lexer_ensure(l, ok, fmt.tprint("Unkown unit type", unit_string))
 		unit_name := scan_ident_ascii_upper(l)
 		lexer_ensure(l = l, condition = unit_name == LEF_EXPECTED_UNITS[unit_kind], err_msg = "Wrong unit for type")
 		skip_newlines_and_whitespaces(l)
@@ -696,28 +682,16 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 					skip_newlines_and_whitespaces(l)
 					if peek(l) == SEMICOLON { break symmetry_loop }
 					sym_type := scan_ident_ascii_upper(l)
-					switch sym_type {
-					case "X": created_site.symmetry |= .X
-					case "Y": created_site.symmetry |= .Y
-					case "R90": created_site.symmetry |= .R90
-					case: lexer_panic(l, fmt.tprint("Invalid symmetry type", sym_type))
-					}
+					sym_type_enum, ok := reflect.enum_from_name(LefPlacementSiteSymmetry, sym_type)
+					lexer_ensure(l,ok, fmt.tprint("Invalid symmetry type", sym_type))
+					created_site.symmetry |= sym_type_enum
 				}
 		case "ROWPATTERN": for i := 0; i <= 15 && peek(l) != SEMICOLON; i += 1 {
 					previous_site_name := LefPlacementSiteName(scan_ident_ascii_upper(l)) // we need to ensure len(row_pattern) == 0 for all
 					skip_newlines_and_whitespaces(l)
-					previous_site_orient: LefPlacementSiteOrient
 					site_orient_str := scan_ident_ascii_upper(l)
-					switch site_orient_str {
-					case "N": previous_site_orient = .N
-					case "S": previous_site_orient = .S
-					case "E": previous_site_orient = .E
-					case "W": previous_site_orient = .W
-					case "FN": previous_site_orient = .FN
-					case "FS": previous_site_orient = .FS
-					case "FE": previous_site_orient = .FE
-					case "FW": previous_site_orient = .FW
-					}
+					previous_site_orient, ok := reflect.enum_from_name(LefPlacementSiteOrient, site_orient_str)
+					lexer_ensure(l, ok, fmt.tprint("Unknown site orient", site_orient_str))
 					created_site.row_pattern[i] = LefPlacementSiteRowPattern {
 						previous_site_name   = previous_site_name,
 						previous_site_orient = previous_site_orient,
@@ -745,75 +719,17 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	macro_loop: for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
-		case "CLASS": skip_newlines_and_whitespaces(l)
+		case "CLASS":
+			skip_newlines_and_whitespaces(l)
 			class := scan_ident_ascii_upper(l)
-			switch class {
-			case "CORE":
-				skip_newlines_and_whitespaces(l)
-				if peek(l) == SEMICOLON { macro.class = .CORE }
-				else {
-					subclass := scan_ident_ascii_upper(l)
-					switch subclass {
-					case "FEEDTHRU":    macro.class = .CORE_FEEDTHRU
-					case "TIEHIGH":     macro.class = .CORE_TIEHIGH
-					case "TIELOW":      macro.class = .CORE_TIELOW
-					case "SPACER":      macro.class = .CORE_SPACER
-					case "ANTENNACELL": macro.class = .CORE_ANTENNACELL
-					case "WELLTAP":     macro.class = .CORE_WELLTAP
-					case: lexer_panic(l, fmt.tprintf("Unknown subclass %s for class %s", subclass, class))
-					}
-				}
-			case "COVER":
-				skip_newlines_and_whitespaces(l)
-				if peek(l) == SEMICOLON { macro.class = .COVER }
-				else {
-					subclass := scan_ident_ascii_upper(l)
-					switch subclass {
-					case "BUMP": macro.class = .COVER_BUMP
-					case: lexer_panic(l, fmt.tprintf("Unknown subclass %s for class %s", subclass, class))
-					}
-				}
-			case "RING":  macro.class = .RING
-			case "BLOCK":
-				skip_newlines_and_whitespaces(l)
-				if peek(l) == SEMICOLON { macro.class = .BLOCK }
-				else {
-					subclass := scan_ident_ascii_upper(l)
-					switch subclass {
-					case "BLACKBOX": macro.class = .BLOCK_BLACKBOX
-					case "SOFT":     macro.class = .BLOCK_SOFT
-					case: lexer_panic(l, fmt.tprintf("Unknown subclass %s for class %s", subclass, class))
-					}
-				}
-			case "PAD":
-				skip_newlines_and_whitespaces(l)
-				if peek(l) == SEMICOLON { macro.class = .PAD }
-				else {
-					subclass := scan_ident_ascii_upper(l)
-					switch subclass {
-					case "INPUT":  macro.class = .PAD_INPUT
-					case "OUTPUT": macro.class = .PAD_OUTPUT
-					case "INOUT":  macro.class = .PAD_INOUT
-					case "POWER":  macro.class = .PAD_POWER
-					case "SPACER": macro.class = .PAD_SPACER
-					case "AREAIO": macro.class = .PAD_AREAIO
-					case: lexer_panic(l, fmt.tprintf("Unknown subclass %s for class %s", subclass, class))
-					}
-				}
-			case "ENDCAP":
-				skip_newlines_and_whitespaces(l)
-				endclass_subtype := scan_ident_ascii_upper(l)
-				switch endclass_subtype {
-				case "PRE":         macro.class = .ENDCAP_PRE
-				case "POST":        macro.class = .ENDCAP_POST
-				case "TOPLEFT":     macro.class = .ENDCAP_TOPLEFT
-				case "TOPRIGHT":    macro.class = .ENDCAP_TOPRIGHT
-				case "BOTTOMLEFT":  macro.class = .ENDCAP_BOTTOMLEFT
-				case "BOTTOMRIGHT": macro.class = .ENDCAP_BOTTOMRIGHT
-				case : lexer_panic(l, "Unknown endcap type")
-				}
-			case : lexer_panic(l, fmt.tprintf("Unknown class %s for macro %s", class, macro))
+			skip_newlines_and_whitespaces(l)
+			if peek(l) != SEMICOLON {
+				subclass := scan_ident_ascii_upper(l)
+				class = fmt.tprintf("%s_%s", class, subclass)
 			}
+			value, ok := reflect.enum_from_name(LefMacroClass, class)
+			lexer_ensure(l, ok, fmt.tprintf("Unknown macro class %s", class))
+			macro.class = value
 		case "ORIGIN":
 		case "FIXEDMASK": macro.fixed_mask = true
 		case "SYMMETRY":
@@ -901,12 +817,8 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 			case LefRoutingLayer: switch layer_property {
 					case "DIRECTION":
 						direction := scan_ident_ascii_upper(l)
-						switch direction {
-						case "VERTICAL": layer.direction = .VERTICAL
-						case "HORIZONTAL": layer.direction = .HORIZONTAL
-						case "DIAG45": layer.direction = .DIAG45
-						case "DIAG135": layer.direction = .DIAG135
-						}
+						value, ok := reflect.enum_from_name(LefRoutingLayerDirection, direction)
+						if ok { layer.direction = value }
 					case "PITCH":
 						layer.pitch[0] = lef_scan_distance(l, lef_database)
 						skip_newlines_and_whitespaces(l)
