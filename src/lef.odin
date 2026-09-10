@@ -355,7 +355,7 @@ LefMacro :: struct {
 	fixed_mask:          bool,
 	foreign_cell_name:   bool, // TODO(rahul): Implement foreign keyword
 	// origin:              LefOriginPt,
-	electric_equivalent: ^LefMacro, // `EEG macroName` (Electrically equivalent, used for multiple impl's of smae OR gate, etc.)
+	electric_equivalent: ^LefMacro, // `EEG macroName` (Electrically equivalent, used for multiple implementations of same OR gate, etc.)
 	size:                LefSizeWidthByHeight,
 	symmetry:            LefPlacementSiteSymmetry,
 	site:                LefPlacementSite,
