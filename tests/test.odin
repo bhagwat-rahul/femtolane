@@ -7,7 +7,6 @@ import "core:mem"
 import "core:os"
 import "core:strings"
 import "core:testing"
-import "netlist_creation"
 
 PDK_ROOT :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A"
 LIBERTY_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n/lib/tt/gt2_6t_w13_lvt_tt_0p7v25c.lib"
@@ -29,9 +28,9 @@ test_netlist_creation :: proc(_: ^testing.T) {
 	sky130a_liberty := fmt.tprint(PDK_ROOT, "/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_100C_1v65.lib", sep = "")
 	verilog_src := "netlist_creation/adder/adder.v"
 	top := "adder"
-	yosys_tcl_script_filepath := "netlist_creation/netlist_creator.tcl"
-	outfile := netlist_creation.run_yosys(
-		filepath = verilog_src,
+	yosys_tcl_script_filepath := "" // TODO(rahul): fix
+	outfile := main.convert_rtl_to_gate_netlist(
+		rtl_filepath = verilog_src,
 		lib_file = sky130a_liberty,
 		top_module = top,
 		yosys_tcl_script_filepath = yosys_tcl_script_filepath,
