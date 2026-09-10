@@ -355,7 +355,7 @@ LefMacro :: struct {
 	class:               LefMacroClass,
 	fixed_mask:          bool,
 	foreign_cell_name:   bool, // TODO(rahul): Implement foreign keyword
-	// origin:              LefOriginPt,
+	origin:              [2]LefDistance, // TODO(rahul): Maybe lefcoord?
 	electric_equivalent: ^LefMacro, // `EEG macroName` (Electrically equivalent, used for multiple implementations of same OR gate, etc.)
 	size:                LefSizeWidthByHeight,
 	symmetry:            LefPlacementSiteSymmetry,
@@ -731,9 +731,25 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 			lexer_ensure(l, ok, fmt.tprintf("Unknown macro class %s", class))
 			macro.class = value
 		case "ORIGIN":
+			// TODO(rahul): Fix this implementation, cz origin shifts macro so its not a distance
+			skip_newlines_and_whitespaces(l)
+			macro.origin[0] = lef_scan_distance(l, lef_database)
+			skip_newlines_and_whitespaces(l)
+			macro.origin[1] = lef_scan_distance(l, lef_database)
 		case "FIXEDMASK": macro.fixed_mask = true
-		case "SYMMETRY":
+		case "SYMMETRY": symmetry_loop: for {
+					skip_newlines_and_whitespaces(l)
+					if peek(l) == SEMICOLON { break symmetry_loop }
+					sym_type := scan_ident_ascii_upper(l)
+					sym_type_enum, ok := reflect.enum_from_name(LefPlacementSiteSymmetry, sym_type)
+					lexer_ensure(l,ok, fmt.tprint("Invalid symmetry type", sym_type))
+					macro.symmetry |= sym_type_enum
+				}
 		case "SITE":
+			skip_newlines_and_whitespaces(l)
+			placement_site_name := LefPlacementSiteName(scan_ident_ascii_upper(l))
+			for site in lef_database.placement_sites { if placement_site_name == site.site_name { macro.site = site } }
+			lexer_ensure(l, macro.site != LefPlacementSite{}, "Site not found")
 		case "FOREIGN":
 		case "SIZE":
 		case "PIN":
