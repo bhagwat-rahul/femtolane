@@ -794,7 +794,8 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 			skip_newlines_and_whitespaces(l)
 			prop_val := scan_double_quote_wrapped_string(l)
 			for &property in lef_database.property_definitions {
-				if prop_name == property.property_name {new_layer.property = LefLayerProperty {
+				if prop_name == property.property_name {
+					new_layer.property = LefLayerProperty {
 						property_definition = &property,
 						value               = prop_val,
 					}
