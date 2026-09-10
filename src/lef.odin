@@ -376,12 +376,38 @@ LefMacroPin :: struct {
 }
 
 LefMacroClass :: enum {
+	// Core types
 	CORE, // default class if unspecified
+	CORE_FEEDTHRU,
+	CORE_TIEHIGH,
+	CORE_TIELOW,
+	CORE_SPACER,
+	CORE_ANTENNACELL,
+	CORE_WELLTAP,
+	// Cover Types
 	COVER,
+	COVER_BUMP,
+	// Ring Type
 	RING,
+	// Block Types
 	BLOCK,
+	BLOCK_BLACKBOX,
+	BLOCK_SOFT,
+	// Pad Types
 	PAD,
-	ENDCAP,
+	PAD_INPUT,
+	PAD_OUTPUT,
+	PAD_INOUT,
+	PAD_POWER,
+	PAD_SPACER,
+	PAD_AREAIO,
+	// Endcap Types
+	ENDCAP_PRE,
+	ENDCAP_POST,
+	ENDCAP_TOPLEFT,
+	ENDCAP_TOPRIGHT,
+	ENDCAP_BOTTOMLEFT,
+	ENDCAP_BOTTOMRIGHT
 }
 
 LefMaxViaStack :: struct {
@@ -710,7 +736,7 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
 	skip_newlines_and_whitespaces(l)
-	macro := LefMacro{
+	macro := LefMacro {
 	name = scan_ident_ascii_upper(l),
 	class = .CORE, // default class
 	fixed_mask = false, // default
@@ -722,16 +748,72 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		case "CLASS": skip_newlines_and_whitespaces(l)
 			class := scan_ident_ascii_upper(l)
 			switch class {
-			case "CORE":  macro.class = .CORE
-				if scan_ident_ascii_upper(l) == "BUMP" {} else {}
-			case "COVER": macro.class = .COVER
+			case "CORE":
+				skip_newlines_and_whitespaces(l)
+				if peek(l) == SEMICOLON { macro.class = .CORE }
+				else {
+					subclass := scan_ident_ascii_upper(l)
+					switch subclass {
+					case "FEEDTHRU":    macro.class = .CORE_FEEDTHRU
+					case "TIEHIGH":     macro.class = .CORE_TIEHIGH
+					case "TIELOW":      macro.class = .CORE_TIELOW
+					case "SPACER":      macro.class = .CORE_SPACER
+					case "ANTENNACELL": macro.class = .CORE_ANTENNACELL
+					case "WELLTAP":     macro.class = .CORE_WELLTAP
+					case: lexer_panic(l, fmt.tprintf("Unknown subclass %s for class %s", subclass, class))
+					}
+				}
+			case "COVER":
+				skip_newlines_and_whitespaces(l)
+				if peek(l) == SEMICOLON { macro.class = .COVER }
+				else {
+					subclass := scan_ident_ascii_upper(l)
+					switch subclass {
+					case "BUMP": macro.class = .COVER_BUMP
+					case: lexer_panic(l, fmt.tprintf("Unknown subclass %s for class %s", subclass, class))
+					}
+				}
 			case "RING":  macro.class = .RING
-			case "BLOCK": macro.class = .BLOCK
-			case "PAD":   macro.class = .PAD
-			case "ENDCAP":macro.class = .ENDCAP
+			case "BLOCK":
+				skip_newlines_and_whitespaces(l)
+				if peek(l) == SEMICOLON { macro.class = .BLOCK }
+				else {
+					subclass := scan_ident_ascii_upper(l)
+					switch subclass {
+					case "BLACKBOX": macro.class = .BLOCK_BLACKBOX
+					case "SOFT":     macro.class = .BLOCK_SOFT
+					case: lexer_panic(l, fmt.tprintf("Unknown subclass %s for class %s", subclass, class))
+					}
+				}
+			case "PAD":
+				skip_newlines_and_whitespaces(l)
+				if peek(l) == SEMICOLON { macro.class = .PAD }
+				else {
+					subclass := scan_ident_ascii_upper(l)
+					switch subclass {
+					case "INPUT":  macro.class = .PAD_INPUT
+					case "OUTPUT": macro.class = .PAD_OUTPUT
+					case "INOUT":  macro.class = .PAD_INOUT
+					case "POWER":  macro.class = .PAD_POWER
+					case "SPACER": macro.class = .PAD_SPACER
+					case "AREAIO": macro.class = .PAD_AREAIO
+					case: lexer_panic(l, fmt.tprintf("Unknown subclass %s for class %s", subclass, class))
+					}
+				}
+			case "ENDCAP":
+				skip_newlines_and_whitespaces(l)
+				endclass_subtype := scan_ident_ascii_upper(l)
+				switch endclass_subtype {
+				case "PRE":         macro.class = .ENDCAP_PRE
+				case "POST":        macro.class = .ENDCAP_POST
+				case "TOPLEFT":     macro.class = .ENDCAP_TOPLEFT
+				case "TOPRIGHT":    macro.class = .ENDCAP_TOPRIGHT
+				case "BOTTOMLEFT":  macro.class = .ENDCAP_BOTTOMLEFT
+				case "BOTTOMRIGHT": macro.class = .ENDCAP_BOTTOMRIGHT
+				case : lexer_panic(l, "Unknown endcap type")
+				}
 			case : lexer_panic(l, fmt.tprintf("Unknown class %s for macro %s", class, macro))
 			}
-			skip_newlines_and_whitespaces(l)
 		case "ORIGIN":
 		case "FIXEDMASK": macro.fixed_mask = true
 		case "SYMMETRY":
