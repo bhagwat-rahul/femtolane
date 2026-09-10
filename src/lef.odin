@@ -710,16 +710,30 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
 	skip_newlines_and_whitespaces(l)
-	macro : LefMacro
-	macro.name = scan_ident_ascii_upper(l)
+	macro := LefMacro{
+	name = scan_ident_ascii_upper(l),
+	class = .CORE, // default class
+	fixed_mask = false, // default
+	}
 	skip_newlines_and_whitespaces(l)
 	macro_loop: for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
-		case "CLASS":
-			skip_newlines_and_whitespaces(l)
+		case "CLASS": skip_newlines_and_whitespaces(l)
 			class := scan_ident_ascii_upper(l)
+			switch class {
+			case "CORE":  macro.class = .CORE
+				if scan_ident_ascii_upper(l) == "BUMP" {} else {}
+			case "COVER": macro.class = .COVER
+			case "RING":  macro.class = .RING
+			case "BLOCK": macro.class = .BLOCK
+			case "PAD":   macro.class = .PAD
+			case "ENDCAP":macro.class = .ENDCAP
+			case : lexer_panic(l, fmt.tprintf("Unknown class %s for macro %s", class, macro))
+			}
+			skip_newlines_and_whitespaces(l)
 		case "ORIGIN":
+		case "FIXEDMASK": macro.fixed_mask = true
 		case "SYMMETRY":
 		case "SITE":
 		case "FOREIGN":
