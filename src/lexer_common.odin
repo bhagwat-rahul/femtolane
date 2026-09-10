@@ -29,7 +29,7 @@ advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
 }
 
 lexer_panic :: #force_inline proc(l: ^Lexer, err_msg: string) {
-	panic(fmt.tprintfln("Error: %s at byte %d for char %r in file '%s' on line %d", err_msg, l.idx, l.src[l.idx], l.filepath, l.newlines + 1))
+	panic(fmt.tprintfln("Error: %s at byte %d for char %r in file '%s' on line %d", err_msg, l.idx, peek(l), l.filepath, l.newlines + 1))
 }
 
 lexer_ensure :: #force_inline proc(l: ^Lexer, condition: bool, err_msg: string) { if !condition { lexer_panic(l, err_msg) } }
