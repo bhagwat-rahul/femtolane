@@ -526,11 +526,9 @@ lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Alloca
 	}
 
 	for l.idx < len(l.src) {
-		skip_newlines_and_whitespaces(&l)
-		switch peek(&l) {
-		case LEF_COMMENT: lef_skip_whitespace_and_comments(l = &l)
-		case: lef_handle_statement(&l, lef_database)
-		}
+		lef_skip_whitespace_and_comments(&l)
+		if l.idx >= len(l.src) { break }
+		lef_handle_statement(&l, lef_database)
 	}
 }
 
@@ -544,7 +542,7 @@ lef_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
 
 lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: mem.Allocator = context.temp_allocator) {
 	ident := scan_ident_ascii_upper(l)
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	switch ident {
 	case "VERSION": lef_set_config_version(l, lef_database)
 	case "BUSBITCHARS": lef_set_config_bus_bit_chars(l, lef_database)
@@ -604,9 +602,9 @@ lef_set_config_version :: #force_inline proc(l: ^Lexer, lef_database: ^LefDataba
 lef_set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	set_prop_def_loop: for {
 		prop_def: LefPropertyDefinitions = {}
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		object_type := scan_ident_ascii_upper(l)
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		if object_type == "END" {
 			lef_consume_section_end(l, "PROPERTYDEFINITIONS")
 			break set_prop_def_loop
@@ -615,7 +613,7 @@ lef_set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabas
 		lexer_ensure(l, ok, "Unknown property definition object type")
 		prop_def.object_type = value
 		prop_def.property_name = scan_ident_ascii_upper(l)
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		property_type := scan_ident_ascii_upper(l)
 		switch property_type {
 		case "INTEGER": prop_def.property_type = int{}
@@ -623,9 +621,9 @@ lef_set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabas
 		case "STRING": prop_def.property_type = string{}
 		case: lexer_panic(l, "Unknown property definition property type")
 		}
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		prop_def.value = scan_ident_ascii_upper(l) if peek(l) != SEMICOLON else ""
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		lef_consume_statement_end(l)
 		append(&lef_database.property_definitions, prop_def)
 	}
@@ -633,9 +631,9 @@ lef_set_config_property_definitions :: proc(l: ^Lexer, lef_database: ^LefDatabas
 
 lef_set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	set_units_loop: for {
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		unit_string := scan_ident_ascii_upper(l)
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		if unit_string == "END" {
 			lef_consume_section_end(l, "UNITS")
 			break set_units_loop
@@ -644,7 +642,7 @@ lef_set_config_units :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		lexer_ensure(l, ok, fmt.tprint("Unkown unit type", unit_string))
 		unit_name := scan_ident_ascii_upper(l)
 		lexer_ensure(l = l, condition = unit_name == LEF_EXPECTED_UNITS[unit_kind], err_msg = "Wrong unit for type")
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		value := lef_scan_decimal_scaled_i64(l, 1)
 		lexer_ensure(l, value > 0, "Unit conversion factor must be positive")
 		lef_database.units[unit_kind] = LefUnit(value)
@@ -667,7 +665,7 @@ lef_set_config_clearance_measure :: #force_inline proc(l: ^Lexer, lef_database: 
 
 lef_set_config_use_min_spacing :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == "OBS", err_msg = "No OBS keyword after USEMINSPACING")
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	min_spacing_bool := scan_ident_ascii_upper(l)
 	lexer_ensure(l = l, condition = (min_spacing_bool == "ON" || min_spacing_bool == "OFF"), err_msg = "obs is something other than on/off")
 	lef_database.use_min_spacing = (min_spacing_bool == "ON")
@@ -702,9 +700,9 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		site_name = LefPlacementSiteName(scan_ident_ascii_upper(l)),
 	}
 	placement_loop: for {
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		placement_keyword := scan_ident_ascii_upper(l)
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		switch placement_keyword {
 		case "CLASS":
 			placement_class := scan_ident_ascii_upper(l)
@@ -714,12 +712,12 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 			dbu_per_micron := i64(lef_database.units[.DATABASE])
 			lexer_ensure(l, dbu_per_micron > 0, "DATABASE MICRONS must precede SITE SIZE")
 			created_site.size.size_width_dbu = lef_scan_distance(l, lef_database)
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			by_keyword := scan_ident_ascii_upper(l)
 			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
 			created_site.size.size_height_dbu = lef_scan_distance(l, lef_database)
 		case "SYMMETRY": symmetry_loop: for {
-					skip_newlines_and_whitespaces(l)
+					lef_skip_whitespace_and_comments(l)
 					if peek(l) == SEMICOLON { break symmetry_loop }
 					sym_type := scan_ident_ascii_upper(l)
 					sym_type_enum, ok := reflect.enum_from_name(LefPlacementSiteSymmetry, sym_type)
@@ -728,7 +726,7 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 				}
 		case "ROWPATTERN": for i := 0; i <= 15 && peek(l) != SEMICOLON; i += 1 {
 					previous_site_name := LefPlacementSiteName(scan_ident_ascii_upper(l)) // we need to ensure len(row_pattern) == 0 for all
-					skip_newlines_and_whitespaces(l)
+					lef_skip_whitespace_and_comments(l)
 					site_orient_str := scan_ident_ascii_upper(l)
 					previous_site_orient, ok := reflect.enum_from_name(LefPlacementSiteOrient, site_orient_str)
 					lexer_ensure(l, ok, fmt.tprint("Unknown site orient", site_orient_str))
@@ -736,6 +734,7 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 						previous_site_name   = previous_site_name,
 						previous_site_orient = previous_site_orient,
 					}
+					lef_skip_whitespace_and_comments(l)
 				}
 		case "END":
 			lef_consume_section_end(l, string(created_site.site_name))
@@ -749,20 +748,20 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 
 lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	macro := LefMacro {
 	name = scan_ident_ascii_upper(l),
 	class = .CORE, // default class
 	fixed_mask = false, // default
 	}
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	macro_loop: for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
 		case "CLASS":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			class := scan_ident_ascii_upper(l)
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			if peek(l) != SEMICOLON {
 				subclass := scan_ident_ascii_upper(l)
 				class = fmt.tprintf("%s_%s", class, subclass)
@@ -772,13 +771,13 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 			macro.class = value
 		case "ORIGIN":
 			// TODO(rahul): Fix this implementation, cz origin shifts macro so its not a distance
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			macro.origin[0] = lef_scan_distance(l, lef_database)
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			macro.origin[1] = lef_scan_distance(l, lef_database)
 		case "FIXEDMASK": macro.fixed_mask = true
 		case "SYMMETRY": symmetry_loop: for {
-					skip_newlines_and_whitespaces(l)
+					lef_skip_whitespace_and_comments(l)
 					if peek(l) == SEMICOLON { break symmetry_loop }
 					sym_type := scan_ident_ascii_upper(l)
 					sym_type_enum, ok := reflect.enum_from_name(LefPlacementSiteSymmetry, sym_type)
@@ -786,24 +785,24 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 					macro.symmetry |= sym_type_enum
 				}
 		case "SITE":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			placement_site_name := LefPlacementSiteName(scan_ident_ascii_upper(l))
 			for site in lef_database.placement_sites { if placement_site_name == site.site_name { macro.site = site } }
 			lexer_ensure(l, macro.site != LefPlacementSite{}, "Site not found")
 		case "FOREIGN":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			macro.foreign_cell.name = scan_ident_ascii_upper(l)
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			if peek(l) != SEMICOLON {
 				macro.foreign_cell.points[0] = lef_scan_distance(l, lef_database)
-				skip_newlines_and_whitespaces(l)
+				lef_skip_whitespace_and_comments(l)
 				macro.foreign_cell.points[1] = lef_scan_distance(l, lef_database)
 			}
 		case "SIZE":
 			dbu_per_micron := i64(lef_database.units[.DATABASE])
 			lexer_ensure(l, dbu_per_micron > 0, "DATABASE MICRONS must precede SITE SIZE")
 			macro.size.size_width_dbu = lef_scan_distance(l, lef_database)
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			by_keyword := scan_ident_ascii_upper(l)
 			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
 			macro.size.size_height_dbu = lef_scan_distance(l, lef_database)
@@ -822,19 +821,19 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 }
 
 lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^LefMacro) {
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	pin := LefMacroPin { name = scan_ident_ascii_upper(l) }
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	pin_loop : for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
 		case "DIRECTION":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			pin_direction_string := scan_ident_ascii_upper(l)
 			pin_direction, ok := reflect.enum_from_name(LefMacroPinDirection, pin_direction_string)
 			lexer_ensure(l, ok, fmt.tprintf("Couldn't find macro pin direction %s for macro % pin %s", pin_direction_string, macro.name, pin.name))
 		case "USE" :
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			use_str := scan_ident_ascii_upper(l)
 			use_enum, ok := reflect.enum_from_name(LefMacroPinUse, use_str)
 			lexer_ensure(l, ok, "Failed to convert use enum for pin usage")
@@ -852,25 +851,25 @@ lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^L
 }
 
 lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro: ^LefMacro, pin : ^LefMacroPin) {
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	port : LefMacroPinPort
 	pin_port_loop: for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
 		case "LAYER":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			layer_name := scan_ident_ascii_upper(l)
 			for &layer in lef_database.layers { if layer.name == layer_name { port.layer = &layer } }
 			lexer_ensure(l, port.layer != nil, fmt.tprint("Unable to find layer", layer_name))
 		case "RECT", "POLYGON":
 			for peek(l) != SEMICOLON {
-				skip_newlines_and_whitespaces(l)
+				lef_skip_whitespace_and_comments(l)
 				point := lef_scan_distance(l, lef_database)
 				append(&port.points, point)
-				skip_newlines_and_whitespaces(l)
+				lef_skip_whitespace_and_comments(l)
 			}
 		case "END":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			break pin_port_loop
 		}
 		lef_consume_statement_end(l)
@@ -879,7 +878,7 @@ lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro:
 }
 
 lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefMacro) {
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	obstruction : LefMacroObstructionLayerGeometry
 	obs_loop: for {
 		keyword := scan_ident_ascii_upper(l)
@@ -887,7 +886,7 @@ lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefM
 		case "LAYER":
 			if obstruction.layer != nil { append(&macro.obstruction, obstruction) }
 			obstruction = LefMacroObstructionLayerGeometry{}
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			layer_name := scan_ident_ascii_upper(l)
 			for &layer in lef_database.layers { if layer.name == layer_name { obstruction.layer = &layer } }
 			lexer_ensure(l, obstruction.layer != nil, fmt.tprint("Unable to find layer", layer_name))
@@ -895,14 +894,14 @@ lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefM
 			lexer_ensure(l, obstruction.layer != nil, "OBS geometry must follow LAYER")
 			points: [dynamic]LefDistance
 			for peek(l) != SEMICOLON {
-				skip_newlines_and_whitespaces(l)
+				lef_skip_whitespace_and_comments(l)
 				point := lef_scan_distance(l, lef_database)
 				append(&points, point)
-				skip_newlines_and_whitespaces(l)
+				lef_skip_whitespace_and_comments(l)
 			}
 			append(&obstruction.points, points)
 		case "END":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			break obs_loop
 		case: lexer_panic(l, fmt.tprintf("Unhandled OBS keyword %s for macro %s", keyword, macro.name))
 		}
@@ -914,9 +913,9 @@ lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefM
 lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : mem.Allocator) {
 	new_layer: LefLayer
 	new_layer.name = scan_ident_ascii_upper(l)
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == "TYPE", err_msg = "Layer type not defined right after LAYER keyword")
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	layer_type := scan_ident_ascii_upper(l)
 	switch layer_type {
 	case "CUT": new_layer.layer_data = LefCutLayer{}
@@ -939,9 +938,9 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 		case "MANUFACTURINGGRID":
 			new_layer.manufacturing_grid = lef_scan_distance(l, lef_database) // override default
 		case "PROPERTY":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			prop_name := scan_ident_ascii_upper(l)
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			prop_val := scan_double_quote_wrapped_string(l)
 			for &property in lef_database.property_definitions {
 				if prop_name == property.property_name {
@@ -952,13 +951,13 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 				}
 			}
 			lexer_ensure(l, new_layer.property.property_definition != nil, "Property name not found")
-		case "MASK": skip_newlines_and_whitespaces(l)
+		case "MASK": lef_skip_whitespace_and_comments(l)
 			mask_num := peek(l)
 			lexer_ensure(l, mask_num == '2' || mask_num == '3', "Invalid mask num in layer")
 			new_layer.mask = .DOUBLE_MASK if mask_num == '2' else .TRIPLE_MASK
 			lexer_consume(l,mask_num)
 		case : // If not any of common types, has to be layer data (or invalid type)
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			switch &layer in new_layer.layer_data {
 			case LefCutLayer:  switch layer_property {
 				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
@@ -966,9 +965,9 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 				case "WIDTH": layer.min_width = lef_scan_distance(l, lef_database)
 				case "ENCLOSURE":
 					type :=  scan_ident_ascii_upper(l)
-					skip_newlines_and_whitespaces(l)
+					lef_skip_whitespace_and_comments(l)
 					overhang_1 := lef_scan_distance(l, lef_database)
-					skip_newlines_and_whitespaces(l)
+					lef_skip_whitespace_and_comments(l)
 					overhang_2 := lef_scan_distance(l, lef_database)
 					if type == "ABOVE" {
 						layer.enclosures[0] = overhang_1
@@ -988,17 +987,17 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						if ok { layer.direction = value }
 					case "PITCH":
 						layer.pitch[0] = lef_scan_distance(l, lef_database)
-						skip_newlines_and_whitespaces(l)
+						lef_skip_whitespace_and_comments(l)
 						// if only 1 pitch given then xy distance is same else different
 						layer.pitch[1] = lef_scan_distance(l, lef_database) if peek(l) != SEMICOLON else layer.pitch[0]
 					case "OFFSET":
 						layer.offset[0] = lef_scan_distance(l, lef_database)
-						skip_newlines_and_whitespaces(l)
+						lef_skip_whitespace_and_comments(l)
 						layer.offset[1] = lef_scan_distance(l, lef_database) if peek(l) != SEMICOLON else layer.offset[0]
 					case "WIDTH": layer.min_width = lef_scan_distance(l, lef_database)
 					case "SPACING":
 						layer.spacing_rules.min_spacing = lef_scan_distance(l, lef_database)
-						skip_newlines_and_whitespaces(l)
+						lef_skip_whitespace_and_comments(l)
 						for peek(l) != SEMICOLON {
 							spacing_attribute := scan_ident_ascii_upper(l)
 							switch spacing_attribute {
@@ -1006,7 +1005,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 							case "INFLUENCE":
 							case "SAMENET":
 								layer.spacing_rules.samenet = true
-								skip_newlines_and_whitespaces(l)
+								lef_skip_whitespace_and_comments(l)
 								if peek(l) != SEMICOLON {
 									lexer_ensure(l, scan_ident_ascii_upper(l) == "PGONLY", "Unknown string after samenet statement")
 									layer.spacing_rules.pgonly = true
@@ -1017,6 +1016,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 							case "ENDOFNOTCHWIDTH":
 							case : lexer_panic(l, fmt.tprint("Unknown spacing attribute", spacing_attribute, "for layer", layer_type))
 							}
+							lef_skip_whitespace_and_comments(l)
 						}
 					case "SPACINGTABLE":
 					case "AREA": layer.area = lef_scan_area(l, lef_database)
@@ -1024,12 +1024,12 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						// TODO(rahul): think about how to allocate here and for other dynamic layer property types
 						layer.min_size = make([dynamic][2]LefDistance, lef_allocator)
 						for peek(l) != SEMICOLON {
-						skip_newlines_and_whitespaces((l))
+						lef_skip_whitespace_and_comments((l))
 						min_width := lef_scan_distance(l, lef_database)
-						skip_newlines_and_whitespaces((l))
+						lef_skip_whitespace_and_comments((l))
 						min_length := lef_scan_distance(l, lef_database)
 						append(&layer.min_size, [2]LefDistance{min_width, min_length})
-						skip_newlines_and_whitespaces((l))
+						lef_skip_whitespace_and_comments((l))
 					}
 					case "THICKNESS":
 					case "EDGECAPACITANCE":
@@ -1056,15 +1056,15 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem.Allocator) {
 	via : LefVia
 	via.name = scan_ident_ascii_upper(l)
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	ident := scan_ident_ascii_upper(l)
-	if ident == "DEFAULT" { via.default = true; skip_newlines_and_whitespaces(l) }
+	if ident == "DEFAULT" { via.default = true; lef_skip_whitespace_and_comments(l) }
 	layer_index : u8 = 0
 	via_loop : for {
 		via_property := scan_ident_ascii_upper(l) if ident == "DEFAULT" else ident
 		via_switch : switch via_property {
 		case "LAYER":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			layer_name := scan_ident_ascii_upper(l)
 			find_layer : for &layer in lef_database.layers
 			{
@@ -1078,10 +1078,10 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 			lexer_ensure(l, via.layers[layer_index-1] != nil, fmt.tprintf("Layer %s not found", layer_name))
 		case "RECT", "POLYGON":
 			for peek(l) != SEMICOLON {
-				skip_newlines_and_whitespaces(l)
+				lef_skip_whitespace_and_comments(l)
 				point := lef_scan_distance(l, lef_database)
 				append(&via.layer_shapes[layer_index-1], point)
-				skip_newlines_and_whitespaces(l)
+				lef_skip_whitespace_and_comments(l)
 			}
 		case "LAYERS": lef_add_layers_to_via(l, lef_database, &via)
 		case "END": break via_loop
@@ -1096,7 +1096,7 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 lef_add_layers_to_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, via: ^LefVia)
 {
 	for i in 0..<3 {
-		skip_newlines_and_whitespaces(l)
+		lef_skip_whitespace_and_comments(l)
 		layer_name := scan_ident_ascii_upper(l)
 		for &layer in lef_database.layers { if layer_name == layer.name { via.layers[i] = &layer } }
 	}
@@ -1104,18 +1104,18 @@ lef_add_layers_to_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, via: ^LefVi
 }
 
 lef_create_viarule :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : mem.Allocator) {
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	viarule : LefViaRule
 	viarule.name = scan_ident_ascii_upper(l)
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	lexer_ensure(l, scan_ident_ascii_upper(l) == "GENERATE", "Old via syntax found, TODO(rahul): Maybe support this case if it pops up?")
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	layer_index := 0
 	viarule_loop : for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
 		case "LAYER":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			layer_name := scan_ident_ascii_upper(l)
 			find_layer : for &layer in lef_database.layers
 			{
@@ -1128,21 +1128,21 @@ lef_create_viarule :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : me
 			}
 			lexer_ensure(l, viarule.layers[layer_index-1] != nil, fmt.tprintf("Layer %s not found", layer_name))
 		case "ENCLOSURE":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			viarule.enclosures[layer_index-1][0] = lef_scan_distance(l, lef_database)
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			viarule.enclosures[layer_index-1][1] = lef_scan_distance(l, lef_database)
 		case "RECT", "POLYGON":
 			for peek(l) != SEMICOLON {
-				skip_newlines_and_whitespaces(l)
+				lef_skip_whitespace_and_comments(l)
 				point := lef_scan_distance(l, lef_database)
 				append(&viarule.layer_shapes[layer_index-1], point)
-				skip_newlines_and_whitespaces(l)
+				lef_skip_whitespace_and_comments(l)
 			}
 		case "SPACING":
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			viarule.spacing[layer_index-1][0] = lef_scan_distance(l, lef_database)
-			skip_newlines_and_whitespaces(l)
+			lef_skip_whitespace_and_comments(l)
 			lexer_ensure(l, scan_ident_ascii_upper(l) == "BY", "By keyword not found")
 			viarule.spacing[layer_index-1][1] = lef_scan_distance(l, lef_database)
 		case "END": break viarule_loop
@@ -1157,20 +1157,20 @@ lef_create_viarule :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : me
 
 /* LEF helper procs */
 lef_consume_statement_end :: #force_inline proc(l: ^Lexer) {
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	lexer_consume(l, SEMICOLON)
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 }
 
 lef_consume_section_end :: #force_inline proc(l: ^Lexer, statement: string) {
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	lexer_ensure(l = l, condition = scan_ident_ascii_upper(l) == statement, err_msg = "Incorrect keyword after section end")
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 }
 
 /* TODO(rahul): scan_lef_decimal_scaled_i64 is LLM generated, review and fix if needed */
 lef_scan_decimal_scaled_i64 :: #force_inline proc(l: ^Lexer, scale: i64) -> i64 {
-	skip_newlines_and_whitespaces(l)
+	lef_skip_whitespace_and_comments(l)
 	negative := peek(l) == '-'
 	if negative { advance(l) }
 	value: i128
