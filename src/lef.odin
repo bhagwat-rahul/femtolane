@@ -375,17 +375,26 @@ LefMacroForeignOffsetOrientation :: struct {
 	orientation: LefPlacementSiteOrient, // Default value is N
 }
 
+LefMacroPinUse :: enum {
+	SIGNAL, // default
+	ANALOG,
+	POWER,
+	GROUND,
+	CLOCK
+}
+
 LefMacroPin :: struct {
 	name:      string,
 	direction: LefMacroPinDirection,
 	ports:     [dynamic]LefMacroPinPort,
+	use:       LefMacroPinUse,
 	// taper_rule: LefTaperRule,
 	// other pin statements
 }
 
 LefMacroPinPort :: struct {
-	name:   string,
 	layers: ^LefLayer,
+	// points in rect or poly
 }
 
 LefMacroPinDirection :: enum {
@@ -807,7 +816,12 @@ lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^L
 			pin_direction, ok := reflect.enum_from_name(LefMacroPinDirection, pin_direction_string)
 			lexer_ensure(l, ok, fmt.tprintf("Couldn't find macro pin direction %s for macro % pin %s", pin_direction_string, macro.name, pin.name))
 		case "USE" :
-		case "PORT": // lef_add_port_to_macro_pin(l, lef_database, port)
+			skip_newlines_and_whitespaces(l)
+			use_str := scan_ident_ascii_upper(l)
+			use_enum, ok := reflect.enum_from_name(LefMacroPinUse, use_str)
+			lexer_ensure(l, ok, "Failed to convert use enum for pin usage")
+			pin.use = use_enum
+		case "PORT": lef_add_port_to_macro_pin(l, lef_database, macro, &pin)
 		case "END" :
 			lef_consume_section_end(l, pin.name)
 			break pin_loop
@@ -816,6 +830,21 @@ lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^L
 		lef_consume_statement_end(l)
 	}
 	append(&macro.pins, pin)
+}
+
+lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro: ^LefMacro, pin : ^LefMacroPin) {
+	skip_newlines_and_whitespaces(l)
+	port : LefMacroPinPort
+	for {
+		keyword := scan_ident_ascii_upper(l)
+		switch keyword {
+		case "LAYER":
+		case "RECT":
+		}
+		lef_consume_statement_end(l)
+	}
+	lef_consume_section_end(l, "")
+	append(&pin.ports, port)
 }
 
 lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : mem.Allocator) {
