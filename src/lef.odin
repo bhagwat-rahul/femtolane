@@ -365,7 +365,8 @@ LefMacro :: struct {
 	size:                LefSizeWidthByHeight,
 	symmetry:            LefPlacementSiteSymmetry,
 	site:                LefPlacementSite,
-	pins :               [dynamic]LefMacroPin,
+	pins:                [dynamic]LefMacroPin,
+	obstruction:                 [dynamic]LefMacroObstructionLayerGeometry,
 	// TODO(rahul): Bunch of other things within each macro
 }
 
@@ -393,8 +394,14 @@ LefMacroPin :: struct {
 }
 
 LefMacroPinPort :: struct {
-	layers: ^LefLayer,
+	layer:  ^LefLayer,
+	points: [dynamic]LefDistance,
 	// points in rect or poly
+}
+
+LefMacroObstructionLayerGeometry :: struct {
+	layer:  ^LefLayer,
+	points: [dynamic][dynamic]LefDistance,
 }
 
 LefMacroPinDirection :: enum {
@@ -794,8 +801,13 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 			by_keyword := scan_ident_ascii_upper(l)
 			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
 			macro.size.size_height_dbu = lef_scan_distance(l, lef_database)
-		case "PIN": lef_add_pin_to_macro(l, lef_database, &macro)
-		case "END":
+		case "PIN":
+			lef_add_pin_to_macro(l, lef_database, &macro)
+			continue macro_loop
+		case "OBS":
+			lef_add_obs_to_macro(l, lef_database, &macro)
+			continue macro_loop
+		case "END": break macro_loop
 		}
 		lef_consume_statement_end(l)
 	}
@@ -821,30 +833,49 @@ lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^L
 			use_enum, ok := reflect.enum_from_name(LefMacroPinUse, use_str)
 			lexer_ensure(l, ok, "Failed to convert use enum for pin usage")
 			pin.use = use_enum
-		case "PORT": lef_add_port_to_macro_pin(l, lef_database, macro, &pin)
-		case "END" :
-			lef_consume_section_end(l, pin.name)
-			break pin_loop
+		case "PORT":
+			lef_add_port_to_macro_pin(l, lef_database, macro, &pin)
+			continue pin_loop
+		case "END" : break pin_loop
 		case : lexer_panic(l, fmt.tprintf("Unhandled keyword %s for pin %s for macro %s", keyword, pin.name, macro.name))
 		}
 		lef_consume_statement_end(l)
 	}
+	lef_consume_section_end(l, pin.name)
 	append(&macro.pins, pin)
 }
 
 lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro: ^LefMacro, pin : ^LefMacroPin) {
 	skip_newlines_and_whitespaces(l)
 	port : LefMacroPinPort
-	for {
+	pin_port_loop: for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
 		case "LAYER":
-		case "RECT":
+			skip_newlines_and_whitespaces(l)
+			layer_name := scan_ident_ascii_upper(l)
+			for &layer in lef_database.layers { if layer.name == layer_name { port.layer = &layer } }
+			lexer_ensure(l, port.layer != nil, fmt.tprint("Unable to find layer", layer_name))
+		case "RECT", "POLYGON":
+			for peek(l) != SEMICOLON {
+				skip_newlines_and_whitespaces(l)
+				point := lef_scan_distance(l, lef_database)
+				append(&port.points, point)
+				skip_newlines_and_whitespaces(l)
+			}
+		case "END":
+			skip_newlines_and_whitespaces(l)
+			break pin_port_loop
 		}
 		lef_consume_statement_end(l)
 	}
-	lef_consume_section_end(l, "")
 	append(&pin.ports, port)
+}
+
+lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefMacro) {
+	obstruction : LefMacroObstructionLayerGeometry
+	// TODO(rahul): Scan layers and their geometries
+	append(&macro.obstruction, obstruction)
 }
 
 lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : mem.Allocator) {
