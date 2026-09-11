@@ -5,6 +5,7 @@ build/
 *.pdb
 *.rdi
 .*
+!.gitignore
 
 # MacOS Debug Symbols
 *.dSYM
