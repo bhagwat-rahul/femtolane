@@ -528,13 +528,19 @@ lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Alloca
 	for l.idx < len(l.src) {
 		skip_newlines_and_whitespaces(&l)
 		switch peek(&l) {
-		case LEF_COMMENT: lef_skip_comments(l = &l)
+		case LEF_COMMENT: lef_skip_whitespace_and_comments(l = &l)
 		case: lef_handle_statement(&l, lef_database)
 		}
 	}
 }
 
-lef_skip_comments :: #force_inline proc(l: ^Lexer) { for peek(l) != '\n' { advance(l) } }
+lef_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
+    for {
+        skip_newlines_and_whitespaces(l)
+        if peek(l) != LEF_COMMENT { break }
+        for l.idx < len(l.src) && peek(l) != '\n' { advance(l) }
+    }
+}
 
 lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: mem.Allocator = context.temp_allocator) {
 	ident := scan_ident_ascii_upper(l)
