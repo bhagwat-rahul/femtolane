@@ -492,7 +492,7 @@ lef_create_new_database :: proc(allocator : mem.Allocator) -> LefDatabase {
 		clearance_measure        = LEF_DEFAULT_CLEARANCE_MEASURE,
 		divider_char             = LEF_DEFAULT_DIVIDER_CHAR,
 		units                    = [LefUnitType]LefUnit{},
-		placement_sites          = make([dynamic]LefPlacementSite), // TODO(rahul): makes sense for soa but things will be in macros
+		placement_sites          = make([dynamic]LefPlacementSite, allocator), // TODO(rahul): makes sense for soa but things will be in macros
 		use_min_spacing          = false, // default false since reccomended in spec
 		extensions               = make([dynamic]LefExtension, allocator), // store all extensions in this
 		fixed_mask               = false, // default false, make true if sttmt found
@@ -528,7 +528,7 @@ lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Alloca
 	for l.idx < len(l.src) {
 		lef_skip_whitespace_and_comments(&l)
 		if l.idx >= len(l.src) { break }
-		lef_handle_statement(&l, lef_database)
+		lef_handle_statement(&l, lef_database, allocator)
 	}
 }
 
@@ -559,7 +559,7 @@ lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: m
 	case "VIARULE": lef_create_viarule(l, lef_database, allocator)
 	case "NONDEFAULTRULE": // Parse non-default rules
 	case "SITE": lef_create_macro_placement_site(l, lef_database)
-	case "MACRO": lef_create_macro(l, lef_database)
+	case "MACRO": lef_create_macro(l, lef_database, allocator)
 	case "BEGINEXT": // Parse from BEGINEXT to ENDEXT
 	case "END": lef_consume_section_end(l, "LIBRARY")
 	case: lexer_panic(l = l, err_msg = fmt.tprintf("Found unimplemented keyword %s", ident))
@@ -746,13 +746,15 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	append(&lef_database.placement_sites, created_site)
 }
 
-lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
+lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : mem.Allocator) {
 	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
 	lef_skip_whitespace_and_comments(l)
 	macro := LefMacro {
 	name = scan_ident_ascii_upper(l),
 	class = .CORE, // default class
 	fixed_mask = false, // default
+	pins = make([dynamic]LefMacroPin, allocator),
+	obstruction = make([dynamic]LefMacroObstructionLayerGeometry, allocator),
 	}
 	lef_skip_whitespace_and_comments(l)
 	macro_loop: for {
@@ -807,10 +809,10 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
 			macro.size.size_height_dbu = lef_scan_distance(l, lef_database)
 		case "PIN":
-			lef_add_pin_to_macro(l, lef_database, &macro)
+			lef_add_pin_to_macro(l, lef_database, &macro,allocator)
 			continue macro_loop
 		case "OBS":
-			lef_add_obs_to_macro(l, lef_database, &macro)
+			lef_add_obs_to_macro(l, lef_database, &macro, allocator)
 			continue macro_loop
 		case "END": break macro_loop
 		}
@@ -820,9 +822,12 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	append(&lef_database.macros, macro)
 }
 
-lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^LefMacro) {
+lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^LefMacro, allocator : mem.Allocator) {
 	lef_skip_whitespace_and_comments(l)
-	pin := LefMacroPin { name = scan_ident_ascii_upper(l) }
+	pin := LefMacroPin {
+		name = scan_ident_ascii_upper(l),
+		ports = make([dynamic]LefMacroPinPort, allocator),
+	}
 	lef_skip_whitespace_and_comments(l)
 	pin_loop : for {
 		keyword := scan_ident_ascii_upper(l)
@@ -839,7 +844,7 @@ lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^L
 			lexer_ensure(l, ok, "Failed to convert use enum for pin usage")
 			pin.use = use_enum
 		case "PORT":
-			lef_add_port_to_macro_pin(l, lef_database, macro, &pin)
+			lef_add_port_to_macro_pin(l, lef_database, macro, &pin, allocator)
 			continue pin_loop
 		case "END" : break pin_loop
 		case : lexer_panic(l, fmt.tprintf("Unhandled keyword %s for pin %s for macro %s", keyword, pin.name, macro.name))
@@ -850,9 +855,11 @@ lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^L
 	append(&macro.pins, pin)
 }
 
-lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro: ^LefMacro, pin : ^LefMacroPin) {
+lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro: ^LefMacro, pin : ^LefMacroPin, allocator : mem.Allocator) {
 	lef_skip_whitespace_and_comments(l)
-	port : LefMacroPinPort
+	port := LefMacroPinPort {
+		points = make([dynamic]LefDistance, allocator),
+	}
 	pin_port_loop: for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
@@ -877,7 +884,7 @@ lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro:
 	append(&pin.ports, port)
 }
 
-lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefMacro) {
+lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefMacro, allocator : mem.Allocator) {
 	lef_skip_whitespace_and_comments(l)
 	obstruction : LefMacroObstructionLayerGeometry
 	obs_loop: for {
@@ -885,14 +892,16 @@ lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefM
 		switch keyword {
 		case "LAYER":
 			if obstruction.layer != nil { append(&macro.obstruction, obstruction) }
-			obstruction = LefMacroObstructionLayerGeometry{}
+			obstruction = LefMacroObstructionLayerGeometry {
+				points = make([dynamic][dynamic]LefDistance, allocator),
+			}
 			lef_skip_whitespace_and_comments(l)
 			layer_name := scan_ident_ascii_upper(l)
 			for &layer in lef_database.layers { if layer.name == layer_name { obstruction.layer = &layer } }
 			lexer_ensure(l, obstruction.layer != nil, fmt.tprint("Unable to find layer", layer_name))
 		case "RECT", "POLYGON":
 			lexer_ensure(l, obstruction.layer != nil, "OBS geometry must follow LAYER")
-			points: [dynamic]LefDistance
+			points := make([dynamic]LefDistance, allocator)
 			for peek(l) != SEMICOLON {
 				lef_skip_whitespace_and_comments(l)
 				point := lef_scan_distance(l, lef_database)
@@ -1055,6 +1064,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 
 lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem.Allocator) {
 	via : LefVia
+	for &shape in via.layer_shapes { shape = make([dynamic]LefDistance, lef_allocator) }
 	via.name = scan_ident_ascii_upper(l)
 	lef_skip_whitespace_and_comments(l)
 	ident := scan_ident_ascii_upper(l)
@@ -1106,6 +1116,7 @@ lef_add_layers_to_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, via: ^LefVi
 lef_create_viarule :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : mem.Allocator) {
 	lef_skip_whitespace_and_comments(l)
 	viarule : LefViaRule
+	for &shape in viarule.layer_shapes { shape = make([dynamic]LefDistance, allocator) }
 	viarule.name = scan_ident_ascii_upper(l)
 	lef_skip_whitespace_and_comments(l)
 	lexer_ensure(l, scan_ident_ascii_upper(l) == "GENERATE", "Old via syntax found, TODO(rahul): Maybe support this case if it pops up?")
