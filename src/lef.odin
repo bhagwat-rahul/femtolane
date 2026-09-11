@@ -873,8 +873,35 @@ lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro:
 }
 
 lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefMacro) {
+	skip_newlines_and_whitespaces(l)
 	obstruction : LefMacroObstructionLayerGeometry
-	// TODO(rahul): Scan layers and their geometries
+	obs_loop: for {
+		keyword := scan_ident_ascii_upper(l)
+		switch keyword {
+		case "LAYER":
+			if obstruction.layer != nil { append(&macro.obstruction, obstruction) }
+			obstruction = LefMacroObstructionLayerGeometry{}
+			skip_newlines_and_whitespaces(l)
+			layer_name := scan_ident_ascii_upper(l)
+			for &layer in lef_database.layers { if layer.name == layer_name { obstruction.layer = &layer } }
+			lexer_ensure(l, obstruction.layer != nil, fmt.tprint("Unable to find layer", layer_name))
+		case "RECT", "POLYGON":
+			lexer_ensure(l, obstruction.layer != nil, "OBS geometry must follow LAYER")
+			points: [dynamic]LefDistance
+			for peek(l) != SEMICOLON {
+				skip_newlines_and_whitespaces(l)
+				point := lef_scan_distance(l, lef_database)
+				append(&points, point)
+				skip_newlines_and_whitespaces(l)
+			}
+			append(&obstruction.points, points)
+		case "END":
+			skip_newlines_and_whitespaces(l)
+			break obs_loop
+		case: lexer_panic(l, fmt.tprintf("Unhandled OBS keyword %s for macro %s", keyword, macro.name))
+		}
+		lef_consume_statement_end(l)
+	}
 	append(&macro.obstruction, obstruction)
 }
 
