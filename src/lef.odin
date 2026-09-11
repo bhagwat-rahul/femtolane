@@ -256,7 +256,14 @@ LefRoutingLayer :: struct {
 	pitch:                        [2]LefDistance, // if only 1 distance present then both are same x == y
 	offset:                       [2]LefDistance, // if 1 specified then it's for preffered direction routing tracks, if 2 then 1st is x offset for vertical 2nd is y for horizontal
 	area:                         LefArea,
+	spacing_table:                LefSpacingTable,
+	thickness:                    LefDistance,
 	min_size:                     [dynamic][2]LefDistance, // array of minwidth, minlength
+}
+
+LefSpacingTable :: struct {
+	parallel_run_length: [dynamic]LefDistance,
+	width:               [dynamic][dynamic]LefDistance,
 }
 
 LefRoutingLayerSpacingRules :: struct
@@ -1028,6 +1035,34 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 							lef_skip_whitespace_and_comments(l)
 						}
 					case "SPACINGTABLE":
+						spacing_table := &layer.spacing_table
+						spacing_table.parallel_run_length = make([dynamic]LefDistance, lef_allocator)
+						spacing_table.width = make([dynamic][dynamic]LefDistance, lef_allocator)
+						lef_skip_whitespace_and_comments(l)
+						lexer_ensure(l, scan_ident_ascii_upper(l) == "PARALLELRUNLENGTH", "Parallel run length keyword not found")
+						for peek(l) != 'W' {
+							lef_skip_whitespace_and_comments(l)
+							run_length := lef_scan_distance(l, lef_database)
+							lexer_ensure(l, len(spacing_table.parallel_run_length) == 0 || run_length > spacing_table.parallel_run_length[len(spacing_table.parallel_run_length)-1], "PARALLELRUNLENGTH values must be strictly increasing")
+							append(&spacing_table.parallel_run_length, run_length)
+							lef_skip_whitespace_and_comments(l)
+						}
+						width_index := 0
+						for {
+							lef_skip_whitespace_and_comments(l)
+							if peek(l) == SEMICOLON { break }
+							lexer_ensure(l, scan_ident_ascii_upper(l) == "WIDTH", "Expected WIDTH")
+							width := lef_scan_distance(l, lef_database)
+							lexer_ensure(l, width_index == 0 || width > spacing_table.width[width_index-1][0], "WIDTH thresholds must be strictly increasing")
+							append(&spacing_table.width, make([dynamic]LefDistance, lef_allocator))
+							append(&spacing_table.width[width_index], width)
+							for _ in 0..<len(spacing_table.parallel_run_length) {
+								spacing := lef_scan_distance(l, lef_database)
+								append(&spacing_table.width[width_index], spacing)
+							}
+							width_index += 1
+						}
+						lexer_ensure(l, width_index > 0, "Expected at least one WIDTH row")
 					case "AREA": layer.area = lef_scan_area(l, lef_database)
 					case "MINSIZE":
 						// TODO(rahul): think about how to allocate here and for other dynamic layer property types
@@ -1041,7 +1076,10 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						lef_skip_whitespace_and_comments((l))
 					}
 					case "THICKNESS":
+						skip_newlines_and_whitespaces(l)
+						layer.thickness = lef_scan_distance(l, lef_database)
 					case "EDGECAPACITANCE":
+						skip_newlines_and_whitespaces(l)
 					case "CAPACITANCE":
 					case "RESISTANCE":
 					case "DCCURRENTDENSITY":
