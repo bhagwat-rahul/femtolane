@@ -30,15 +30,27 @@ main :: proc() {
 	defer virtual.arena_destroy(&core_db_arena)
 
 	args := os.args
-	gate_netlist_filepath, liberty_filepath, lef_filepath: string
+	rtl_filepath, liberty_filepath, lef_filepath, yosys_synthesis_tcl_filepath, top_module, techlef_filepath: string
 	if len(args) > 1 && args[1] == "lexgraph" {
-		gate_netlist_filepath = args[2] if len(args) >= 3 else ""
-		liberty_filepath = args[3] if len(args) >= 4 else ""
-		lef_filepath = args[4] if len(args) >= 5 else ""
+		rtl_filepath = args[2] if len(args) >= 3 else ""
+		yosys_synthesis_tcl_filepath = args[3] if len(args) >= 4 else ""
+		top_module = args[4] if len(args) >= 5 else ""
+		liberty_filepath = args[5] if len(args) >= 6 else ""
+		techlef_filepath = args[6] if len(args) >= 7 else ""
+		lef_filepath = args[7] if len(args) >= 8 else ""
 	}
+
+	// Frontend synthesis RTL -> GL netlist
+	gate_netlist_filepath := convert_rtl_to_gate_netlist(
+		rtl_filepath = rtl_filepath,
+		lib_file = liberty_filepath,
+		top_module = top_module,
+		yosys_tcl_script_filepath = yosys_synthesis_tcl_filepath,
+	)
 
 	// Read and construct Lef Data
 	lef_database := lef_create_new_database(core_db_allocator)
+	lef_read_file_into_database(techlef_filepath, core_db_allocator, &lef_database)
 	lef_read_file_into_database(lef_filepath, core_db_allocator, &lef_database)
 
 	// Read and construct Liberty Data
