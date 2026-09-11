@@ -336,6 +336,11 @@ LefPropertyDefinitionPropertyType :: union {
 	string,
 }
 
+LefMacroForeignCell :: struct {
+	name   : string,
+	points : [2]LefDistance, // TODO(rahul): This is orientation not point
+}
+
 // [PROPERTYDEFINITIONS
 // [objectType propName propType [RANGE min max]
 // [value | "stringValue"]
@@ -354,13 +359,13 @@ LefMacro :: struct {
 	name:                string,
 	class:               LefMacroClass,
 	fixed_mask:          bool,
-	foreign_cell_name:   bool, // TODO(rahul): Implement foreign keyword
+	foreign_cell:        LefMacroForeignCell,
 	origin:              [2]LefDistance, // TODO(rahul): Maybe lefcoord?
 	electric_equivalent: ^LefMacro, // `EEG macroName` (Electrically equivalent, used for multiple implementations of same OR gate, etc.)
 	size:                LefSizeWidthByHeight,
 	symmetry:            LefPlacementSiteSymmetry,
 	site:                LefPlacementSite,
-	// pin : LefPin
+	pins :               [dynamic]LefMacroPin,
 	// TODO(rahul): Bunch of other things within each macro
 }
 
@@ -371,9 +376,22 @@ LefMacroForeignOffsetOrientation :: struct {
 }
 
 LefMacroPin :: struct {
-	name: string,
+	name:      string,
+	direction: LefMacroPinDirection,
+	ports:     [dynamic]LefMacroPinPort,
 	// taper_rule: LefTaperRule,
 	// other pin statements
+}
+
+LefMacroPinPort :: struct {
+	name:   string,
+	layers: ^LefLayer,
+}
+
+LefMacroPinDirection :: enum {
+	INPUT,
+	OUTPUT,
+	INOUT
 }
 
 LefMacroClass :: enum {
@@ -673,11 +691,11 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 		case "SIZE":
 			dbu_per_micron := i64(lef_database.units[.DATABASE])
 			lexer_ensure(l, dbu_per_micron > 0, "DATABASE MICRONS must precede SITE SIZE")
-			created_site.size.size_width_dbu = LefDistance(lef_scan_decimal_scaled_i64(l, dbu_per_micron))
+			created_site.size.size_width_dbu = lef_scan_distance(l, lef_database)
 			skip_newlines_and_whitespaces(l)
 			by_keyword := scan_ident_ascii_upper(l)
 			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
-			created_site.size.size_height_dbu = LefDistance(lef_scan_decimal_scaled_i64(l, dbu_per_micron))
+			created_site.size.size_height_dbu = lef_scan_distance(l, lef_database)
 		case "SYMMETRY": symmetry_loop: for {
 					skip_newlines_and_whitespaces(l)
 					if peek(l) == SEMICOLON { break symmetry_loop }
@@ -751,14 +769,53 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 			for site in lef_database.placement_sites { if placement_site_name == site.site_name { macro.site = site } }
 			lexer_ensure(l, macro.site != LefPlacementSite{}, "Site not found")
 		case "FOREIGN":
+			skip_newlines_and_whitespaces(l)
+			macro.foreign_cell.name = scan_ident_ascii_upper(l)
+			skip_newlines_and_whitespaces(l)
+			if peek(l) != SEMICOLON {
+				macro.foreign_cell.points[0] = lef_scan_distance(l, lef_database)
+				skip_newlines_and_whitespaces(l)
+				macro.foreign_cell.points[1] = lef_scan_distance(l, lef_database)
+			}
 		case "SIZE":
-		case "PIN":
+			dbu_per_micron := i64(lef_database.units[.DATABASE])
+			lexer_ensure(l, dbu_per_micron > 0, "DATABASE MICRONS must precede SITE SIZE")
+			macro.size.size_width_dbu = lef_scan_distance(l, lef_database)
+			skip_newlines_and_whitespaces(l)
+			by_keyword := scan_ident_ascii_upper(l)
+			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
+			macro.size.size_height_dbu = lef_scan_distance(l, lef_database)
+		case "PIN": lef_add_pin_to_macro(l, lef_database, &macro)
 		case "END":
 		}
 		lef_consume_statement_end(l)
 	}
 	lef_consume_section_end(l, macro.name)
 	append(&lef_database.macros, macro)
+}
+
+lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^LefMacro) {
+	skip_newlines_and_whitespaces(l)
+	pin := LefMacroPin { name = scan_ident_ascii_upper(l) }
+	skip_newlines_and_whitespaces(l)
+	pin_loop : for {
+		keyword := scan_ident_ascii_upper(l)
+		switch keyword {
+		case "DIRECTION":
+			skip_newlines_and_whitespaces(l)
+			pin_direction_string := scan_ident_ascii_upper(l)
+			pin_direction, ok := reflect.enum_from_name(LefMacroPinDirection, pin_direction_string)
+			lexer_ensure(l, ok, fmt.tprintf("Couldn't find macro pin direction %s for macro % pin %s", pin_direction_string, macro.name, pin.name))
+		case "USE" :
+		case "PORT": // lef_add_port_to_macro_pin(l, lef_database, port)
+		case "END" :
+			lef_consume_section_end(l, pin.name)
+			break pin_loop
+		case : lexer_panic(l, fmt.tprintf("Unhandled keyword %s for pin %s for macro %s", keyword, pin.name, macro.name))
+		}
+		lef_consume_statement_end(l)
+	}
+	append(&macro.pins, pin)
 }
 
 lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : mem.Allocator) {
