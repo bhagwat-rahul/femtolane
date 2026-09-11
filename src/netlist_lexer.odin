@@ -333,7 +333,14 @@ handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, 
 			)
 			if peek(l) != LPAREN { lexer_panic(l, "No ( after port connection") }
 			advance(l)
-			port_conn_name := scan_ident(l)
+			port_conn_name: string
+			if '0' <= peek(l) && peek(l) <= '9' {
+				start := l.idx
+				for peek(l) != RPAREN && peek(l) != 0 { advance(l) }
+				port_conn_name = string(l.src[start:l.idx])
+			} else {
+				port_conn_name = scan_ident(l)
+			}
 			skip_newlines_and_whitespaces(l)
 			if peek(l) == L_SQUARE_BRACKET {
 				advance(l)
@@ -348,7 +355,16 @@ handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, 
 			skip_newlines_and_whitespaces(l)
 			if peek(l) != RPAREN { lexer_panic(l, "No ) after net conn") }
 			advance(l)
-			create_net(hgr = hgr, arena_alloc = arena_alloc, net_val = Net{})
+			net := hgr.net_hash_map[port_conn_name]
+			if net == nil {
+				net = create_net(
+					hgr = hgr,
+					arena_alloc = arena_alloc,
+					net_val = Net{name = port_conn_name, net_type = .INTERNAL, connections = make([dynamic]^InstancePort, arena_alloc)},
+				)
+			}
+			created_instance_port.net = net
+			append(&net.connections, created_instance_port)
 		}
 		advance(l); skip_newlines_and_whitespaces(l)
 	}
