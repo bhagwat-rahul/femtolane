@@ -160,3 +160,10 @@ TLEF = Top level technology wide rules
 
 From these we make DEF (.def) which realizes our design (can then run checks, etc.) and when def is final, we write out the binary containing actual polygons (oasis)
 Def contains instructions, Oasis is the rendered 'artwork' from those instructions.
+
+## Voltage Domains
+
+Usually chips will be sectioned into different power domains, eg. one section runs on 0.7V, some things on 1.9V, some on a 1.8V, etc.
+Macros / components that need a specific voltage will be placed into the domain supplying that voltage and relevant ground.
+We will need cells on the boundaries of the different domains to switch voltages up/down (called level shifters)
+The format to specify these power domains is UPF (made by synopsys now standardised by IEEE), an older cadence format (CPF) is mostly deprecated now.
