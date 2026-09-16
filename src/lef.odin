@@ -94,6 +94,21 @@ LefSizeWidthByHeight :: struct {
 	size_height_dbu: LefDistance,
 }
 
+LefTime :: distinct i64
+LefCapacitance :: distinct i64
+LefResistance :: distinct i64
+LefPower :: distinct i64
+LefCurrent :: distinct i64
+LefVoltage :: distinct i64
+LefFrequency :: distinct i64
+
+LefAntennaModel :: enum {
+	OXIDE1, // default
+	OXIDE2,
+	OXIDE3,
+	OXIDE4,
+}
+
 LefMaskNum :: enum {
 	SINGLE, // not specified
 	DOUBLE_MASK, // 2
@@ -230,7 +245,7 @@ LefCutLayer :: struct {
 	// resistance:                   LefLayerResistance,
 	// property:                     LefProperty,
 	// dc_current_density:           LefDCCurrentDensity,
-	// antenna_model:                LefAntennaModel,
+	antenna_model:                LefAntennaModel,
 	// antenna_diff_area_ratio:      LefAntennaDiffAreaRatio,
 	// antenna_cum_routing_plus_cut: LefAntennaCumRoutingPlusCut,
 }
@@ -248,6 +263,7 @@ LefRoutingLayer :: struct {
 	antenna_area_diff_reduce_pwl: LefAntennaAreaDiffReducePwl,
 	antenna_area_factor:          LefAntennaAreaFactor,
 	antenna_area_ratio:           LefAntennaAreaRatio,
+	antenna_model:                LefAntennaModel,
 	antenna_cum_area_ratio:       LefAntennaCumAreaRatio,
 	direction:                    LefRoutingLayerDirection,
 	spacing_rules:                LefRoutingLayerSpacingRules,
@@ -259,6 +275,9 @@ LefRoutingLayer :: struct {
 	spacing_table:                LefSpacingTable,
 	thickness:                    LefDistance,
 	min_size:                     [dynamic][2]LefDistance, // array of minwidth, minlength
+	edge_capacitance:             LefCapacitance,
+	capacitance:                  LefCapacitance,
+	resistance:                   LefResistance,
 }
 
 LefSpacingTable :: struct {
@@ -1080,12 +1099,29 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						layer.thickness = lef_scan_distance(l, lef_database)
 					case "EDGECAPACITANCE":
 						skip_newlines_and_whitespaces(l)
+						layer.edge_capacitance = LefCapacitance(lef_scan_decimal_scaled_i64(l, 100000000000))
 					case "CAPACITANCE":
+						skip_newlines_and_whitespaces(l)
+						lexer_ensure(l, scan_ident_ascii_upper(l) == "CPERSQDIST", "Invalid keyword after capacitance")
+						skip_newlines_and_whitespaces(l)
+						layer.capacitance = LefCapacitance(lef_scan_decimal_scaled_i64(l, 100000000000))
 					case "RESISTANCE":
+						skip_newlines_and_whitespaces(l)
+						lexer_ensure(l, scan_ident_ascii_upper(l) == "RPERSQ", "Invalid keyword after resistance")
+						skip_newlines_and_whitespaces(l)
+						layer.resistance = LefResistance(lef_scan_decimal_scaled_i64(l, 100000000000))
 					case "DCCURRENTDENSITY":
 					case "ACCURRENTDENSITY":
 					case "ANTENNAMODEL":
+						skip_newlines_and_whitespaces(l)
+						antenna_model := scan_ident_ascii_upper(l)
+						antenna_model_enum, ok := reflect.enum_from_name(LefAntennaModel, antenna_model)
+						lexer_ensure(l, ok, fmt.tprint("Invalid antenna model found", antenna_model))
+						layer.antenna_model = antenna_model_enum
 					case "ANTENNADIFFSIDEAREARATIO":
+						// skip_newlines_and_whitespaces(l)
+						// lexer_ensure(l, scan_ident_ascii_upper(l) == "PWL", "TODO(rahul): handle all cases")
+						// skip_newlines_and_whitespaces(l)
 					case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
 					}
 			case LefMastersliceOverlapLayer: switch layer_property {
@@ -1267,5 +1303,14 @@ lef_scan_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
     lexer_ensure(l, area >= 0, "LEF area cannot be negative")
     return LefArea(area)
 }
+
+// lef_scan_time
+// lef_scan_capacitance
+// lef_scan_resistance
+// lef_scan_power
+// lef_scan_current
+// lef_scan_voltage
+// lef_scan_distance
+// lef_scan_frequency
 
 /* End LEF helper procs*/
