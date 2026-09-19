@@ -1304,6 +1304,28 @@ lef_scan_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
     return LefArea(area)
 }
 
+// Scan all props related to process antenna violations
+lef_scan_antenna_properties :: proc(l : ^Lexer, db: ^LefDatabase, layer: ^LefLayer, keyword : string) {
+	switch keyword {
+	case "ANTENNADIFFAREA":
+	case "ANTENNAGATEAREA":
+
+	case "ANTENNAAREAFACTOR":
+	case "ANTENNASIDEAREAFACTOR":
+
+	case "ANTENNAAREARATIO":
+	case "ANTENNASIDEAREARATIO":
+	case "ANTENNADIFFSIDEAREARATIO":
+	case "ANTENNADIFFAREARATIO":
+	case "ANTENNACUMAREARATIO":
+	case "ANTENNACUMSIDEAREARATIO":
+	case "ANTENNACUMDIFFAREARATIO":
+	case "ANTENNACUMDIFFSIDEAREARATIO":
+
+	case: lexer_panic(l, fmt.tprint("Unknown keyword", keyword))
+	}
+}
+
 // lef_scan_time
 // lef_scan_capacitance
 // lef_scan_resistance
