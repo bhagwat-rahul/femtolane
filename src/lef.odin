@@ -1318,6 +1318,7 @@ lef_scan_resistance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefRes
 
 // Scan all props related to process antenna violations
 lef_scan_antenna_properties :: proc(l : ^Lexer, db: ^LefDatabase, layer: ^LefLayer, keyword : string) {
+	skip_newlines_and_whitespaces(l)
 	switch keyword {
 	case "ANTENNADIFFAREA":
 	case "ANTENNAGATEAREA":
@@ -1329,6 +1330,22 @@ lef_scan_antenna_properties :: proc(l : ^Lexer, db: ^LefDatabase, layer: ^LefLay
 	case "ANTENNASIDEAREARATIO":
 	case "ANTENNADIFFSIDEAREARATIO":
 	case "ANTENNADIFFAREARATIO":
+		lexer_ensure(l, scan_ident_ascii_upper(l) == "PWL", "PWL not found")
+		skip_newlines_and_whitespaces(l)
+		lexer_consume(l, LPAREN)
+		for peek(l) != RPAREN {
+			skip_newlines_and_whitespaces(l)
+			lexer_consume(l, LPAREN)
+			skip_newlines_and_whitespaces(l)
+			this := lef_scan_decimal_scaled_i64(l, 100)
+			skip_newlines_and_whitespaces(l)
+			that := lef_scan_decimal_scaled_i64(l, 100)
+			skip_newlines_and_whitespaces(l)
+			lexer_consume(l, RPAREN)
+			skip_newlines_and_whitespaces(l)
+			// TODO(rahul): append
+		}
+		lexer_consume(l, RPAREN)
 	case "ANTENNACUMAREARATIO":
 	case "ANTENNACUMSIDEAREARATIO":
 	case "ANTENNACUMDIFFAREARATIO":
