@@ -1112,16 +1112,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						layer.resistance = lef_scan_resistance(l, lef_database)
 					case "DCCURRENTDENSITY":
 					case "ACCURRENTDENSITY":
-					case "ANTENNAMODEL":
-						skip_newlines_and_whitespaces(l)
-						antenna_model := scan_ident_ascii_upper(l)
-						antenna_model_enum, ok := reflect.enum_from_name(LefAntennaModel, antenna_model)
-						lexer_ensure(l, ok, fmt.tprint("Invalid antenna model found", antenna_model))
-						layer.antenna_model = antenna_model_enum
-					case "ANTENNADIFFSIDEAREARATIO":
-						// skip_newlines_and_whitespaces(l)
-						// lexer_ensure(l, scan_ident_ascii_upper(l) == "PWL", "TODO(rahul): handle all cases")
-						// skip_newlines_and_whitespaces(l)
+					case "ANTENNAMODEL", "ANTENNADIFFSIDEAREARATIO": lef_scan_antenna_properties(l, lef_database, &new_layer, layer_property)
 					case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
 					}
 			case LefMastersliceOverlapLayer: switch layer_property {
@@ -1307,7 +1298,7 @@ lef_scan_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
 // TODO(rahul): Normalise scaling factor unit (can override capacitance)
 lef_scan_capacitance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitance {
 	capacitance_scaling_factor : i64 = i64(db.units[.CAPACITANCE])
-	return LefCapacitance(lef_scan_decimal_scaled_i64(l, capacitance_scaling_factor))
+	return LefCapacitance(lef_scan_decimal_scaled_i64(l, 10000000000))
 }
 
 // TODO(rahul): Normalise (same resistance scaling cant override)
@@ -1320,6 +1311,17 @@ lef_scan_resistance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefRes
 lef_scan_antenna_properties :: proc(l : ^Lexer, db: ^LefDatabase, layer: ^LefLayer, keyword : string) {
 	skip_newlines_and_whitespaces(l)
 	switch keyword {
+	case "ANTENNAMODEL":
+		switch &layer in layer.layer_data {
+		case LefRoutingLayer:
+			skip_newlines_and_whitespaces(l)
+			antenna_model := scan_ident_ascii_upper(l)
+			antenna_model_enum, ok := reflect.enum_from_name(LefAntennaModel, antenna_model)
+			lexer_ensure(l, ok, fmt.tprint("Invalid antenna model found", antenna_model))
+			layer.antenna_model = antenna_model_enum
+		case LefCutLayer, LefImplantLayer, LefMastersliceOverlapLayer: lexer_panic(l, "TODO(rahul):Does this layer type support antenna model?")
+		}
+
 	case "ANTENNADIFFAREA":
 	case "ANTENNAGATEAREA":
 
@@ -1329,6 +1331,9 @@ lef_scan_antenna_properties :: proc(l : ^Lexer, db: ^LefDatabase, layer: ^LefLay
 	case "ANTENNAAREARATIO":
 	case "ANTENNASIDEAREARATIO":
 	case "ANTENNADIFFSIDEAREARATIO":
+	// skip_newlines_and_whitespaces(l)
+	// lexer_ensure(l, scan_ident_ascii_upper(l) == "PWL", "TODO(rahul): handle all cases")
+	// skip_newlines_and_whitespaces(l)
 	case "ANTENNADIFFAREARATIO":
 		lexer_ensure(l, scan_ident_ascii_upper(l) == "PWL", "PWL not found")
 		skip_newlines_and_whitespaces(l)
