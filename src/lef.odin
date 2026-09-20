@@ -1099,17 +1099,17 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						layer.thickness = lef_scan_distance(l, lef_database)
 					case "EDGECAPACITANCE":
 						skip_newlines_and_whitespaces(l)
-						layer.edge_capacitance = LefCapacitance(lef_scan_decimal_scaled_i64(l, 100000000000))
+						layer.edge_capacitance = lef_scan_capacitance(l, lef_database)
 					case "CAPACITANCE":
 						skip_newlines_and_whitespaces(l)
 						lexer_ensure(l, scan_ident_ascii_upper(l) == "CPERSQDIST", "Invalid keyword after capacitance")
 						skip_newlines_and_whitespaces(l)
-						layer.capacitance = LefCapacitance(lef_scan_decimal_scaled_i64(l, 100000000000))
+						layer.capacitance = lef_scan_capacitance(l, lef_database)
 					case "RESISTANCE":
 						skip_newlines_and_whitespaces(l)
 						lexer_ensure(l, scan_ident_ascii_upper(l) == "RPERSQ", "Invalid keyword after resistance")
 						skip_newlines_and_whitespaces(l)
-						layer.resistance = LefResistance(lef_scan_decimal_scaled_i64(l, 100000000000))
+						layer.resistance = lef_scan_resistance(l, lef_database)
 					case "DCCURRENTDENSITY":
 					case "ACCURRENTDENSITY":
 					case "ANTENNAMODEL":
@@ -1302,6 +1302,18 @@ lef_scan_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
     area := lef_scan_decimal_scaled_i64(l, dbu * dbu)
     lexer_ensure(l, area >= 0, "LEF area cannot be negative")
     return LefArea(area)
+}
+
+// TODO(rahul): Normalise scaling factor unit (can override capacitance)
+lef_scan_capacitance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitance {
+	capacitance_scaling_factor : i64 = i64(db.units[.CAPACITANCE])
+	return LefCapacitance(lef_scan_decimal_scaled_i64(l, capacitance_scaling_factor))
+}
+
+// TODO(rahul): Normalise (same resistance scaling cant override)
+lef_scan_resistance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefResistance {
+	LEF_RESISTANCE_DBU_PER_OHM : i64 : 10000 // Cannot be overriden
+	return LefResistance(lef_scan_decimal_scaled_i64(l, LEF_RESISTANCE_DBU_PER_OHM))
 }
 
 // Scan all props related to process antenna violations
