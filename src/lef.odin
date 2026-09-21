@@ -1297,8 +1297,8 @@ lef_scan_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
 
 // TODO(rahul): Normalise scaling factor unit (can override capacitance)
 lef_scan_capacitance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitance {
-	capacitance_scaling_factor : i64 = i64(db.units[.CAPACITANCE])
-	return LefCapacitance(lef_scan_decimal_scaled_i64(l, 10000000000))
+	capacitance_scaling_factor : i64 = i64(db.units[.CAPACITANCE]) // can be user overriden
+	return LefCapacitance(lef_scan_decimal_scaled_i64(l, capacitance_scaling_factor))
 }
 
 // TODO(rahul): Normalise (same resistance scaling cant override)
