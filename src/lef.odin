@@ -44,7 +44,7 @@ LEF_DEFAULT_DIVIDER_CHAR :: '/'
 LEF_STATEMENT_END_SEMICOLON :: ';'
 LEF_DEFAULT_CLEARANCE_MEASURE: LefClearanceMeasure : .EUCLIDEAN
 
-YOCTOFARADS_PER_PICOFARAD : i64 : 1_000_000_000_000
+YOCTOFARADS_PER_PICOFARAD: i64 : 1_000_000_000_000
 
 /*
 LefKeywords can be used in any order in a lef file, can't use something before defining (no forward declarations.)
@@ -186,24 +186,24 @@ LefPlacementSiteClass :: enum {
 }
 
 LefVia :: struct {
-	name:       string,
-	default:    bool,
-	mask_num:   LefMaskNum,
-	enclosures: [4]LefDistance,
-	offset:     [4]LefDistance,
-	origin:     [2]LefDistance,
-	layers:     [3]^LefLayer, // [bottomMetalLayer, CutLayer, TopMetalLayer]
+	name:         string,
+	default:      bool,
+	mask_num:     LefMaskNum,
+	enclosures:   [4]LefDistance,
+	offset:       [4]LefDistance,
+	origin:       [2]LefDistance,
+	layers:       [3]^LefLayer, // [bottomMetalLayer, CutLayer, TopMetalLayer]
 	layer_shapes: [3][dynamic]LefDistance,
 }
 
 LefViaRule :: struct {
-	name:          string,
-	generate:      bool, // is it a viarule generate? typically yes unless legacy lef
-	mask_num:      LefMaskNum,
-	enclosures:    [3][2]LefDistance,
-	layers:        [3]^LefLayer,
-	layer_shapes:  [3][dynamic]LefDistance,
-	spacing:       [3][2]LefDistance, // can be overridden by SPACING ADJACENTCUTS in cut layer statement.
+	name:         string,
+	generate:     bool, // is it a viarule generate? typically yes unless legacy lef
+	mask_num:     LefMaskNum,
+	enclosures:   [3][2]LefDistance,
+	layers:       [3]^LefLayer,
+	layer_shapes: [3][dynamic]LefDistance,
+	spacing:      [3][2]LefDistance, // can be overridden by SPACING ADJACENTCUTS in cut layer statement.
 }
 
 // Min cuts allowed for any via using specified cut layer
@@ -244,7 +244,7 @@ LefCutLayer :: struct {
 	// spacing_table:                LefCutLayerSpacingTable,
 	// array_spacing:                LefCutLayerArraySpacing,
 	min_width:                    LefDistance,
-	min_spacing :                 LefDistance,
+	min_spacing:                  LefDistance,
 	enclosures:                   [4]LefDistance, // 0 and 1 is ABOVE overhang 1-2, 2 and 3 is BELOW overhang 1-2
 	// preference_closure:           LefLayerPreferenceClosure,
 	// resistance:                   LefLayerResistance,
@@ -291,12 +291,11 @@ LefSpacingTable :: struct {
 	width:               [dynamic][dynamic]LefDistance,
 }
 
-LefRoutingLayerSpacingRules :: struct
-{
-	min_spacing  : LefDistance,
-	samenet      : bool, // min spacing rule only applies to same-net metal
-	pgonly       : bool, // min spacing only applies to same-net that's also power or gnd
-	notch_length : LefDistance,
+LefRoutingLayerSpacingRules :: struct {
+	min_spacing:  LefDistance,
+	samenet:      bool, // min spacing rule only applies to same-net metal
+	pgonly:       bool, // min spacing only applies to same-net that's also power or gnd
+	notch_length: LefDistance,
 	// TODO(rahul): a lot more semantic stuff here
 }
 
@@ -369,8 +368,8 @@ LefPropertyDefinitionPropertyType :: union {
 }
 
 LefMacroForeignCell :: struct {
-	name   : string,
-	points : [2]LefDistance, // TODO(rahul): This is orientation not point
+	name:   string,
+	points: [2]LefDistance, // TODO(rahul): This is orientation not point
 }
 
 // [PROPERTYDEFINITIONS
@@ -413,7 +412,7 @@ LefMacroPinUse :: enum {
 	ANALOG,
 	POWER,
 	GROUND,
-	CLOCK
+	CLOCK,
 }
 
 LefMacroPin :: struct {
@@ -439,7 +438,7 @@ LefMacroObstructionLayerGeometry :: struct {
 LefMacroPinDirection :: enum {
 	INPUT,
 	OUTPUT,
-	INOUT
+	INOUT,
 }
 
 LefMacroClass :: enum {
@@ -474,7 +473,7 @@ LefMacroClass :: enum {
 	ENDCAP_TOPLEFT,
 	ENDCAP_TOPRIGHT,
 	ENDCAP_BOTTOMLEFT,
-	ENDCAP_BOTTOMRIGHT
+	ENDCAP_BOTTOMRIGHT,
 }
 
 LefMaxViaStack :: struct {
@@ -517,7 +516,7 @@ LefConvertFactorDistanceMicrons :: enum {
 	DBU_20000,
 }
 
-lef_create_new_database :: proc(allocator : mem.Allocator) -> LefDatabase {
+lef_create_new_database :: proc(allocator: mem.Allocator) -> LefDatabase {
 	lef_database := LefDatabase {
 		version                  = LefVersion{},
 		bus_bit_chars            = LEF_DEFAULT_BUS_BIT_CHARS,
@@ -540,7 +539,7 @@ lef_create_new_database :: proc(allocator : mem.Allocator) -> LefDatabase {
 	return lef_database
 }
 
-lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator, lef_database : ^LefDatabase) {
+lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator, lef_database: ^LefDatabase) {
 	resolved_lef_path := filepath
 	if len(resolved_lef_path) == 0 {
 		fmt.println("Please select a liberty file")
@@ -565,11 +564,11 @@ lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Alloca
 }
 
 lef_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
-    for {
-        skip_newlines_and_whitespaces(l)
-        if peek(l) != LEF_COMMENT { break }
-        for l.idx < len(l.src) && peek(l) != '\n' { advance(l) }
-    }
+	for {
+		skip_newlines_and_whitespaces(l)
+		if peek(l) != LEF_COMMENT { break }
+		for l.idx < len(l.src) && peek(l) != '\n' { advance(l) }
+	}
 }
 
 lef_handle_statement :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: mem.Allocator = context.temp_allocator) {
@@ -753,7 +752,7 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 					if peek(l) == SEMICOLON { break symmetry_loop }
 					sym_type := scan_ident_ascii_upper(l)
 					sym_type_enum, ok := reflect.enum_from_name(LefPlacementSiteSymmetry, sym_type)
-					lexer_ensure(l,ok, fmt.tprint("Invalid symmetry type", sym_type))
+					lexer_ensure(l, ok, fmt.tprint("Invalid symmetry type", sym_type))
 					created_site.symmetry |= sym_type_enum
 				}
 		case "ROWPATTERN": for i := 0; i <= 15 && peek(l) != SEMICOLON; i += 1 {
@@ -778,15 +777,15 @@ lef_create_macro_placement_site :: proc(l: ^Lexer, lef_database: ^LefDatabase) {
 	append(&lef_database.placement_sites, created_site)
 }
 
-lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : mem.Allocator) {
+lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: mem.Allocator) {
 	/* Scan macro name and other things within MACRO section and create / append to dynamic macro array */
 	lef_skip_whitespace_and_comments(l)
 	macro := LefMacro {
-	name = scan_ident_ascii_upper(l),
-	class = .CORE, // default class
-	fixed_mask = false, // default
-	pins = make([dynamic]LefMacroPin, allocator),
-	obstruction = make([dynamic]LefMacroObstructionLayerGeometry, allocator),
+		name        = scan_ident_ascii_upper(l),
+		class       = .CORE, // default class
+		fixed_mask  = false, // default
+		pins        = make([dynamic]LefMacroPin, allocator),
+		obstruction = make([dynamic]LefMacroObstructionLayerGeometry, allocator),
 	}
 	lef_skip_whitespace_and_comments(l)
 	macro_loop: for {
@@ -815,7 +814,7 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : mem.
 					if peek(l) == SEMICOLON { break symmetry_loop }
 					sym_type := scan_ident_ascii_upper(l)
 					sym_type_enum, ok := reflect.enum_from_name(LefPlacementSiteSymmetry, sym_type)
-					lexer_ensure(l,ok, fmt.tprint("Invalid symmetry type", sym_type))
+					lexer_ensure(l, ok, fmt.tprint("Invalid symmetry type", sym_type))
 					macro.symmetry |= sym_type_enum
 				}
 		case "SITE":
@@ -841,7 +840,7 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : mem.
 			lexer_ensure(l = l, condition = by_keyword == "BY", err_msg = "No BY keyword between width/length")
 			macro.size.size_height_dbu = lef_scan_distance(l, lef_database)
 		case "PIN":
-			lef_add_pin_to_macro(l, lef_database, &macro,allocator)
+			lef_add_pin_to_macro(l, lef_database, &macro, allocator)
 			continue macro_loop
 		case "OBS":
 			lef_add_obs_to_macro(l, lef_database, &macro, allocator)
@@ -854,14 +853,14 @@ lef_create_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : mem.
 	append(&lef_database.macros, macro)
 }
 
-lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^LefMacro, allocator : mem.Allocator) {
+lef_add_pin_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefMacro, allocator: mem.Allocator) {
 	lef_skip_whitespace_and_comments(l)
 	pin := LefMacroPin {
-		name = scan_ident_ascii_upper(l),
+		name  = scan_ident_ascii_upper(l),
 		ports = make([dynamic]LefMacroPinPort, allocator),
 	}
 	lef_skip_whitespace_and_comments(l)
-	pin_loop : for {
+	pin_loop: for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
 		case "DIRECTION":
@@ -869,7 +868,7 @@ lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^L
 			pin_direction_string := scan_ident_ascii_upper(l)
 			pin_direction, ok := reflect.enum_from_name(LefMacroPinDirection, pin_direction_string)
 			lexer_ensure(l, ok, fmt.tprintf("Couldn't find macro pin direction %s for macro % pin %s", pin_direction_string, macro.name, pin.name))
-		case "USE" :
+		case "USE":
 			lef_skip_whitespace_and_comments(l)
 			use_str := scan_ident_ascii_upper(l)
 			use_enum, ok := reflect.enum_from_name(LefMacroPinUse, use_str)
@@ -878,8 +877,8 @@ lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^L
 		case "PORT":
 			lef_add_port_to_macro_pin(l, lef_database, macro, &pin, allocator)
 			continue pin_loop
-		case "END" : break pin_loop
-		case : lexer_panic(l, fmt.tprintf("Unhandled keyword %s for pin %s for macro %s", keyword, pin.name, macro.name))
+		case "END": break pin_loop
+		case: lexer_panic(l, fmt.tprintf("Unhandled keyword %s for pin %s for macro %s", keyword, pin.name, macro.name))
 		}
 		lef_consume_statement_end(l)
 	}
@@ -887,7 +886,7 @@ lef_add_pin_to_macro :: proc(l : ^Lexer, lef_database : ^LefDatabase, macro : ^L
 	append(&macro.pins, pin)
 }
 
-lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro: ^LefMacro, pin : ^LefMacroPin, allocator : mem.Allocator) {
+lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefMacro, pin: ^LefMacroPin, allocator: mem.Allocator) {
 	lef_skip_whitespace_and_comments(l)
 	port := LefMacroPinPort {
 		points = make([dynamic]LefDistance, allocator),
@@ -900,13 +899,12 @@ lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro:
 			layer_name := scan_ident_ascii_upper(l)
 			for &layer in lef_database.layers { if layer.name == layer_name { port.layer = &layer } }
 			lexer_ensure(l, port.layer != nil, fmt.tprint("Unable to find layer", layer_name))
-		case "RECT", "POLYGON":
-			for peek(l) != SEMICOLON {
-				lef_skip_whitespace_and_comments(l)
-				point := lef_scan_distance(l, lef_database)
-				append(&port.points, point)
-				lef_skip_whitespace_and_comments(l)
-			}
+		case "RECT", "POLYGON": for peek(l) != SEMICOLON {
+					lef_skip_whitespace_and_comments(l)
+					point := lef_scan_distance(l, lef_database)
+					append(&port.points, point)
+					lef_skip_whitespace_and_comments(l)
+				}
 		case "END":
 			lef_skip_whitespace_and_comments(l)
 			break pin_port_loop
@@ -916,9 +914,9 @@ lef_add_port_to_macro_pin :: proc(l: ^Lexer, lef_database : ^LefDatabase, macro:
 	append(&pin.ports, port)
 }
 
-lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefMacro, allocator : mem.Allocator) {
+lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefMacro, allocator: mem.Allocator) {
 	lef_skip_whitespace_and_comments(l)
-	obstruction : LefMacroObstructionLayerGeometry
+	obstruction: LefMacroObstructionLayerGeometry
 	obs_loop: for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
@@ -951,7 +949,7 @@ lef_add_obs_to_macro :: proc(l: ^Lexer, lef_database: ^LefDatabase, macro: ^LefM
 	append(&macro.obstruction, obstruction)
 }
 
-lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : mem.Allocator) {
+lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem.Allocator) {
 	new_layer: LefLayer
 	new_layer.name = scan_ident_ascii_upper(l)
 	lef_skip_whitespace_and_comments(l)
@@ -960,8 +958,12 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 	layer_type := scan_ident_ascii_upper(l)
 	switch layer_type {
 	case "CUT": new_layer.layer_data = LefCutLayer{}
-	case "MASTERSLICE": new_layer.layer_data = LefMastersliceOverlapLayer { type = .MASTERSLICE }
-	case "OVERLAP": new_layer.layer_data = LefMastersliceOverlapLayer { type = .OVERLAP }
+	case "MASTERSLICE": new_layer.layer_data = LefMastersliceOverlapLayer {
+				type = .MASTERSLICE,
+			}
+	case "OVERLAP": new_layer.layer_data = LefMastersliceOverlapLayer {
+				type = .OVERLAP,
+			}
 	case "IMPLANT": new_layer.layer_data = LefImplantLayer{}
 	case "ROUTING": new_layer.layer_data = LefRoutingLayer{}
 	case: lexer_panic(l, "Unknown layer type")
@@ -976,8 +978,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 		layer_property := scan_ident_ascii_upper(l)
 		switch layer_property {
 		case "END": break layer_loop
-		case "MANUFACTURINGGRID":
-			new_layer.manufacturing_grid = lef_scan_distance(l, lef_database) // override default
+		case "MANUFACTURINGGRID": new_layer.manufacturing_grid = lef_scan_distance(l, lef_database) // override default
 		case "PROPERTY":
 			lef_skip_whitespace_and_comments(l)
 			prop_name := scan_ident_ascii_upper(l)
@@ -992,40 +993,43 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 				}
 			}
 			lexer_ensure(l, new_layer.property.property_definition != nil, "Property name not found")
-		case "MASK": lef_skip_whitespace_and_comments(l)
+		case "MASK":
+			lef_skip_whitespace_and_comments(l)
 			mask_num := peek(l)
 			lexer_ensure(l, mask_num == '2' || mask_num == '3', "Invalid mask num in layer")
 			new_layer.mask = .DOUBLE_MASK if mask_num == '2' else .TRIPLE_MASK
-			lexer_consume(l,mask_num)
-		case : // If not any of common types, has to be layer data (or invalid type)
+			lexer_consume(l, mask_num)
+		case:
+			// If not any of common types, has to be layer data (or invalid type)
 			lef_skip_whitespace_and_comments(l)
 			switch &layer in new_layer.layer_data {
-			case LefCutLayer:  switch layer_property {
-				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
-				case "SPACING": layer.min_spacing = lef_scan_distance(l, lef_database)
-				case "WIDTH": layer.min_width = lef_scan_distance(l, lef_database)
-				case "ENCLOSURE":
-					type :=  scan_ident_ascii_upper(l)
-					lef_skip_whitespace_and_comments(l)
-					overhang_1 := lef_scan_distance(l, lef_database)
-					lef_skip_whitespace_and_comments(l)
-					overhang_2 := lef_scan_distance(l, lef_database)
-					if type == "ABOVE" {
-						layer.enclosures[0] = overhang_1
-						layer.enclosures[1] = overhang_2
-					} else if type == "BELOW" {
-						layer.enclosures[2] = overhang_1
-						layer.enclosures[3] = overhang_2
+			case LefCutLayer: switch layer_property {
+					case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
+					case "SPACING": layer.min_spacing = lef_scan_distance(l, lef_database)
+					case "WIDTH": layer.min_width = lef_scan_distance(l, lef_database)
+					case "ENCLOSURE":
+						type := scan_ident_ascii_upper(l)
+						lef_skip_whitespace_and_comments(l)
+						overhang_1 := lef_scan_distance(l, lef_database)
+						lef_skip_whitespace_and_comments(l)
+						overhang_2 := lef_scan_distance(l, lef_database)
+						if type == "ABOVE" {
+							layer.enclosures[0] = overhang_1
+							layer.enclosures[1] = overhang_2
+						} else if type == "BELOW" {
+							layer.enclosures[2] = overhang_1
+							layer.enclosures[3] = overhang_2
+						}
+					case "RESISTANCE":
+						skip_newlines_and_whitespaces(l)
+						layer.resistance = lef_scan_resistance(l, lef_database)
+					case "ANTENNAMODEL", "ANTENNADIFFSIDEAREARATIO", "ANTENNADIFFAREARATIO":
+						lef_scan_antenna_properties(l, lef_database, &new_layer, layer_property)
+					case "DCCURRENTDENSITY":
 					}
-				case "RESISTANCE":
-				skip_newlines_and_whitespaces(l)
-				layer.resistance = lef_scan_resistance(l, lef_database)
-				case "ANTENNAMODEL", "ANTENNADIFFSIDEAREARATIO", "ANTENNADIFFAREARATIO": lef_scan_antenna_properties(l, lef_database, &new_layer, layer_property)
-				case "DCCURRENTDENSITY":
-				}
 			case LefImplantLayer: switch layer_property {
-				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
-				}
+					case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
+					}
 			case LefRoutingLayer: switch layer_property {
 					case "DIRECTION":
 						direction := scan_ident_ascii_upper(l)
@@ -1055,12 +1059,12 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 								if peek(l) != SEMICOLON {
 									lexer_ensure(l, scan_ident_ascii_upper(l) == "PGONLY", "Unknown string after samenet statement")
 									layer.spacing_rules.pgonly = true
-							 }
+								}
 							case "ENDOFLINE":
 							case "PARALLELEDGE":
 							case "NOTCHLENGTH":
 							case "ENDOFNOTCHWIDTH":
-							case : lexer_panic(l, fmt.tprint("Unknown spacing attribute", spacing_attribute, "for layer", layer_type))
+							case: lexer_panic(l, fmt.tprint("Unknown spacing attribute", spacing_attribute, "for layer", layer_type))
 							}
 							lef_skip_whitespace_and_comments(l)
 						}
@@ -1073,7 +1077,12 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						for peek(l) != 'W' {
 							lef_skip_whitespace_and_comments(l)
 							run_length := lef_scan_distance(l, lef_database)
-							lexer_ensure(l, len(spacing_table.parallel_run_length) == 0 || run_length > spacing_table.parallel_run_length[len(spacing_table.parallel_run_length)-1], "PARALLELRUNLENGTH values must be strictly increasing")
+							lexer_ensure(
+								l,
+								len(spacing_table.parallel_run_length) == 0 ||
+								run_length > spacing_table.parallel_run_length[len(spacing_table.parallel_run_length) - 1],
+								"PARALLELRUNLENGTH values must be strictly increasing",
+							)
 							append(&spacing_table.parallel_run_length, run_length)
 							lef_skip_whitespace_and_comments(l)
 						}
@@ -1083,10 +1092,14 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 							if peek(l) == SEMICOLON { break }
 							lexer_ensure(l, scan_ident_ascii_upper(l) == "WIDTH", "Expected WIDTH")
 							width := lef_scan_distance(l, lef_database)
-							lexer_ensure(l, width_index == 0 || width > spacing_table.width[width_index-1][0], "WIDTH thresholds must be strictly increasing")
+							lexer_ensure(
+								l,
+								width_index == 0 || width > spacing_table.width[width_index - 1][0],
+								"WIDTH thresholds must be strictly increasing",
+							)
 							append(&spacing_table.width, make([dynamic]LefDistance, lef_allocator))
 							append(&spacing_table.width[width_index], width)
-							for _ in 0..<len(spacing_table.parallel_run_length) {
+							for _ in 0 ..< len(spacing_table.parallel_run_length) {
 								spacing := lef_scan_distance(l, lef_database)
 								append(&spacing_table.width[width_index], spacing)
 							}
@@ -1098,13 +1111,13 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						// TODO(rahul): think about how to allocate here and for other dynamic layer property types
 						layer.min_size = make([dynamic][2]LefDistance, lef_allocator)
 						for peek(l) != SEMICOLON {
-						lef_skip_whitespace_and_comments((l))
-						min_width := lef_scan_distance(l, lef_database)
-						lef_skip_whitespace_and_comments((l))
-						min_length := lef_scan_distance(l, lef_database)
-						append(&layer.min_size, [2]LefDistance{min_width, min_length})
-						lef_skip_whitespace_and_comments((l))
-					}
+							lef_skip_whitespace_and_comments((l))
+							min_width := lef_scan_distance(l, lef_database)
+							lef_skip_whitespace_and_comments((l))
+							min_length := lef_scan_distance(l, lef_database)
+							append(&layer.min_size, [2]LefDistance{min_width, min_length})
+							lef_skip_whitespace_and_comments((l))
+						}
 					case "MINENCLOSEDAREA":
 
 					case "THICKNESS":
@@ -1129,8 +1142,8 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 					case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
 					}
 			case LefMastersliceOverlapLayer: switch layer_property {
-				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
-				}
+					case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
+					}
 			case: lexer_panic(l, fmt.tprint("Unhandled layer type", layer_type))
 			}
 		}
@@ -1141,21 +1154,20 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 }
 
 lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem.Allocator) {
-	via : LefVia
+	via: LefVia
 	for &shape in via.layer_shapes { shape = make([dynamic]LefDistance, lef_allocator) }
 	via.name = scan_ident_ascii_upper(l)
 	lef_skip_whitespace_and_comments(l)
 	ident := scan_ident_ascii_upper(l)
 	if ident == "DEFAULT" { via.default = true; lef_skip_whitespace_and_comments(l) }
-	layer_index : u8 = 0
-	via_loop : for {
+	layer_index: u8 = 0
+	via_loop: for {
 		via_property := scan_ident_ascii_upper(l) if ident == "DEFAULT" else ident
-		via_switch : switch via_property {
+		via_switch: switch via_property {
 		case "LAYER":
 			lef_skip_whitespace_and_comments(l)
 			layer_name := scan_ident_ascii_upper(l)
-			find_layer : for &layer in lef_database.layers
-			{
+			find_layer: for &layer in lef_database.layers {
 				if layer.name == layer_name {
 					lexer_ensure(l, layer_index < len(via.layers), fmt.tprintf("VIA %s has more than 3 layers", via.name))
 					via.layers[layer_index] = &layer
@@ -1163,14 +1175,13 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 					break find_layer
 				}
 			}
-			lexer_ensure(l, via.layers[layer_index-1] != nil, fmt.tprintf("Layer %s not found", layer_name))
-		case "RECT", "POLYGON":
-			for peek(l) != SEMICOLON {
-				lef_skip_whitespace_and_comments(l)
-				point := lef_scan_distance(l, lef_database)
-				append(&via.layer_shapes[layer_index-1], point)
-				lef_skip_whitespace_and_comments(l)
-			}
+			lexer_ensure(l, via.layers[layer_index - 1] != nil, fmt.tprintf("Layer %s not found", layer_name))
+		case "RECT", "POLYGON": for peek(l) != SEMICOLON {
+					lef_skip_whitespace_and_comments(l)
+					point := lef_scan_distance(l, lef_database)
+					append(&via.layer_shapes[layer_index - 1], point)
+					lef_skip_whitespace_and_comments(l)
+				}
 		case "LAYERS": lef_add_layers_to_via(l, lef_database, &via)
 		case "END": break via_loop
 		case: lexer_panic(l, fmt.tprintf("Unknown via property %s for via %s", via_property, via.name))
@@ -1181,9 +1192,8 @@ lef_create_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator: mem
 	append(&lef_database.vias, via)
 }
 
-lef_add_layers_to_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, via: ^LefVia)
-{
-	for i in 0..<3 {
+lef_add_layers_to_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, via: ^LefVia) {
+	for i in 0 ..< 3 {
 		lef_skip_whitespace_and_comments(l)
 		layer_name := scan_ident_ascii_upper(l)
 		for &layer in lef_database.layers { if layer_name == layer.name { via.layers[i] = &layer } }
@@ -1191,23 +1201,22 @@ lef_add_layers_to_via :: proc(l: ^Lexer, lef_database: ^LefDatabase, via: ^LefVi
 	lef_consume_statement_end(l)
 }
 
-lef_create_viarule :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : mem.Allocator) {
+lef_create_viarule :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator: mem.Allocator) {
 	lef_skip_whitespace_and_comments(l)
-	viarule : LefViaRule
+	viarule: LefViaRule
 	for &shape in viarule.layer_shapes { shape = make([dynamic]LefDistance, allocator) }
 	viarule.name = scan_ident_ascii_upper(l)
 	lef_skip_whitespace_and_comments(l)
 	lexer_ensure(l, scan_ident_ascii_upper(l) == "GENERATE", "Old via syntax found, TODO(rahul): Maybe support this case if it pops up?")
 	lef_skip_whitespace_and_comments(l)
 	layer_index := 0
-	viarule_loop : for {
+	viarule_loop: for {
 		keyword := scan_ident_ascii_upper(l)
 		switch keyword {
 		case "LAYER":
 			lef_skip_whitespace_and_comments(l)
 			layer_name := scan_ident_ascii_upper(l)
-			find_layer : for &layer in lef_database.layers
-			{
+			find_layer: for &layer in lef_database.layers {
 				if layer.name == layer_name {
 					lexer_ensure(l, layer_index < len(viarule.layers), fmt.tprintf("VIARULE %s has more than 3 layers", viarule.name))
 					viarule.layers[layer_index] = &layer
@@ -1215,25 +1224,24 @@ lef_create_viarule :: proc(l: ^Lexer, lef_database: ^LefDatabase, allocator : me
 					break find_layer
 				}
 			}
-			lexer_ensure(l, viarule.layers[layer_index-1] != nil, fmt.tprintf("Layer %s not found", layer_name))
+			lexer_ensure(l, viarule.layers[layer_index - 1] != nil, fmt.tprintf("Layer %s not found", layer_name))
 		case "ENCLOSURE":
 			lef_skip_whitespace_and_comments(l)
-			viarule.enclosures[layer_index-1][0] = lef_scan_distance(l, lef_database)
+			viarule.enclosures[layer_index - 1][0] = lef_scan_distance(l, lef_database)
 			lef_skip_whitespace_and_comments(l)
-			viarule.enclosures[layer_index-1][1] = lef_scan_distance(l, lef_database)
-		case "RECT", "POLYGON":
-			for peek(l) != SEMICOLON {
-				lef_skip_whitespace_and_comments(l)
-				point := lef_scan_distance(l, lef_database)
-				append(&viarule.layer_shapes[layer_index-1], point)
-				lef_skip_whitespace_and_comments(l)
-			}
+			viarule.enclosures[layer_index - 1][1] = lef_scan_distance(l, lef_database)
+		case "RECT", "POLYGON": for peek(l) != SEMICOLON {
+					lef_skip_whitespace_and_comments(l)
+					point := lef_scan_distance(l, lef_database)
+					append(&viarule.layer_shapes[layer_index - 1], point)
+					lef_skip_whitespace_and_comments(l)
+				}
 		case "SPACING":
 			lef_skip_whitespace_and_comments(l)
-			viarule.spacing[layer_index-1][0] = lef_scan_distance(l, lef_database)
+			viarule.spacing[layer_index - 1][0] = lef_scan_distance(l, lef_database)
 			lef_skip_whitespace_and_comments(l)
 			lexer_ensure(l, scan_ident_ascii_upper(l) == "BY", "By keyword not found")
-			viarule.spacing[layer_index-1][1] = lef_scan_distance(l, lef_database)
+			viarule.spacing[layer_index - 1][1] = lef_scan_distance(l, lef_database)
 		case "END": break viarule_loop
 		}
 		lef_consume_statement_end(l)
@@ -1299,13 +1307,15 @@ lef_dbu_per_micron :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> i64 {
 	return dbu
 }
 
-lef_scan_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefDistance { return LefDistance(lef_scan_decimal_scaled_i64(l, lef_dbu_per_micron(l, db))) }
+lef_scan_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefDistance {return LefDistance(
+		lef_scan_decimal_scaled_i64(l, lef_dbu_per_micron(l, db)),
+	)}
 
 lef_scan_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
-    dbu := lef_dbu_per_micron(l, db)
-    area := lef_scan_decimal_scaled_i64(l, dbu * dbu)
-    lexer_ensure(l, area >= 0, "LEF area cannot be negative")
-    return LefArea(area)
+	dbu := lef_dbu_per_micron(l, db)
+	area := lef_scan_decimal_scaled_i64(l, dbu * dbu)
+	lexer_ensure(l, area >= 0, "LEF area cannot be negative")
+	return LefArea(area)
 }
 
 // TODO(rahul): Normalise scaling factor unit (can override capacitance)
@@ -1317,30 +1327,29 @@ lef_scan_capacitance_per_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatab
 	return LefCapacitancePerDistance(lef_scan_decimal_scaled_i64(l, YOCTOFARADS_PER_PICOFARAD))
 }
 
-lef_scan_capacitance_per_area:: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitancePerArea {
+lef_scan_capacitance_per_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitancePerArea {
 	return LefCapacitancePerArea(lef_scan_decimal_scaled_i64(l, YOCTOFARADS_PER_PICOFARAD))
 }
 
 // TODO(rahul): Normalise (same resistance scaling cant override)
 lef_scan_resistance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefResistance {
-	LEF_RESISTANCE_DBU_PER_OHM : i64 : 10000 // Cannot be overriden
+	LEF_RESISTANCE_DBU_PER_OHM: i64 : 10000 // Cannot be overriden
 	return LefResistance(lef_scan_decimal_scaled_i64(l, LEF_RESISTANCE_DBU_PER_OHM))
 }
 
 // Scan all props related to process antenna violations
-lef_scan_antenna_properties :: proc(l : ^Lexer, db: ^LefDatabase, layer: ^LefLayer, keyword : string) {
+lef_scan_antenna_properties :: proc(l: ^Lexer, db: ^LefDatabase, layer: ^LefLayer, keyword: string) {
 	skip_newlines_and_whitespaces(l)
 	switch keyword {
-	case "ANTENNAMODEL":
-		switch &layer in layer.layer_data {
-		case LefRoutingLayer:
-			skip_newlines_and_whitespaces(l)
-			antenna_model := scan_ident_ascii_upper(l)
-			antenna_model_enum, ok := reflect.enum_from_name(LefAntennaModel, antenna_model)
-			lexer_ensure(l, ok, fmt.tprint("Invalid antenna model found", antenna_model))
-			layer.antenna_model = antenna_model_enum
-		case LefCutLayer, LefImplantLayer, LefMastersliceOverlapLayer: lexer_panic(l, "TODO(rahul):Does this layer type support antenna model?")
-		}
+	case "ANTENNAMODEL": switch &layer in layer.layer_data {
+			case LefRoutingLayer:
+				skip_newlines_and_whitespaces(l)
+				antenna_model := scan_ident_ascii_upper(l)
+				antenna_model_enum, ok := reflect.enum_from_name(LefAntennaModel, antenna_model)
+				lexer_ensure(l, ok, fmt.tprint("Invalid antenna model found", antenna_model))
+				layer.antenna_model = antenna_model_enum
+			case LefCutLayer, LefImplantLayer, LefMastersliceOverlapLayer: lexer_panic(l, "TODO(rahul):Does this layer type support antenna model?")
+			}
 
 	case "ANTENNADIFFAREA":
 	case "ANTENNAGATEAREA":

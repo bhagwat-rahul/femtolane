@@ -197,7 +197,8 @@ handle_ident :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Alloca
 	case KEYWORD_ASSIGN: handle_assign_statement(l = l, hgr = hgr)
 	case KEYWORD_MODULE: handle_module_statement(l = l, hgr = hgr, arena_alloc = arena_alloc)
 	case KEYWORD_ENDMODULE: handle_endmodule_statement(l = l)
-	case KEYWORD_WIRE, KEYWORD_REG, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT: handle_net_creation(l = l, hgr = hgr, ident = ident, arena_alloc = arena_alloc)
+	case KEYWORD_WIRE, KEYWORD_REG, KEYWORD_INPUT, KEYWORD_OUTPUT, KEYWORD_INOUT:
+		handle_net_creation(l = l, hgr = hgr, ident = ident, arena_alloc = arena_alloc)
 	case: handle_instantiation(l = l, hgr = hgr, parent_cell_name = ident, arena_alloc = arena_alloc) // since nothing else has to be instantiation
 	}
 }
@@ -263,7 +264,11 @@ handle_net_creation :: proc(ident: string, hgr: ^NetlistHyperGraph, l: ^Lexer, a
 			net_name := name if (msb == 0 && lsb == 0) else fmt.tprintf("%s[%d]", name, i)
 			net := hgr.net_hash_map[net_name]
 			if net == nil {
-				create_net(hgr = hgr, arena_alloc = arena_alloc, net_val = Net{name = net_name, net_type = ident_net_type, connections = make([dynamic]^InstancePort, arena_alloc)})
+				create_net(
+					hgr = hgr,
+					arena_alloc = arena_alloc,
+					net_val = Net{name = net_name, net_type = ident_net_type, connections = make([dynamic]^InstancePort, arena_alloc)},
+				)
 			} else if ident_net_type != .INTERNAL {
 				net.net_type = ident_net_type
 			}

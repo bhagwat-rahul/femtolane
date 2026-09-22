@@ -2,8 +2,8 @@ package tests
 
 import main "../src"
 import "core:fmt"
-import "core:mem/virtual"
 import "core:mem"
+import "core:mem/virtual"
 import "core:os"
 import "core:strings"
 import "core:testing"
@@ -14,7 +14,7 @@ TECHLEF_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.r
 LEF_FILEPATH :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n/lef/tt/gt2_6t_w31_lvt.lef"
 
 // Create and return a growing arena allocator for use within tests
-test_create_arena_allocator :: #force_inline proc(arena : ^virtual.Arena) -> mem.Allocator {
+test_create_arena_allocator :: #force_inline proc(arena: ^virtual.Arena) -> mem.Allocator {
 	ensure(virtual.arena_init_growing(arena) == nil)
 	return virtual.arena_allocator(arena)
 }
@@ -57,7 +57,7 @@ test_lexGraph :: proc(_: ^testing.T) {
 	lex_graph_arena: virtual.Arena
 	lex_graph_allocator := test_create_arena_allocator(&lex_graph_arena)
 	defer virtual.arena_destroy(&lex_graph_arena)
-	netlist_paths:= make([dynamic]string, lex_graph_allocator)
+	netlist_paths := make([dynamic]string, lex_graph_allocator)
 	NETLISTS_DIR :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/tests/netlist_creation/"
 
 	design_dirs, design_dir_read_err := os.read_all_directory_by_path(NETLISTS_DIR, lex_graph_allocator)

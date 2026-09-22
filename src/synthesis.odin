@@ -5,7 +5,14 @@ import "core:os"
 import "core:path/slashpath"
 
 // uses yosys to convert RTL to gate netlist (synthesis), will use our own later, maybe with an option for single pass rtl->hypergraph using gl netlist as just a debug artifact?
-convert_rtl_to_gate_netlist :: proc(rtl_filepath: string, lib_file: string, top_module: string, yosys_tcl_script_filepath: string) -> (gate_netlist_filepath : string) {
+convert_rtl_to_gate_netlist :: proc(
+	rtl_filepath: string,
+	lib_file: string,
+	top_module: string,
+	yosys_tcl_script_filepath: string,
+) -> (
+	gate_netlist_filepath: string,
+) {
 
 	resolved_rtl_path := rtl_filepath
 	if len(resolved_rtl_path) == 0 {

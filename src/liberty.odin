@@ -215,12 +215,12 @@ LibertyPinFunction :: enum {
 	LOGICAL_AND, // *, &, "SPACE"
 	LOGICAL_OR, // +, |
 	SIGNAL_ONE, // 1
-	SIGNAL_ZERO // 0
+	SIGNAL_ZERO, // 0
 }
 
 LibertyPin :: struct {
-	name     : string,
-	function : LibertyPinFunction
+	name:     string,
+	function: LibertyPinFunction,
 }
 
 liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
