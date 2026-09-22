@@ -281,7 +281,7 @@ LefRoutingLayer :: struct {
 	thickness:                    LefDistance,
 	min_size:                     [dynamic][2]LefDistance, // array of minwidth, minlength
 	edge_capacitance:             LefCapacitancePerDistance,
-	capacitance:                  LefCapacitance,
+	capacitance:                  LefCapacitancePerArea,
 	resistance:                   LefResistance,
 }
 
@@ -1109,7 +1109,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						skip_newlines_and_whitespaces(l)
 						lexer_ensure(l, scan_ident_ascii_upper(l) == "CPERSQDIST", "Invalid keyword after capacitance")
 						skip_newlines_and_whitespaces(l)
-						layer.capacitance = lef_scan_capacitance_value(l, lef_database)
+						layer.capacitance = lef_scan_capacitance_per_area(l, lef_database)
 					case "RESISTANCE":
 						skip_newlines_and_whitespaces(l)
 						lexer_ensure(l, scan_ident_ascii_upper(l) == "RPERSQ", "Invalid keyword after resistance")
