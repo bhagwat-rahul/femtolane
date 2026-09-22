@@ -398,7 +398,7 @@ LefMacro :: struct {
 	symmetry:            LefPlacementSiteSymmetry,
 	site:                LefPlacementSite,
 	pins:                [dynamic]LefMacroPin,
-	obstruction:                 [dynamic]LefMacroObstructionLayerGeometry,
+	obstruction:         [dynamic]LefMacroObstructionLayerGeometry,
 	// TODO(rahul): Bunch of other things within each macro
 }
 
