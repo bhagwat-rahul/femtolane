@@ -542,8 +542,8 @@ lef_create_new_database :: proc(allocator: mem.Allocator) -> LefDatabase {
 lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Allocator = context.temp_allocator, lef_database: ^LefDatabase) {
 	resolved_lef_path := filepath
 	if len(resolved_lef_path) == 0 {
-		fmt.println("Please select a liberty file")
-		resolved_lef_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
+		fmt.println("Please select a lef file")
+		resolved_lef_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select lef file"})
 	}
 	ensure(len(resolved_lef_path) > 0, "Program terminated as you did not select a liberty file")
 
