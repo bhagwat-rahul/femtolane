@@ -280,7 +280,7 @@ LefRoutingLayer :: struct {
 	spacing_table:                LefSpacingTable,
 	thickness:                    LefDistance,
 	min_size:                     [dynamic][2]LefDistance, // array of minwidth, minlength
-	edge_capacitance:             LefCapacitance,
+	edge_capacitance:             LefCapacitancePerDistance,
 	capacitance:                  LefCapacitance,
 	resistance:                   LefResistance,
 }
@@ -1104,7 +1104,7 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						layer.thickness = lef_scan_distance(l, lef_database)
 					case "EDGECAPACITANCE":
 						skip_newlines_and_whitespaces(l)
-						layer.edge_capacitance = lef_scan_capacitance_value(l, lef_database)
+						layer.edge_capacitance = lef_scan_capacitance_per_distance(l, lef_database)
 					case "CAPACITANCE":
 						skip_newlines_and_whitespaces(l)
 						lexer_ensure(l, scan_ident_ascii_upper(l) == "CPERSQDIST", "Invalid keyword after capacitance")
@@ -1303,6 +1303,14 @@ lef_scan_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
 // TODO(rahul): Normalise scaling factor unit (can override capacitance)
 lef_scan_capacitance_value :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitance {
 	return LefCapacitance(lef_scan_decimal_scaled_i64(l, YOCTOFARADS_PER_PICOFARAD))
+}
+
+lef_scan_capacitance_per_distance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitancePerDistance {
+	return LefCapacitancePerDistance(lef_scan_decimal_scaled_i64(l, YOCTOFARADS_PER_PICOFARAD))
+}
+
+lef_scan_capacitance_per_area:: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitancePerArea {
+	return LefCapacitancePerArea(lef_scan_decimal_scaled_i64(l, YOCTOFARADS_PER_PICOFARAD))
 }
 
 // TODO(rahul): Normalise (same resistance scaling cant override)
