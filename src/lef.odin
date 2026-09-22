@@ -44,6 +44,8 @@ LEF_DEFAULT_DIVIDER_CHAR :: '/'
 LEF_STATEMENT_END_SEMICOLON :: ';'
 LEF_DEFAULT_CLEARANCE_MEASURE: LefClearanceMeasure : .EUCLIDEAN
 
+YOCTOFARADS_PER_PICOFARAD : i64 : 1_000_000_000_000
+
 /*
 LefKeywords can be used in any order in a lef file, can't use something before defining (no forward declarations.)
 The LefKeyword enum is ordered so that if things are defined in this order, all data will be defined before being used.
@@ -95,12 +97,15 @@ LefSizeWidthByHeight :: struct {
 }
 
 LefTime :: distinct i64
-LefCapacitance :: distinct i64
+LefCapacitance :: distinct i64 // yoctoFarads
 LefResistance :: distinct i64
 LefPower :: distinct i64
 LefCurrent :: distinct i64
 LefVoltage :: distinct i64
 LefFrequency :: distinct i64
+
+LefCapacitancePerDistance :: distinct i64 // yF / um
+LefCapacitancePerArea :: distinct i64 // yF / um2
 
 LefAntennaModel :: enum {
 	OXIDE1, // default
@@ -1099,12 +1104,12 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						layer.thickness = lef_scan_distance(l, lef_database)
 					case "EDGECAPACITANCE":
 						skip_newlines_and_whitespaces(l)
-						layer.edge_capacitance = lef_scan_capacitance(l, lef_database)
+						layer.edge_capacitance = lef_scan_capacitance_value(l, lef_database)
 					case "CAPACITANCE":
 						skip_newlines_and_whitespaces(l)
 						lexer_ensure(l, scan_ident_ascii_upper(l) == "CPERSQDIST", "Invalid keyword after capacitance")
 						skip_newlines_and_whitespaces(l)
-						layer.capacitance = lef_scan_capacitance(l, lef_database)
+						layer.capacitance = lef_scan_capacitance_value(l, lef_database)
 					case "RESISTANCE":
 						skip_newlines_and_whitespaces(l)
 						lexer_ensure(l, scan_ident_ascii_upper(l) == "RPERSQ", "Invalid keyword after resistance")
@@ -1296,9 +1301,8 @@ lef_scan_area :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefArea {
 }
 
 // TODO(rahul): Normalise scaling factor unit (can override capacitance)
-lef_scan_capacitance :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitance {
-	capacitance_scaling_factor : i64 = i64(db.units[.CAPACITANCE]) // can be user overriden
-	return LefCapacitance(lef_scan_decimal_scaled_i64(l, capacitance_scaling_factor))
+lef_scan_capacitance_value :: #force_inline proc(l: ^Lexer, db: ^LefDatabase) -> LefCapacitance {
+	return LefCapacitance(lef_scan_decimal_scaled_i64(l, YOCTOFARADS_PER_PICOFARAD))
 }
 
 // TODO(rahul): Normalise (same resistance scaling cant override)
