@@ -253,6 +253,7 @@ LefCutLayer :: struct {
 	antenna_model:                LefAntennaModel,
 	// antenna_diff_area_ratio:      LefAntennaDiffAreaRatio,
 	// antenna_cum_routing_plus_cut: LefAntennaCumRoutingPlusCut,
+	resistance:                   LefResistance,
 }
 
 LefImplantLayer :: struct {
@@ -1016,6 +1017,11 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						layer.enclosures[2] = overhang_1
 						layer.enclosures[3] = overhang_2
 					}
+				case "RESISTANCE":
+				skip_newlines_and_whitespaces(l)
+				layer.resistance = lef_scan_resistance(l, lef_database)
+				case "ANTENNAMODEL", "ANTENNADIFFSIDEAREARATIO", "ANTENNADIFFAREARATIO": lef_scan_antenna_properties(l, lef_database, &new_layer, layer_property)
+				case "DCCURRENTDENSITY":
 				}
 			case LefImplantLayer: switch layer_property {
 				case: lexer_panic(l, fmt.tprint("Unhandled layer property", layer_property, "for", layer_type))
@@ -1099,6 +1105,8 @@ lef_create_layer :: proc(l: ^Lexer, lef_database: ^LefDatabase, lef_allocator : 
 						append(&layer.min_size, [2]LefDistance{min_width, min_length})
 						lef_skip_whitespace_and_comments((l))
 					}
+					case "MINENCLOSEDAREA":
+
 					case "THICKNESS":
 						skip_newlines_and_whitespaces(l)
 						layer.thickness = lef_scan_distance(l, lef_database)
