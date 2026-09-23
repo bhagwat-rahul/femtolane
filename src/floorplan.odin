@@ -25,6 +25,7 @@ generate_floorplan :: proc(config: ^FloorplanConfig) -> (floorplan: Floorplan) {
 	return floorplan
 }
 
-floorplanning_macro_placement :: proc() {
+floorplanning_macro_placement :: proc(database: CoreDatabase) {
 	// TODO(rahul): iterate over all instances in netlists, ones that have a macro lef class of block will be placed here, pads will be placed after, and core are just stdcell type stuff for during pnr (unless you can lef abstract a bunch of core into one lef blackbox)
+	for instance in database.netlist_data.hypergraph.instances {  }
 }
