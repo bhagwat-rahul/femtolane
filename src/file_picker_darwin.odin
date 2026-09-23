@@ -52,7 +52,11 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 	if request.mode == .Save_File {
 		panel := Foundation.SavePanel_savePanel()
 		intrinsics.objc_send(nil, panel, "setShowsHiddenFiles:", Foundation.BOOL(true))
-		if len(request.title) > 0 { intrinsics.objc_send(nil, panel, "setTitle:", ns_string(request.title)) }
+		if len(request.title) > 0 {
+			title := ns_string(request.title)
+			intrinsics.objc_send(nil, panel, "setTitle:", title)
+			intrinsics.objc_send(nil, panel, "setMessage:", title)
+		}
 		if len(request.starting_path) > 0 { intrinsics.objc_send(nil, panel, "setDirectoryURL:", file_url(request.starting_path)) }
 		if len(request.suggested_name) > 0 { intrinsics.objc_send(nil, panel, "setNameFieldStringValue:", ns_string(request.suggested_name)) }
 		if types := allowed_types_array(request.file_types); types != nil { intrinsics.objc_send(nil, panel, "setAllowedFileTypes:", types) }
@@ -66,7 +70,11 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 	Foundation.OpenPanel_setAllowsMultipleSelection(panel, false)
 	Foundation.OpenPanel_setResolvesAliases(panel, true)
 	intrinsics.objc_send(nil, panel, "setShowsHiddenFiles:", Foundation.BOOL(true))
-	if len(request.title) > 0 { intrinsics.objc_send(nil, panel, "setTitle:", ns_string(request.title)) }
+	if len(request.title) > 0 {
+		title := ns_string(request.title)
+		intrinsics.objc_send(nil, panel, "setTitle:", title)
+		intrinsics.objc_send(nil, panel, "setMessage:", title)
+	}
 	if len(request.starting_path) > 0 { intrinsics.objc_send(nil, panel, "setDirectoryURL:", file_url(request.starting_path)) }
 	if request.mode == .Open_File {
 		if types := allowed_types_array(request.file_types); types != nil { Foundation.OpenPanel_setAllowedFileTypes(panel, types) }
