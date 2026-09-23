@@ -97,6 +97,7 @@ SEMICOLON :: ';'
 COMMA :: ','
 LPAREN :: '('
 RPAREN :: ')'
+ASTERISK :: '*'
 L_SQUARE_BRACKET :: '['
 R_SQUARE_BRACKET :: ']'
 EQUAL :: '='
@@ -170,21 +171,21 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(
 }
 
 netlist_handle_comments :: #force_inline proc(l: ^Lexer) {
-	if (peek(l) == '/' && peek(l, 1) == '/') {
+	if (peek(l) == SLASH && peek(l, 1) == SLASH) {
 		advance(l, 2)
 		for peek(l) != '\n' && peek(l) != 0 { advance(l) }
 		if peek(l) == '\n' { advance(l) }
-	} else if (peek(l) == '/' && peek(l, 1) == '*') {
+	} else if (peek(l) == SLASH && peek(l, 1) == ASTERISK) {
 		advance(l, 2)
-		for !(peek(l) == '*' && peek(l, 1) == '/') && peek(l) != 0 { advance(l) }
+		for !(peek(l) == ASTERISK && peek(l, 1) == SLASH) && peek(l) != 0 { advance(l) }
 		advance(l, 2)
 	} else { lexer_panic(l, "Error in comment skip") }
 }
 
 check_for_and_handle_attribute :: proc(l: ^Lexer) {
-	if peek(l) == '(' && peek(l, 1) == '*' {
+	if peek(l) == LPAREN && peek(l, 1) == ASTERISK {
 		attribute_start_idx := l.idx // index of (*
-		for !(peek(l) == '*' && peek(l) == ')') && peek(l) != 0 { advance(l) }
+		for !(peek(l) == ASTERISK && peek(l, 1) == RPAREN) && peek(l) != 0 { advance(l) }
 		advance(l, 2)
 		attribute_end_idx := l.idx // index of *)
 		emit_attribute := l.src[attribute_start_idx:attribute_end_idx] // TODO(rahul): map to source lines and handle attributes appropriately
