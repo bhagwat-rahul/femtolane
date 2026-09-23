@@ -6,7 +6,8 @@ FloorplanConfig :: struct {
 }
 
 Floorplan :: struct {
-	height, width: LefDistance,
+	height, width:                                   LefDistance,
+	io_placement, macro_placment, stdcell_placement: LefDistance, // maybe lefcoord
 }
 
 PowerDomanConfig :: struct {}
