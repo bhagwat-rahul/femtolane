@@ -13,10 +13,11 @@ import "core:strings"
 */
 run_flow :: proc(directory_paths: []string, top_name: string) -> (gds_filepath: string = "") {
 	// get all lef / def, lib, verilog files from all directory paths recursively
-	gds_filepath = "TODO(rahul): run flow and return gds/oas"
 	all_filepaths, tlef_filepaths, lef_filepaths, def_filepaths, lib_filepaths, rtl_filepaths: [dynamic]string
+
 	for path in directory_paths {
 		walker := filepath.walker_create(path)
+		defer filepath.walker_destroy(&walker)
 		for file in filepath.walker_walk(&walker) {
 			if file.type == .Regular {
 				filepath_copy, err := strings.clone(file.fullpath, context.temp_allocator)
@@ -26,8 +27,8 @@ run_flow :: proc(directory_paths: []string, top_name: string) -> (gds_filepath: 
 		}
 		_, err := filepath.walker_error(&walker)
 		ensure(err == nil)
-		filepath.walker_destroy(&walker)
 	}
+
 	for file in all_filepaths {
 		extension := slashpath.ext(file)
 		switch extension {
