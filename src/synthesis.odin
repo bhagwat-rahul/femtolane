@@ -16,10 +16,10 @@ convert_rtl_to_gate_netlist :: proc(
 
 	resolved_rtl_path := rtl_filepath
 	if len(resolved_rtl_path) == 0 {
-		fmt.println("Please select a liberty file")
-		resolved_rtl_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
+		fmt.println("Please select an rtl file")
+		resolved_rtl_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select verilog RTL file"})
 	}
-	ensure(len(resolved_rtl_path) > 0, "Program terminated as you did not select a liberty file")
+	ensure(len(resolved_rtl_path) > 0, "Program terminated as you did not select an rtl file")
 
 	directory, filename := slashpath.split(resolved_rtl_path)
 	// change '/path/adder.v' to '/path/.netlist.adder.v' (dotfile cz we gitignore those)
