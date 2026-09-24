@@ -40,12 +40,12 @@ lexer_consume :: #force_inline proc(l: ^Lexer, c: byte) {
 }
 
 scan_double_quote_wrapped_string :: #force_inline proc(l: ^Lexer) -> (unwrapped_string: string) {
-	lexer_consume(l, '"')
+	lexer_consume(l, DOUBLE_QUOTE)
 	start := l.idx
-	for l.idx < len(l.src) { if peek(l) == '"' { break } else { advance(l) } }
+	for l.idx < len(l.src) { if peek(l) == DOUBLE_QUOTE { break } else { advance(l) } }
 	lexer_ensure(l = l, condition = l.idx < len(l.src), err_msg = "Unterminated string")
 	unwrapped_string = string(l.src[start:l.idx])
-	lexer_consume(l, '"')
+	lexer_consume(l, DOUBLE_QUOTE)
 	return unwrapped_string
 }
 
@@ -56,7 +56,7 @@ is_ident_char :: #force_inline proc(b: byte) -> bool { return IDENT_CHAR[b] }
 scan_ident :: #force_inline proc(l: ^Lexer) -> string {
 	start: int
 	if peek(l) == ESCAPE_SYMBOL {
-		lexer_consume(l, '\\')
+		lexer_consume(l, ESCAPE_SYMBOL)
 		start = l.idx
 		for {
 			c := peek(l)
@@ -75,7 +75,7 @@ scan_ident_ascii_upper :: #force_inline proc(l: ^Lexer) -> string {
 	start: int
 	// NOTE(rahul): DO NOT normalize escaped identifiers, they are case-sensitive by definition
 	if peek(l) == ESCAPE_SYMBOL {
-		lexer_consume(l, '\\')
+		lexer_consume(l, ESCAPE_SYMBOL)
 		start = l.idx
 		for {
 			c := peek(l)

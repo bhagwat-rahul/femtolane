@@ -105,6 +105,8 @@ LESS_THAN :: '<'
 GREATER_THAN :: '>'
 COLON :: ':'
 DOT :: '.'
+SINGLE_QUOTE :: '\''
+DOUBLE_QUOTE :: '"'
 
 // Main lexer function to single pass lex -> convert netlist to hypergraph,
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
