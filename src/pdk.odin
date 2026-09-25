@@ -43,11 +43,11 @@ OpenPdkMetadata :: struct {
 // set PDK_ROOT to dir with libs.ref and libs.tech (openpdk format)
 openpdk_load :: proc() {
 	pdk_root := os.get_env(PDK_ROOT, context.temp_allocator)
-	defer delete(pdk_root)
+	defer delete(pdk_root, context.temp_allocator)
 	ensure(len(pdk_root) > 0, "Please set env var PDK_ROOT")
 
 	reflibs, err := os.read_all_directory_by_path(fmt.tprintf("%s/%s/", pdk_root, OPENPDK_REF), context.temp_allocator)
 	defer delete(reflibs, context.temp_allocator)
 	ensure(err == nil, fmt.tprintf("Error reading libs.ref: %v", err))
-	for dir in reflibs { defer delete(dir.fullpath) }
+	for dir in reflibs { defer delete(dir.fullpath, context.temp_allocator) }
 }
