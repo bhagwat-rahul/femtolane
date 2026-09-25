@@ -48,18 +48,21 @@ main :: proc() {
 		yosys_tcl_script_filepath = yosys_synthesis_tcl_filepath,
 	)
 
-	// Read and construct Lef Data
-	lef_database := lef_create_new_database(core_db_allocator)
-	lef_read_file_into_database(techlef_filepath, core_db_allocator, &lef_database)
-	lef_read_file_into_database(lef_filepath, core_db_allocator, &lef_database)
+	database := CoreDatabase {
+		lef_data     = lef_create_new_database(core_db_allocator),
+		liberty_data = make([dynamic]LibertyLibrary, core_db_allocator),
+	}
 
-	// Read and construct Liberty Data
-	// TODO(rahul): Liberty data pointer allocates inside hypergraph cells, make this on demand and controllable
+	// Read and construct LEF data
+	lef_read_file_into_database(techlef_filepath, core_db_allocator, &database.lef_data)
+	lef_read_file_into_database(lef_filepath, core_db_allocator, &database.lef_data)
+
+	// Read and construct Liberty data
+	liberty_library := liberty_read_file(liberty_filepath, core_db_allocator)
+	append(&database.liberty_data, liberty_library)
 
 	// Read gate level netlist and construct hypergraph
 	lex_gate_level_netlist_and_create_hypergraph(
-		liberty_filepath = liberty_filepath,
-		lef_filepath = lef_filepath,
 		gate_netlist_path = gate_netlist_filepath,
 		lex_graph_arena_allocator = core_db_allocator,
 	)

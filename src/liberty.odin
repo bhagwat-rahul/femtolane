@@ -11,6 +11,8 @@ package main
 import "core:fmt"
 import "core:mem"
 import "core:os"
+import "core:strconv"
+import "core:strings"
 
 LibertyProcessCorner :: distinct string
 LibertyPVTCorner :: struct {
@@ -55,6 +57,8 @@ LibertyLibrary :: struct {
 	name:                          string,
 	description:                   string,
 	type:                          LibraryType,
+	pvt_corner:                    LibertyPVTCorner,
+	cells:                         [dynamic]LibertyCell,
 
 	/* START: Simple Attributes */
 	altitude_unit:                 LibraryAltitudeUnit,
@@ -204,23 +208,15 @@ TableLookup :: enum {
 
 LibertyCell :: struct {
 	name: string,
-	area: u64, // not a f64 for since we will downscale measurement unit so no f64s are needed here, for easier/accurate calculation
+	area: f64,
 	pins: [dynamic]LibertyPin,
 }
 
-LibertyPinFunction :: enum {
-	INVERT_PREVIOUS, // '
-	INVERT_FOLLOWING, // !
-	LOGICAL_XOR, // ^
-	LOGICAL_AND, // *, &, "SPACE"
-	LOGICAL_OR, // +, |
-	SIGNAL_ONE, // 1
-	SIGNAL_ZERO, // 0
-}
-
 LibertyPin :: struct {
-	name:     string,
-	function: LibertyPinFunction,
+	name:      string,
+	direction: string,
+	function:  string,
+	pg_type:   string,
 }
 
 liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
@@ -263,14 +259,56 @@ trip_point_parse :: proc(v: f64) -> TripPoint {
 	return TripPoint(v)
 }
 
-parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.Allocator, hgr: ^NetlistHyperGraph) {
+liberty_simple_value :: #force_inline proc(node: ^LibertyNode) -> string {
+	value := strings.trim_space(node.value)
+	if len(value) >= 2 && value[0] == '"' && value[len(value) - 1] == '"' {
+		return value[1:len(value) - 1]
+	}
+	return value
+}
+
+liberty_parse_number :: #force_inline proc(node: ^LibertyNode) -> f64 {
+	value, ok := strconv.parse_f64(liberty_simple_value(node))
+	ensure(ok, fmt.tprintf("Invalid numeric value for Liberty attribute %s", node.name))
+	return value
+}
+
+liberty_parse_cell :: proc(node: ^LibertyNode, allocator: mem.Allocator) -> LibertyCell {
+	ensure(len(node.args) == 1, "Liberty cell group must have one name")
+	cell := LibertyCell {
+		name = node.args[0],
+		pins = make([dynamic]LibertyPin, allocator),
+	}
+
+	for child in node.children {
+		switch child.name {
+		case "area": cell.area = liberty_parse_number(child)
+		case "pin", "pg_pin":
+			ensure(len(child.args) == 1, "Liberty pin group must have one name")
+			pin := LibertyPin {
+				name = child.args[0],
+			}
+			for attribute in child.children {
+				switch attribute.name {
+				case "direction": pin.direction = liberty_simple_value(attribute)
+				case "function": pin.function = liberty_simple_value(attribute)
+				case "pg_type": pin.pg_type = liberty_simple_value(attribute)
+				}
+			}
+			append(&cell.pins, pin)
+		}
+	}
+	return cell
+}
+
+liberty_read_file :: proc(liberty_filepath: string, allocator: mem.Allocator, process_corner := LibertyProcessCorner("")) -> LibertyLibrary {
 	resolved_liberty_path := liberty_filepath
 	if len(resolved_liberty_path) == 0 {
 		fmt.println("Please select a liberty file")
-		resolved_liberty_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select lib file"})
+		resolved_liberty_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select lib file"}, allocator)
 	}
 	ensure(len(resolved_liberty_path) > 0, "Program terminated as you did not select a liberty file")
-	data, err := os.read_entire_file_from_path(resolved_liberty_path, alloc)
+	data, err := os.read_entire_file_from_path(resolved_liberty_path, allocator)
 	ensure(err == nil, fmt.tprintln("FileReadError:", err))
 
 	l: Lexer = {
@@ -279,45 +317,48 @@ parse_liberty_create_cells_pins :: proc(liberty_filepath: string, alloc: mem.All
 		filepath = resolved_liberty_path,
 	}
 
-	nodes: [dynamic]^LibertyNode
-	nodes = make([dynamic]^LibertyNode, alloc)
+	nodes := make([dynamic]^LibertyNode, allocator)
 
 	for l.idx < len(l.src) {
 		liberty_skip_whitespace_and_comments(&l)
 		if l.idx >= len(l.src) { break }
 
-		n := liberty_parse_statement(&l, alloc)
+		n := liberty_parse_statement(&l, allocator)
 		append(&nodes, n)
 	}
 
-	lib := nodes[0] // or find "library"
-
-	for child in lib.children {
-		if child.name != "cell" { continue }
-
-		// --- CREATE CELL ---
-		cell_name := child.args[0]
-
-		cell_ptr := create_cell(
-			hgr = hgr,
-			arena_alloc = alloc,
-			cell_val = Cell{name = cell_name, pdk_provided = true, resolved = true, children_ports = make([dynamic]^CellPort, alloc)},
-		)
-
-		// --- PARSE CELL BODY ---
-		for cchild in child.children {
-
-			switch cchild.name {
-
-			case "pin", "pg_pin":
-				port_name := cchild.args[0]
-				create_cell_port(parent_cell_ptr = cell_ptr, arena_alloc = alloc, name = port_name)
-			case "area": // TODO(rahul): Use area from lef file but store this area to corroborate too"
-					cell_area := cchild.value
-			// fmt.println("cell", cell_name, "has area", cell_area)
-			}
+	root: ^LibertyNode
+	for node in nodes {
+		if node.name == "library" {
+			root = node
+			break
 		}
 	}
+	ensure(root != nil, "Liberty file has no library group")
+	ensure(len(root.args) == 1, "Liberty library group must have one name")
+
+	source_lib_filepath := strings.clone(resolved_liberty_path, allocator) or_else panic("Unable to clone Liberty filepath")
+	process_corner_string := strings.clone(string(process_corner), allocator) or_else panic("Unable to clone Liberty process corner")
+	library := LibertyLibrary {
+		name = root.args[0],
+		cells = make([dynamic]LibertyCell, allocator),
+		pvt_corner = {process_corner = LibertyProcessCorner(process_corner_string), source_lib_filepath = source_lib_filepath},
+	}
+
+	for child in root.children {
+		switch child.name {
+		case "nom_process": library.nom_process = liberty_parse_number(child)
+		case "nom_temperature":
+			library.nom_temperature = liberty_parse_number(child)
+			library.pvt_corner.temperature_celsius = i16(library.nom_temperature)
+		case "nom_voltage":
+			library.nom_voltage = liberty_parse_number(child)
+			library.pvt_corner.voltage_millivolts = u32(library.nom_voltage * 1000 + 0.5)
+		case "cell": append(&library.cells, liberty_parse_cell(child, allocator))
+		}
+	}
+
+	return library
 }
 
 LibertyNode :: struct {

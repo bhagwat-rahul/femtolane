@@ -113,7 +113,7 @@ DOUBLE_QUOTE :: '"'
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
 lex_gate_level_netlist_and_create_hypergraph :: proc(
-	gate_netlist_path, liberty_filepath, lef_filepath: string,
+	gate_netlist_path: string,
 	lex_graph_arena_allocator: mem.Allocator,
 ) {
 	resolved_gate_netlist_path := gate_netlist_path
@@ -140,11 +140,6 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(
 		instance_hash_map = make(InstanceHashMap, lex_graph_arena_allocator),
 		net_hash_map      = make(NetHashMap, lex_graph_arena_allocator),
 	}
-
-	parse_liberty_create_cells_pins(liberty_filepath = liberty_filepath, alloc = lex_graph_arena_allocator, hgr = &hgr)
-
-	// TODO(rahul): Centralise db functions and pass args into functions instead of everything allocating data structures itself
-	// read_lef(filepath = lef_filepath, allocator = lex_graph_arena_allocator)
 
 	// NOTE(rahul): this loop never changes idx only handler functions do
 	for l.idx < len(l.src) {

@@ -46,12 +46,15 @@ run_flow :: proc(directory_paths: []string, top_name: string) -> (gds_filepath: 
 	flow_allocator := virtual.arena_allocator(&flow_arena)
 	defer virtual.arena_destroy(&flow_arena)
 
-	lef_database := lef_create_new_database(flow_allocator)
-	for tlef in tlef_filepaths { lef_read_file_into_database(tlef, flow_allocator, &lef_database) }
-	for lef in lef_filepaths { lef_read_file_into_database(lef, flow_allocator, &lef_database) }
+	database := CoreDatabase {
+		lef_data     = lef_create_new_database(flow_allocator),
+		liberty_data = make([dynamic]LibertyLibrary, flow_allocator),
+	}
+	for tlef in tlef_filepaths { lef_read_file_into_database(tlef, flow_allocator, &database.lef_data) }
+	for lef in lef_filepaths { lef_read_file_into_database(lef, flow_allocator, &database.lef_data) }
 
 	// Add lib data
-
+	for lib in lib_filepaths { append(&database.liberty_data, liberty_read_file(lib, flow_allocator)) }
 
 	// synthesize
 

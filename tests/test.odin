@@ -73,8 +73,6 @@ test_lexGraph :: proc(_: ^testing.T) {
 	for netlist_path in netlist_paths {
 		main.lex_gate_level_netlist_and_create_hypergraph(
 			gate_netlist_path = netlist_path,
-			lef_filepath = LEF_FILEPATH,
-			liberty_filepath = LIBERTY_FILEPATH,
 			lex_graph_arena_allocator = lex_graph_allocator,
 		)
 	}
@@ -82,24 +80,29 @@ test_lexGraph :: proc(_: ^testing.T) {
 
 @(test)
 test_liberty_cell_creation :: proc(_: ^testing.T) {
-	LIBERTY_DIR :: "/Users/rahulbhagwat/.ciel/ciel/sky130/versions/7b70722e33c03fcb5dabcf4d479fb0822d9251c9/sky130A/libs.ref/sky130_fd_sc_hd/lib/"
 	liberty_cell_creation_arena: virtual.Arena
 	liberty_cell_creation_allocator := test_create_arena_allocator(&liberty_cell_creation_arena)
 	defer virtual.arena_destroy(&liberty_cell_creation_arena)
-	files, _ := os.read_all_directory_by_path(LIBERTY_DIR, liberty_cell_creation_allocator)
-	hgr := main.NetlistHyperGraph {
-		instances         = make([dynamic]^main.Instance, liberty_cell_creation_allocator),
-		nets              = make([dynamic]^main.Net, liberty_cell_creation_allocator),
-		cells             = make([dynamic]^main.Cell, liberty_cell_creation_allocator),
-		cell_hash_map     = make(main.CellHashMap, liberty_cell_creation_allocator),
-		instance_hash_map = make(main.InstanceHashMap, liberty_cell_creation_allocator),
-		net_hash_map      = make(main.NetHashMap, liberty_cell_creation_allocator),
-	}
-	for file in files {
-		main.parse_liberty_create_cells_pins(liberty_filepath = file.fullpath, hgr = &hgr, alloc = liberty_cell_creation_allocator)
-		fmt.println(file.name, "done")
-		fmt.println(len(hgr.cells))
-	}
+	libraries := make([dynamic]main.LibertyLibrary, liberty_cell_creation_allocator)
+	library := main.liberty_read_file(
+		LIBERTY_FILEPATH,
+		liberty_cell_creation_allocator,
+		process_corner = main.LibertyProcessCorner("tt"),
+	)
+	append(&libraries, library)
+
+	assert(len(libraries) == 1)
+	assert(libraries[0].name == "gt2_6t_w13_lvt_tt_0p7v25c")
+	assert(libraries[0].pvt_corner.process_corner == "tt")
+	assert(libraries[0].pvt_corner.temperature_celsius == 25)
+	assert(libraries[0].pvt_corner.voltage_millivolts == 700)
+	assert(len(libraries[0].cells) == 72)
+	assert(libraries[0].cells[0].name == "gt2_6t_and2_x1_w13_lvt")
+	assert(libraries[0].cells[0].area == 0.024192)
+	assert(len(libraries[0].cells[0].pins) == 5)
+	assert(libraries[0].cells[0].pins[4].name == "Y")
+	assert(libraries[0].cells[0].pins[4].direction == "output")
+	assert(libraries[0].cells[0].pins[4].function == "(A&B)")
 }
 
 @(test)
