@@ -2,42 +2,16 @@ package main
 
 import "core:fmt"
 import "core:os"
-import "core:path/slashpath"
 
 // uses yosys to convert RTL to gate netlist (synthesis), will use our own later, maybe with an option for single pass rtl->hypergraph using gl netlist as just a debug artifact?
-convert_rtl_to_gate_netlist :: proc(
-	rtl_filepath: string,
-	lib_file: string,
-	top_module: string,
-	yosys_tcl_script_filepath: string,
-) -> (
-	gate_netlist_filepath: string,
-) {
-
-	resolved_rtl_path := rtl_filepath
-	if len(resolved_rtl_path) == 0 {
-		fmt.println("Please select an rtl file")
-		resolved_rtl_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select verilog RTL file"})
-	}
-	ensure(len(resolved_rtl_path) > 0, "Program terminated as you did not select an rtl file")
-
-	directory, filename := slashpath.split(resolved_rtl_path)
-	// change '/path/adder.v' to '/path/.netlist.adder.v' (dotfile cz we gitignore those)
-	gate_netlist_filepath = fmt.tprint(directory, "netlist", filename, sep = ".")
+convert_rtl_to_gate_netlist :: proc(synthesis_script: string) {
 	yosys_proc: os.Process_Desc = {
-		command = {"yosys", "-c", yosys_tcl_script_filepath},
-		env     = {
-			fmt.tprintf("INPUT_RTL_FILE=%v", resolved_rtl_path),
-			fmt.tprintf("TOP_MODULE=%v", top_module),
-			fmt.tprintf("LIB_FILE=%v", lib_file),
-			fmt.tprintf("OUTPUT_NETLIST=%v", gate_netlist_filepath),
-		},
+		command = {"yosys", "-p", synthesis_script},
 	}
 	state, stdout, stderr, err := os.process_exec(yosys_proc, context.temp_allocator)
 	fmt.println("STDOUT\n", string(stdout))
 	ensure(err == nil, fmt.tprintln("SPAWN ERROR:", err))
 	ensure(state.exit_code == 0, fmt.tprintfln("YOSYS FAILED:\n%s", stderr))
-	return gate_netlist_filepath
 }
 
 

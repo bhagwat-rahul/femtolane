@@ -40,30 +40,12 @@ main :: proc() {
 		lef_filepath = args[7] if len(args) >= 8 else ""
 	}
 
-	// Frontend synthesis RTL -> GL netlist
-	gate_netlist_filepath := convert_rtl_to_gate_netlist(
-		rtl_filepath = rtl_filepath,
-		lib_file = liberty_filepath,
-		top_module = top_module,
-		yosys_tcl_script_filepath = yosys_synthesis_tcl_filepath,
-	)
-
-	database := CoreDatabase {
-		lef_data     = lef_create_new_database(core_db_allocator),
-		liberty_data = make([dynamic]LibertyLibrary, core_db_allocator),
-	}
-
-	// Read and construct LEF data
-	lef_read_file_into_database(techlef_filepath, core_db_allocator, &database.lef_data)
-	lef_read_file_into_database(lef_filepath, core_db_allocator, &database.lef_data)
-
-	// Read and construct Liberty data
-	liberty_library := liberty_read_file(liberty_filepath, core_db_allocator)
-	append(&database.liberty_data, liberty_library)
-
-	// Read gate level netlist and construct hypergraph
-	lex_gate_level_netlist_and_create_hypergraph(
-		gate_netlist_path = gate_netlist_filepath,
-		lex_graph_arena_allocator = core_db_allocator,
+	final := run_flow(
+		{
+			"/Users/rahulbhagwat/Documents/git/personal/fromthetransistor-rahul/section-3/riscv/common/",
+			"/Users/rahulbhagwat/Documents/git/personal/fromthetransistor-rahul/section-3/riscv/src/",
+			"/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/.references/test-data/gt2n",
+		},
+		"riscv",
 	)
 }

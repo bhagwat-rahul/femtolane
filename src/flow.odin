@@ -56,11 +56,29 @@ run_flow :: proc(directory_paths: []string, top_name: string) -> (gds_filepath: 
 	// Add lib data
 	for lib in lib_filepaths { append(&database.liberty_data, liberty_read_file(lib, flow_allocator)) }
 
-	// synthesize
+	read_verilog_paths, rtl_err := strings.join(rtl_filepaths[:], " ", context.temp_allocator)
+	ensure(rtl_err == nil)
 
+	// read_liberty_paths, lib_err := strings.join(lib_filepaths[:], " ", context.temp_allocator)
+	// ensure(lib_err == nil)
+
+	gate_netlist_path := "/outfilepath" // TODO(rahul): os.create_file
+
+	synthesis_script := fmt.tprintfln(
+		"read_verilog -sv %s\nread_liberty -lib %s\nsynth -top %s\ndfflibmap -liberty %s\nabc -liberty %s\nwrite_verilog -noattr -noexpr -nodec %s\n",
+		read_verilog_paths,
+		lib_filepaths[0],
+		top_name,
+		lib_filepaths[0],
+		lib_filepaths[0],
+		gate_netlist_path,
+	)
+
+	// synthesize
+	convert_rtl_to_gate_netlist(synthesis_script)
 
 	// lexgraph all verilog files
-
+	lex_gate_level_netlist_and_create_hypergraph(gate_netlist_path, flow_allocator)
 
 	return gds_filepath
 }
