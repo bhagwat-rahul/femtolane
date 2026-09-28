@@ -20,3 +20,6 @@ It is legal for a DEF file to contain only floorplanning information, such as RO
 In many cases, the DEF netlist information is in a separate format, such as Verilog, or in a separate DEF file.
 It is also common to have a DEF file that only contains a COMPONENTS section to pass placement information.
 */
+
+// TODO(rahul): DefDatabase for loading in floorplans and doing final gds streamout
+DefDatabase :: struct {}

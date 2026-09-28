@@ -1,6 +1,8 @@
 // Things to do with oasis file creation/viewing/manipulation
 package main
 
+import "core:os"
+
 // Oasis file creation according to the oasis spec,
 // some things need to be written as raw bytes,
 // like the file_start magic string, etc.
@@ -22,4 +24,9 @@ create_oasis_data :: proc() -> (buf: []byte) {
 	append(&dynamic_buf, ..OASIS_UNIT)
 	append(&dynamic_buf, ..OASIS_END)
 	return dynamic_buf[:]
+}
+
+oasis_streamout_lef_def_database_to_oas :: proc(lef_db: LefDatabase, def_db: DefDatabase, oasis_outfilepath: string) -> os.Error {
+	oasis_data: []byte // construct data to be streamed out to gds file
+	return os.write_entire_file_from_bytes(oasis_outfilepath, oasis_data)
 }
