@@ -12,11 +12,6 @@ Floorplan :: struct {
 
 PowerDomanConfig :: struct {}
 
-create_power_domains :: proc(pdn_config: PowerDomanConfig) -> (power_domain_lef: string) {
-	power_domain_lef = "lef floorplan string"
-	return power_domain_lef
-}
-
 generate_floorplan :: proc(config: ^FloorplanConfig) -> (floorplan: Floorplan) {
 	floorplan = {
 		height = 0,
