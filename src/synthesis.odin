@@ -14,6 +14,20 @@ convert_rtl_to_gate_netlist :: proc(synthesis_script: string) {
 	ensure(state.exit_code == 0, fmt.tprintfln("YOSYS FAILED:\n%s", stderr))
 }
 
+/*
+// start synthesis helper functions; for when we switch to our own flow from yosys
+
+synthesis_evaluate_expression_to_cell :: proc(
+	expression: string,
+	/* TODO(rahul): maybe have a better type than string for matching expressions with pin functions, not sure how to do with cascading */
+) -> (
+	cell: LibertyCell,
+) {
+	return cell
+}
+
+// end synthesis helper functions
+*/
 
 // Sample yosys_tcl_script; TODO(rahul): Maybe inline later?
 /*
