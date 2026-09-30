@@ -1,4 +1,4 @@
-package main
+package file_picker
 import "core:c"
 import "core:fmt"
 import "core:strings"

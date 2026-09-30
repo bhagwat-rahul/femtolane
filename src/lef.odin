@@ -37,6 +37,7 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:reflect"
+import "file_picker"
 
 LEF_COMMENT :: '#'
 LEF_DEFAULT_BUS_BIT_CHARS :: "[]"
@@ -543,7 +544,11 @@ lef_read_file_into_database :: proc(filepath: string = "", allocator: mem.Alloca
 	resolved_lef_path := filepath
 	if len(resolved_lef_path) == 0 {
 		fmt.println("Please select a lef file")
-		resolved_lef_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select lef file"})
+		file_picker_request := file_picker.File_Picker_Request {
+			mode  = .Open_File,
+			title = "Select lef file",
+		}
+		resolved_lef_path = file_picker.pick_path(file_picker_request)
 	}
 	ensure(len(resolved_lef_path) > 0, "Program terminated as you did not select a liberty file")
 

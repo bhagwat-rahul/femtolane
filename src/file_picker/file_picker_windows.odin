@@ -1,4 +1,4 @@
-package main
+package file_picker
 import "core:strings"
 import "core:sys/windows"
 

@@ -11,6 +11,7 @@ package main
 import "core:fmt"
 import "core:mem"
 import "core:os"
+import "file_picker"
 
 // IDs for fast lookup
 CellID :: distinct u32
@@ -112,14 +113,15 @@ DOUBLE_QUOTE :: '"'
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
-lex_gate_level_netlist_and_create_hypergraph :: proc(
-	gate_netlist_path: string,
-	lex_graph_arena_allocator: mem.Allocator,
-) {
+lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, lex_graph_arena_allocator: mem.Allocator) {
 	resolved_gate_netlist_path := gate_netlist_path
 	if len(resolved_gate_netlist_path) == 0 {
 		fmt.println("Please select a gate-level verilog netlist file")
-		resolved_gate_netlist_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select Gate-Level Netlist"})
+		file_picker_request := file_picker.File_Picker_Request {
+			mode  = .Open_File,
+			title = "Select Gate-Level Netlist",
+		}
+		resolved_gate_netlist_path = file_picker.pick_path(file_picker_request)
 	}
 	ensure(len(resolved_gate_netlist_path) > 0, "Program terminated as you did not select a file to lexgraph")
 	data, err := os.read_entire_file_from_path(resolved_gate_netlist_path, lex_graph_arena_allocator)

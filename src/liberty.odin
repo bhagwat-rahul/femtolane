@@ -13,6 +13,7 @@ import "core:mem"
 import "core:os"
 import "core:strconv"
 import "core:strings"
+import "file_picker"
 
 LibertyProcessCorner :: distinct string
 LibertyPVTCorner :: struct {
@@ -305,7 +306,11 @@ liberty_read_file :: proc(liberty_filepath: string, allocator: mem.Allocator, pr
 	resolved_liberty_path := liberty_filepath
 	if len(resolved_liberty_path) == 0 {
 		fmt.println("Please select a liberty file")
-		resolved_liberty_path = pick_path(File_Picker_Request{mode = .Open_File, title = "Select lib file"}, allocator)
+		file_picker_request := file_picker.File_Picker_Request {
+			mode  = .Open_File,
+			title = "Select lib file",
+		}
+		resolved_liberty_path = file_picker.pick_path(file_picker_request)
 	}
 	ensure(len(resolved_liberty_path) > 0, "Program terminated as you did not select a liberty file")
 	data, err := os.read_entire_file_from_path(resolved_liberty_path, allocator)
