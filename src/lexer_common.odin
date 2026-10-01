@@ -8,6 +8,7 @@ Lexer :: struct {
 	filepath: string,
 }
 
+// TODO(rahul): these ident tables may not apply to all formats, ensure we init and use the right ident tables in is ident start and is ident char (init multiple tables)
 IDENT_START, IDENT_CHAR: [256]bool
 @(init)
 lexer_init_ident_tables :: proc "contextless" () {
