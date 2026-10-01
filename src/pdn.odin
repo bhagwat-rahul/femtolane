@@ -20,6 +20,8 @@ PowerDomanConfig :: struct {
 	power_domains:   []PowerDomain,
 }
 
+// TODO(rahul): add the concept of global nets like vdd/vgnd. basically special nets that need connections to all cells
+
 pdn_create_power_domains :: proc(pdn_config: PowerDomanConfig) -> (power_domain_lef: string) {
 	power_domain_lef = "lef floorplan string"
 	return power_domain_lef
