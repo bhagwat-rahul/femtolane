@@ -146,13 +146,13 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 	// NOTE(rahul): this loop never changes idx only handler functions do
 	for l.idx < len(l.src) {
 		idx := l.idx
-		byte := peek(&l)
+		byte := lexer_peek(&l)
 
 		switch byte {
 		case SLASH: netlist_handle_comments(&l)
-		case NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE, WHITESPACE_TAB: skip_newlines_and_whitespaces(&l)
+		case NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE, WHITESPACE_TAB: lexer_skip_newlines_and_whitespaces(&l)
 		case LPAREN: check_for_and_handle_attribute(&l) // the only lparen main loop should see is for attributes
-		case: if is_ident_start(byte) || byte == ESCAPE_SYMBOL {
+		case: if lexer_is_ident_start(byte) || byte == ESCAPE_SYMBOL {
 					handle_ident(&l, &hgr, lex_graph_arena_allocator)
 				} else { lexer_panic(&l, "Unhandled char") }
 		}
@@ -170,29 +170,29 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 }
 
 netlist_handle_comments :: #force_inline proc(l: ^Lexer) {
-	if (peek(l) == SLASH && peek(l, 1) == SLASH) {
-		advance(l, 2)
-		for peek(l) != '\n' && peek(l) != 0 { advance(l) }
-		if peek(l) == '\n' { advance(l) }
-	} else if (peek(l) == SLASH && peek(l, 1) == ASTERISK) {
-		advance(l, 2)
-		for !(peek(l) == ASTERISK && peek(l, 1) == SLASH) && peek(l) != 0 { advance(l) }
-		advance(l, 2)
+	if (lexer_peek(l) == SLASH && lexer_peek(l, 1) == SLASH) {
+		lexer_advance(l, 2)
+		for lexer_peek(l) != '\n' && lexer_peek(l) != 0 { lexer_advance(l) }
+		if lexer_peek(l) == '\n' { lexer_advance(l) }
+	} else if (lexer_peek(l) == SLASH && lexer_peek(l, 1) == ASTERISK) {
+		lexer_advance(l, 2)
+		for !(lexer_peek(l) == ASTERISK && lexer_peek(l, 1) == SLASH) && lexer_peek(l) != 0 { lexer_advance(l) }
+		lexer_advance(l, 2)
 	} else { lexer_panic(l, "Error in comment skip") }
 }
 
 check_for_and_handle_attribute :: proc(l: ^Lexer) {
-	if peek(l) == LPAREN && peek(l, 1) == ASTERISK {
+	if lexer_peek(l) == LPAREN && lexer_peek(l, 1) == ASTERISK {
 		attribute_start_idx := l.idx // index of (*
-		for !(peek(l) == ASTERISK && peek(l, 1) == RPAREN) && peek(l) != 0 { advance(l) }
-		advance(l, 2)
+		for !(lexer_peek(l) == ASTERISK && lexer_peek(l, 1) == RPAREN) && lexer_peek(l) != 0 { lexer_advance(l) }
+		lexer_advance(l, 2)
 		attribute_end_idx := l.idx // index of *)
 		emit_attribute := l.src[attribute_start_idx:attribute_end_idx] // TODO(rahul): map to source lines and handle attributes appropriately
 	} else { lexer_panic(l, "Invalid attribute") }
 }
 
 handle_ident :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
-	ident := scan_ident(l)
+	ident := lexer_scan_ident(l)
 	switch ident {
 	case KEYWORD_ASSIGN: handle_assign_statement(l = l, hgr = hgr)
 	case KEYWORD_MODULE: handle_module_statement(l = l, hgr = hgr, arena_alloc = arena_alloc)
@@ -204,43 +204,43 @@ handle_ident :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Alloca
 }
 
 handle_endmodule_statement :: proc(l: ^Lexer) {
-	advance(l)
-	skip_newlines_and_whitespaces(l)
+	lexer_advance(l)
+	lexer_skip_newlines_and_whitespaces(l)
 }
 
 handle_assign_statement :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph) {
-	skip_newlines_and_whitespaces(l)
-	lhs_net: ^Net = hgr.net_hash_map[scan_ident(l)]
-	skip_newlines_and_whitespaces(l)
-	if (peek(l) != EQUAL) { lexer_panic(l, "No = after LHS in assign statement") } else {
-		advance(l)
-		skip_newlines_and_whitespaces(l)
+	lexer_skip_newlines_and_whitespaces(l)
+	lhs_net: ^Net = hgr.net_hash_map[lexer_scan_ident(l)]
+	lexer_skip_newlines_and_whitespaces(l)
+	if (lexer_peek(l) != EQUAL) { lexer_panic(l, "No = after LHS in assign statement") } else {
+		lexer_advance(l)
+		lexer_skip_newlines_and_whitespaces(l)
 	}
-	rhs_net: ^Net = hgr.net_hash_map[scan_ident(l)]
-	skip_newlines_and_whitespaces(l)
+	rhs_net: ^Net = hgr.net_hash_map[lexer_scan_ident(l)]
+	lexer_skip_newlines_and_whitespaces(l)
 	lexer_consume(l, SEMICOLON)
-	skip_newlines_and_whitespaces(l)
+	lexer_skip_newlines_and_whitespaces(l)
 	fmt.println("TODO(rahul):Merge lhs / rhs here and delete/mark alias non-canonical from final rep")
 }
 
 handle_module_statement :: proc(l: ^Lexer, hgr: ^NetlistHyperGraph, arena_alloc: mem.Allocator) {
-	advance(l)
-	skip_newlines_and_whitespaces(l)
-	module_name := scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
-	skip_newlines_and_whitespaces(l)
-	if (peek(l) != LPAREN) { lexer_panic(l, fmt.tprintf("Found %r instead of %r", peek(l), LPAREN)) } else { advance(l) }
-	skip_newlines_and_whitespaces(l)
-	for peek(l) != SEMICOLON {
-		skip_newlines_and_whitespaces(l)
-		if peek(l) == COMMA { advance(l) } else if peek(l) == RPAREN { advance(l) } else { advance(l) } 	// We advance here since scanning ports in module header is redundant they show up again anyway
-		skip_newlines_and_whitespaces(l)
+	lexer_advance(l)
+	lexer_skip_newlines_and_whitespaces(l)
+	module_name := lexer_scan_ident(l) // since we're in module header next scanned thing after module keyword is name of module and then module def
+	lexer_skip_newlines_and_whitespaces(l)
+	if (lexer_peek(l) != LPAREN) { lexer_panic(l, fmt.tprintf("Found %r instead of %r", lexer_peek(l), LPAREN)) } else { lexer_advance(l) }
+	lexer_skip_newlines_and_whitespaces(l)
+	for lexer_peek(l) != SEMICOLON {
+		lexer_skip_newlines_and_whitespaces(l)
+		if lexer_peek(l) == COMMA { lexer_advance(l) } else if lexer_peek(l) == RPAREN { lexer_advance(l) } else { lexer_advance(l) } 	// We advance here since scanning ports in module header is redundant they show up again anyway
+		lexer_skip_newlines_and_whitespaces(l)
 	}
 	cell_ptr := hgr.cell_hash_map[module_name]
 	if cell_ptr == nil {
 		cell_ptr = create_cell(hgr = hgr, arena_alloc = arena_alloc, cell_val = Cell{name = module_name, resolved = true, pdk_provided = false})
 	} else { cell_ptr.resolved = true } 	// We know this exists now if it was forward declared
-	advance(l)
-	skip_newlines_and_whitespaces(l)
+	lexer_advance(l)
+	lexer_skip_newlines_and_whitespaces(l)
 }
 
 handle_net_creation :: proc(ident: string, hgr: ^NetlistHyperGraph, l: ^Lexer, arena_alloc: mem.Allocator) {
@@ -251,14 +251,14 @@ handle_net_creation :: proc(ident: string, hgr: ^NetlistHyperGraph, l: ^Lexer, a
 	case KEYWORD_OUTPUT: ident_net_type = .MODULE_OUTPUT
 	case KEYWORD_INOUT: ident_net_type = .MODULE_INOUT
 	}
-	skip_newlines_and_whitespaces(l)
+	lexer_skip_newlines_and_whitespaces(l)
 	msb, lsb := 0, 0
-	if peek(l) == L_SQUARE_BRACKET {
+	if lexer_peek(l) == L_SQUARE_BRACKET {
 		msb, lsb = parse_bus(l)
-		skip_newlines_and_whitespaces(l)
+		lexer_skip_newlines_and_whitespaces(l)
 	}
 	net_loop: for {
-		name := scan_ident(l)
+		name := lexer_scan_ident(l)
 		lo, hi := min(msb, lsb), max(msb, lsb)
 		for i in lo ..= hi {
 			net_name := name if (msb == 0 && lsb == 0) else fmt.tprintf("%s[%d]", name, i)
@@ -273,26 +273,26 @@ handle_net_creation :: proc(ident: string, hgr: ^NetlistHyperGraph, l: ^Lexer, a
 				net.net_type = ident_net_type
 			}
 		}
-		skip_newlines_and_whitespaces(l)
-		switch peek(l) {
+		lexer_skip_newlines_and_whitespaces(l)
+		switch lexer_peek(l) {
 		case COMMA:
-			advance(l)
-			skip_newlines_and_whitespaces(l)
+			lexer_advance(l)
+			lexer_skip_newlines_and_whitespaces(l)
 
 		case SEMICOLON:
-			advance(l)
-			skip_newlines_and_whitespaces(l)
+			lexer_advance(l)
+			lexer_skip_newlines_and_whitespaces(l)
 			break net_loop
 
-		case: lexer_panic(l, fmt.tprintf("Expected '%r' or '%r' after wire declaration, got %r", COMMA, SEMICOLON, peek(l)))
+		case: lexer_panic(l, fmt.tprintf("Expected '%r' or '%r' after wire declaration, got %r", COMMA, SEMICOLON, lexer_peek(l)))
 		}
 	}
 }
 
 handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, l: ^Lexer, arena_alloc: mem.Allocator) {
 	// since this is nothing else it has to be an instantiation
-	skip_newlines_and_whitespaces(l)
-	instance_name := scan_ident(l)
+	lexer_skip_newlines_and_whitespaces(l)
+	instance_name := lexer_scan_ident(l)
 	parent_cell_ptr := hgr.cell_hash_map[parent_cell_name] // Try O(1) lookup
 	if parent_cell_ptr == nil {
 		parent_cell_ptr = create_cell(
@@ -306,19 +306,19 @@ handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, 
 		parent_cell = parent_cell_ptr,
 	}
 	created_instance := create_instance(hgr = hgr, arena_alloc = arena_alloc, inst_val = instance_val, l = l)
-	skip_newlines_and_whitespaces(l)
-	if peek(l) == SLASH {
+	lexer_skip_newlines_and_whitespaces(l)
+	if lexer_peek(l) == SLASH {
 		netlist_handle_comments(l)
-		skip_newlines_and_whitespaces(l)
+		lexer_skip_newlines_and_whitespaces(l)
 	}
 
-	if peek(l) == LPAREN && peek(l) != 0 { advance(l) } else { lexer_panic(l, "No ( after cell instantiation") }
+	if lexer_peek(l) == LPAREN && lexer_peek(l) != 0 { lexer_advance(l) } else { lexer_panic(l, "No ( after cell instantiation") }
 
-	for peek(l) != SEMICOLON && peek(l) != 0 {
-		if peek(l) == DOT {
-			advance(l)
-			instance_port_name := scan_ident(l) // Port defined by cell
-			skip_newlines_and_whitespaces(l)
+	for lexer_peek(l) != SEMICOLON && lexer_peek(l) != 0 {
+		if lexer_peek(l) == DOT {
+			lexer_advance(l)
+			instance_port_name := lexer_scan_ident(l) // Port defined by cell
+			lexer_skip_newlines_and_whitespaces(l)
 			cell_port: ^CellPort // this goes in instance port to point to parent cellport
 			for port in parent_cell_ptr.children_ports {
 				if port.name == instance_port_name {
@@ -336,30 +336,30 @@ handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, 
 					net = nil,
 				},
 			)
-			if peek(l) != LPAREN { lexer_panic(l, "No ( after port connection") }
-			advance(l)
+			if lexer_peek(l) != LPAREN { lexer_panic(l, "No ( after port connection") }
+			lexer_advance(l)
 			port_conn_name: string
-			if '0' <= peek(l) && peek(l) <= '9' {
+			if '0' <= lexer_peek(l) && lexer_peek(l) <= '9' {
 				start := l.idx
-				for peek(l) != RPAREN && peek(l) != 0 { advance(l) }
+				for lexer_peek(l) != RPAREN && lexer_peek(l) != 0 { lexer_advance(l) }
 				port_conn_name = string(l.src[start:l.idx])
 			} else {
-				port_conn_name = scan_ident(l)
+				port_conn_name = lexer_scan_ident(l)
 			}
-			skip_newlines_and_whitespaces(l)
-			if peek(l) == L_SQUARE_BRACKET {
-				advance(l)
+			lexer_skip_newlines_and_whitespaces(l)
+			if lexer_peek(l) == L_SQUARE_BRACKET {
+				lexer_advance(l)
 				idx := 0
-				for peek(l) != R_SQUARE_BRACKET {
-					idx = idx * 10 + int(peek(l) - '0')
-					advance(l)
+				for lexer_peek(l) != R_SQUARE_BRACKET {
+					idx = idx * 10 + int(lexer_peek(l) - '0')
+					lexer_advance(l)
 				}
 				port_conn_name = fmt.tprintf("%s[%d]", port_conn_name, idx)
-				advance(l)
+				lexer_advance(l)
 			}
-			skip_newlines_and_whitespaces(l)
-			if peek(l) != RPAREN { lexer_panic(l, "No ) after net conn") }
-			advance(l)
+			lexer_skip_newlines_and_whitespaces(l)
+			if lexer_peek(l) != RPAREN { lexer_panic(l, "No ) after net conn") }
+			lexer_advance(l)
 			net := hgr.net_hash_map[port_conn_name]
 			if net == nil {
 				net = create_net(
@@ -371,26 +371,26 @@ handle_instantiation :: proc(parent_cell_name: string, hgr: ^NetlistHyperGraph, 
 			created_instance_port.net = net
 			append(&net.connections, created_instance_port)
 		}
-		advance(l); skip_newlines_and_whitespaces(l)
+		lexer_advance(l); lexer_skip_newlines_and_whitespaces(l)
 	}
-	advance(l) // advance past semicolon
-	skip_newlines_and_whitespaces(l)
+	lexer_advance(l) // advance past semicolon
+	lexer_skip_newlines_and_whitespaces(l)
 
 }
 
 // Parse bus of form [1023:0], which indicates 1024 elements, return msb (1023) and lsb (0)
 parse_bus :: proc(l: ^Lexer) -> (msb: int, lsb: int) {
 	lexer_consume(l, L_SQUARE_BRACKET)
-	for peek(l) != COLON && peek(l) != 0 {
-		msb = msb * 10 + int(peek(l) - '0')
-		advance(l)
+	for lexer_peek(l) != COLON && lexer_peek(l) != 0 {
+		msb = msb * 10 + int(lexer_peek(l) - '0')
+		lexer_advance(l)
 	}
-	advance(l)
-	for peek(l) != R_SQUARE_BRACKET && peek(l) != 0 {
-		lsb = lsb * 10 + int(peek(l) - '0')
-		advance(l)
+	lexer_advance(l)
+	for lexer_peek(l) != R_SQUARE_BRACKET && lexer_peek(l) != 0 {
+		lsb = lsb * 10 + int(lexer_peek(l) - '0')
+		lexer_advance(l)
 	}
-	advance(l)
+	lexer_advance(l)
 	return msb, lsb
 }
 
