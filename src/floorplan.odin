@@ -10,8 +10,6 @@ Floorplan :: struct {
 	io_placement, macro_placment, stdcell_placement: LefDistance, // maybe lefcoord
 }
 
-PowerDomanConfig :: struct {}
-
 generate_floorplan :: proc(config: ^FloorplanConfig) -> (floorplan: Floorplan) {
 	floorplan = {
 		height = 0,
