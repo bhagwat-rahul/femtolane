@@ -14,6 +14,10 @@ convert_rtl_to_gate_netlist :: proc(synthesis_script: string) {
 	ensure(state.exit_code == 0, fmt.tprintfln("YOSYS FAILED:\n%s", stderr))
 }
 
+// TODO(rahul): yosys currently outputs some helpful libfile info in attributes like capacitance etc. we can extend this idea a lot by emitting such attributes and using them in the gui representation for engineers to more easily diagnose errors.
+
+// TODO(rahul): a good way to think about yosys to IR conversion is in tinygrads graph -> UOps conversion. tinygrad has somewhat of a fixed IR (we won't cz stdcell pin functions can be kind of arbitrary [or can they?]), so we need to go about things differently but some ideas still apply.
+
 /*
 // start synthesis helper functions; for when we switch to our own flow from yosys
 
