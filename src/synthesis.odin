@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:mem"
 import "core:os"
 
 // uses yosys to convert RTL to gate netlist (synthesis), will use our own later, maybe with an option for single pass rtl->hypergraph using gl netlist as just a debug artifact?
@@ -29,6 +30,15 @@ synthesis_evaluate_expression_to_cell :: proc(
 ) {
 	return cell
 }
+
+synthesis_read_hdl :: #force_inline proc(hdl_filepaths: []string, allocator: mem.Allocator) {
+	for path in hdl_filepaths { lex_gate_level_netlist_and_create_hypergraph(path, allocator) }
+}
+
+synthesis_read_liberty :: #force_inline proc(liberty_filepaths: []string, allocator: mem.Allocator) {
+	for path in liberty_filepaths { liberty_read_file(path, allocator) }
+}
+
 
 // end synthesis helper functions
 */
