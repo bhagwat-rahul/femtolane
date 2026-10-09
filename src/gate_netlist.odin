@@ -113,7 +113,12 @@ DOUBLE_QUOTE :: '"'
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
 // also use lookup-tables instead of branch heavy code for predictable memacc's
-lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, lex_graph_arena_allocator: mem.Allocator) {
+lex_gate_level_netlist_and_create_hypergraph :: proc(
+	gate_netlist_path: string,
+	lex_graph_arena_allocator: mem.Allocator,
+) -> (
+	hgr: NetlistHyperGraph,
+) {
 	resolved_gate_netlist_path := gate_netlist_path
 	if len(resolved_gate_netlist_path) == 0 {
 		fmt.println("Please select a gate-level verilog netlist file")
@@ -132,7 +137,7 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		idx      = 0,
 	} // gl netlist data, start from byte 0
 
-	hgr := NetlistHyperGraph {
+	hgr = NetlistHyperGraph {
 		instances         = make([dynamic]^Instance, lex_graph_arena_allocator),
 		nets              = make([dynamic]^Net, lex_graph_arena_allocator),
 		cells             = make([dynamic]^Cell, lex_graph_arena_allocator),
@@ -167,6 +172,7 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(gate_netlist_path: string, 
 		total_ports,
 		len(hgr.nets),
 	)
+	return hgr
 }
 
 netlist_handle_comments :: #force_inline proc(l: ^Lexer) {
