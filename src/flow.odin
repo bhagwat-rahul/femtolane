@@ -78,7 +78,7 @@ run_flow :: proc(directory_paths: []string, top_name: string) -> (gds_filepath: 
 	convert_rtl_to_gate_netlist(synthesis_script)
 
 	// lexgraph all verilog files
-	lex_gate_level_netlist_and_create_hypergraph(gate_netlist_path, flow_allocator)
+	netlist_hypergraph := lex_gate_level_netlist_and_create_hypergraph(gate_netlist_path, flow_allocator)
 
 	return gds_filepath
 }

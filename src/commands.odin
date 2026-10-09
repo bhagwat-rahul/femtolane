@@ -4,7 +4,7 @@ import "core:mem"
 
 // Commands that this tool can take / via gui or cli (some might just be thin wrappers around existing db funcs to keep api clean)
 
-
+// TODO(rahul): add stuff to same hgr, or maintain a relationship
 command_read_gate_netlist_to_hypergraph :: #force_inline proc(hdl_filepaths: []string, allocator: mem.Allocator) {
 	for path in hdl_filepaths { lex_gate_level_netlist_and_create_hypergraph(path, allocator) }
 }
