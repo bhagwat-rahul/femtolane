@@ -20,3 +20,11 @@ command_write_netlist_hypergraph_to_json_file :: #force_inline proc(
 ) {
 	json_marshal_data_and_write_json_file(filepath = outfilepath, data = netlist_hypergraph, allocator = allocator)
 }
+
+command_generate_write_abstract_lef_file :: proc(filepath: string, lef_input: LefDatabase) {
+	// TODO(rahul): generate abstract lef (external pins and bounds only) for things like srams, etc.
+}
+
+command_write_liberty_file :: proc(outfilepath: string, liberty_data: LibertyLibrary) {  }
+
+command_write_lef_file :: proc(outfilepath: string, lef_data: LefDatabase) {  }
