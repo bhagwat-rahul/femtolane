@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:mem"
+import "core:net"
 import "core:os"
 
 // uses yosys to convert RTL to gate netlist (synthesis), will use our own later, maybe with an option for single pass rtl->hypergraph using gl netlist as just a debug artifact?
@@ -29,6 +30,11 @@ synthesis_evaluate_expression_to_cell :: proc(
 	cell: LibertyCell,
 ) {
 	return cell
+}
+
+synthesis_uniquify_netlist :: proc(netlist: NetlistHyperGraph) -> (uniquified_netlist: NetlistHyperGraph) {
+	// ensure submodules are unique so everything can be independently optimised
+	return uniquified_netlist
 }
 
 // end synthesis helper functions
