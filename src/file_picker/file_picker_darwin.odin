@@ -59,6 +59,7 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 		if len(request.starting_path) > 0 { panel->setDirectoryURL(file_url(request.starting_path)) }
 		if len(request.suggested_name) > 0 { panel->setNameFieldStringValue(ns_string(request.suggested_name)) }
 		if types := allowed_types_array(request.file_types); types != nil { panel->setAllowedFileTypes(types) }
+		panel->orderFrontRegardless()
 		if panel->runModal() != AppKit.ModalResponseOK { return "" }
 		selection = clone_url_path(panel->URL(), allocator)
 		return selection
@@ -78,6 +79,7 @@ pick_path :: proc(request: File_Picker_Request, allocator := context.temp_alloca
 	if request.mode == .Open_File {
 		if types := allowed_types_array(request.file_types); types != nil { panel->setAllowedFileTypes(types) }
 	}
+	panel->orderFrontRegardless()
 	if panel->runModal() != AppKit.ModalResponseOK { return "" }
 	selection = clone_url_path(panel->URL(), allocator)
 	return selection
