@@ -1,20 +1,23 @@
 package main
 
 FloorplanConfig :: struct {
-	height, width:             LefDistance,
-	utilization, aspect_ratio: f64, // normalise as % from 0-1
+	total_height, total_width:      LefDistance,
+	core_utilization, aspect_ratio: f64, // normalise as % from 0-1
 }
 
 Floorplan :: struct {
-	height, width:                                   LefDistance,
-	io_placement, macro_placment, stdcell_placement: LefDistance, // maybe lefcoord
+	total_height, total_width, core_height, core_width: LefDistance,
+	io_placement, macro_placment, stdcell_placement:    LefDistance, // maybe lefcoord
 }
 
 generate_floorplan :: proc(config: ^FloorplanConfig) -> (floorplan: Floorplan) {
 	floorplan = {
-		height = 0,
-		width  = 0,
+		total_height = 0,
+		total_width  = 0,
 	}
+	total_area := config.total_height * config.total_width
+	utilization := clamp(config.core_utilization, 0.0, 1.0)
+	core_placement_area := f64(total_area) * utilization
 	return floorplan
 }
 
