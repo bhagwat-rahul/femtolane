@@ -167,3 +167,10 @@ Usually chips will be sectioned into different power domains, eg. one section ru
 Macros / components that need a specific voltage will be placed into the domain supplying that voltage and relevant ground.
 We will need cells on the boundaries of the different domains to switch voltages up/down (called level shifters)
 The format to specify these power domains is UPF (made by synopsys now standardised by IEEE), an older cadence format (CPF) is mostly deprecated now.
+
+## 3D IC (3d aware design)
+
+PD for 3DIC design needs to be 3d aware from the ground up. Since decisions made in earlier stages affect later stages of the design we need to ensure our cost function is suited for 3d from the ground up.
+Eg. If you partition certain blocks of the design to be on die 1 and others on die 2, that constrains pnr to not be able to move things around and use tsv's / work across die's.
+It's probably best to have a cost function that models timing / manufacturability across all dies, taking into account slowness / capacitances on cross die interconnects, thermals, etc. to not just optimise individual dies and then the system but begin to optimise / simulate the entire system from the beginning.
+If a 3D path fixes timing but messes up thermals that's still an issue, need to co-optimise on multiple metrics
