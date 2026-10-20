@@ -1,6 +1,29 @@
 package main
 import "core:fmt"
 
+WHITESPACE :: ' '
+WHITESPACE_TAB :: '\t'
+SLASH :: '/'
+NEWLINE_CARRIAGE_RETURN :: '\r' // for windows platforms
+NEWLINE :: '\n'
+ESCAPE_SYMBOL :: '\\'
+SEMICOLON :: ';'
+COMMA :: ','
+LPAREN :: '('
+RPAREN :: ')'
+LCURLY :: '{'
+RCURLY :: '}'
+ASTERISK :: '*'
+L_SQUARE_BRACKET :: '['
+R_SQUARE_BRACKET :: ']'
+EQUAL :: '='
+LESS_THAN :: '<'
+GREATER_THAN :: '>'
+COLON :: ':'
+DOT :: '.'
+SINGLE_QUOTE :: '\''
+DOUBLE_QUOTE :: '"'
+
 Lexer :: struct {
 	src:      []byte,
 	idx:      int,

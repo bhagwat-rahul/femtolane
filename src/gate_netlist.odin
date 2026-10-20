@@ -88,29 +88,6 @@ KEYWORD_INOUT :: "inout"
 KEYWORD_WIRE :: "wire"
 KEYWORD_REG :: "reg"
 
-WHITESPACE :: ' '
-WHITESPACE_TAB :: '\t'
-SLASH :: '/'
-NEWLINE_CARRIAGE_RETURN :: '\r' // for windows platforms
-NEWLINE :: '\n'
-ESCAPE_SYMBOL :: '\\'
-SEMICOLON :: ';'
-COMMA :: ','
-LPAREN :: '('
-RPAREN :: ')'
-LCURLY :: '{'
-RCURLY :: '}'
-ASTERISK :: '*'
-L_SQUARE_BRACKET :: '['
-R_SQUARE_BRACKET :: ']'
-EQUAL :: '='
-LESS_THAN :: '<'
-GREATER_THAN :: '>'
-COLON :: ':'
-DOT :: '.'
-SINGLE_QUOTE :: '\''
-DOUBLE_QUOTE :: '"'
-
 // Main lexer function to single pass lex -> convert netlist to hypergraph,
 // use slices instead of allocating a scratch buf and the byte_idx always goes ahead by the amount of bytes we just consumed to identify a token
 // That is what makes this 'single pass' and O(n) where n = len(src_bytes)
