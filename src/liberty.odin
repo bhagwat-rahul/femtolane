@@ -237,6 +237,7 @@ LibertyPin :: struct {
 	pg_type:   string,
 }
 
+// TODO(rahul): this is probably slow af, weird control flow in such a hot loop, fix
 liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
 	lexer_skip_newlines_and_whitespaces(l)
 	liberty_single_line_comment: if lexer_peek(l) == SLASH && lexer_peek(l, 1) == SLASH {
