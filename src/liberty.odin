@@ -237,35 +237,18 @@ LibertyPin :: struct {
 }
 
 liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
-	for l.idx < len(l.src) {
-		c := lexer_peek(l)
-
-		if c == WHITESPACE || c == WHITESPACE_TAB || c == NEWLINE || c == NEWLINE_CARRIAGE_RETURN {
-			lexer_advance(l)
-			continue
+	lexer_skip_newlines_and_whitespaces(l)
+	liberty_single_line_comment: if lexer_peek(l) == SLASH && lexer_peek(l, 1) == SLASH {
+		for {
+			if lexer_peek(l) == NEWLINE { break } else { lexer_advance(l) }
 		}
-
-		if c == SLASH && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == SLASH {
-			for l.idx < len(l.src) && lexer_peek(l) != NEWLINE { lexer_advance(l) }
-			continue
-		}
-
-		if c == SLASH && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == ASTERISK {
-			lexer_advance(l, 2)
-
-			for {
-				if l.idx + 1 >= len(l.src) { panic("unterminated comment") }
-				if lexer_peek(l) == ASTERISK && l.src[l.idx + 1] == SLASH {
-					lexer_advance(l, 2)
-					break
-				}
-				lexer_advance(l)
-			}
-			continue
-		}
-
-		break
 	}
+	liberty_multi_line_comment: if lexer_peek(l) == SLASH && lexer_peek(l, 1) == ASTERISK {
+		for {
+			if lexer_peek(l) == ASTERISK && lexer_peek(l, 1) == SLASH { lexer_advance(l, 2); break } else { lexer_advance(l) }
+		}
+	}
+	lexer_skip_newlines_and_whitespaces(l)
 }
 
 liberty_parse_trip_point :: proc(v: f64) -> TripPoint {
