@@ -8,6 +8,7 @@ GL netlist lex and Liberty lex is different cz in lib files we have 200+ keyword
 */
 
 package main
+
 import "core:fmt"
 import "core:mem"
 import "core:os"
