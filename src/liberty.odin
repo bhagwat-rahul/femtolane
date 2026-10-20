@@ -175,22 +175,38 @@ LibertyLibrary :: struct {
 LibraryAltitudeUnit :: enum {}
 LibraryCurrentUnit :: enum {}
 LibraryDelayModel :: enum {}
-LibraryLeakagePowerUnit :: enum {}
+
+LibraryLeakagePowerUnit :: enum {
+	// picowatt
+	PW_1,
+	PW_10,
+	PW_100,
+	// nanowatt
+	NW_1,
+	NW_10,
+	NW_100,
+	// milliwatt
+	MW_1,
+	MW_10,
+	MW_100,
+}
+
 PullingResistanceUnit :: enum {
-	Ohm1,
-	Ohm10,
-	Ohm100,
-	Ohm1000,
+	OHM_1,
+	OHM_10,
+	OHM_100,
+	OHM_1000,
 } /*1ohm | 10ohm | 100ohm | 1kohm*/
+
 CapacitiveLoadUnit :: enum {
 	FF, // FemtoFarad
 	PF, // PicoFarad
 }
 
 WireLoadMode :: enum {
-	Top,
-	Segmented,
-	Enclosed,
+	TOP,
+	SEGMENTED,
+	ENCLOSED,
 }
 
 CapacitiveLoadSpec :: struct {
