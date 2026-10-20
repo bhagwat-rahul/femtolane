@@ -223,24 +223,24 @@ liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
 		c := lexer_peek(l)
 
 		// whitespace
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+		if c == WHITESPACE || c == WHITESPACE_TAB || c == NEWLINE || c == NEWLINE_CARRIAGE_RETURN {
 			lexer_advance(l)
 			continue
 		}
 
 		// line comment: // ...
-		if c == '/' && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == '/' {
-			for l.idx < len(l.src) && lexer_peek(l) != '\n' { lexer_advance(l) }
+		if c == SLASH && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == SLASH {
+			for l.idx < len(l.src) && lexer_peek(l) != NEWLINE { lexer_advance(l) }
 			continue
 		}
 
 		// block comment: /* ... */
-		if c == '/' && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == '*' {
+		if c == SLASH && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == ASTERISK {
 			lexer_advance(l, 2)
 
 			for {
 				if l.idx + 1 >= len(l.src) { panic("unterminated comment") }
-				if lexer_peek(l) == '*' && l.src[l.idx + 1] == '/' {
+				if lexer_peek(l) == ASTERISK && l.src[l.idx + 1] == SLASH {
 					lexer_advance(l, 2)
 					break
 				}
@@ -253,14 +253,14 @@ liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
 	}
 }
 
-trip_point_parse :: proc(v: f64) -> TripPoint {
+liberty_parse_trip_point :: proc(v: f64) -> TripPoint {
 	if v < TRIP_POINT_MIN || v > TRIP_POINT_MAX { panic("trip_point out of range") }
 	return TripPoint(v)
 }
 
 liberty_simple_value :: #force_inline proc(node: ^LibertyNode) -> string {
 	value := strings.trim_space(node.value)
-	if len(value) >= 2 && value[0] == '"' && value[len(value) - 1] == '"' {
+	if len(value) >= 2 && value[0] == DOUBLE_QUOTE && value[len(value) - 1] == DOUBLE_QUOTE {
 		return value[1:len(value) - 1]
 	}
 	return value
@@ -371,35 +371,35 @@ LibertyNode :: struct {
 	children: [dynamic]^LibertyNode,
 }
 
-parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
+liberty_parse_args :: proc(l: ^Lexer, alloc: mem.Allocator) -> [dynamic]string {
 	args := make([dynamic]string, alloc)
 
-	lexer_consume(l, '(')
+	lexer_consume(l, LPAREN)
 	liberty_skip_whitespace_and_comments(l)
 
-	for lexer_peek(l) != ')' {
+	for lexer_peek(l) != RPAREN {
 
 		c := lexer_peek(l)
 
-		if c == '"' {
+		if c == DOUBLE_QUOTE {
 			append(&args, lexer_scan_double_quote_wrapped_string(l))
 		} else if lexer_is_ident_start(c) {
 			append(&args, lexer_scan_ident(l))
 		} else {
 			start := l.idx
-			for lexer_peek(l) != ',' && lexer_peek(l) != ')' { lexer_advance(l) }
+			for lexer_peek(l) != COMMA && lexer_peek(l) != RPAREN { lexer_advance(l) }
 			append(&args, string(l.src[start:l.idx]))
 		}
 
 		liberty_skip_whitespace_and_comments(l)
 
-		if lexer_peek(l) == ',' {
+		if lexer_peek(l) == COMMA {
 			lexer_advance(l)
 			liberty_skip_whitespace_and_comments(l)
 		}
 	}
 
-	lexer_consume(l, ')')
+	lexer_consume(l, RPAREN)
 	return args
 }
 
@@ -413,44 +413,44 @@ liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode
 	node.name = name
 
 	// SIMPLE: name : value ;
-	if lexer_peek(l) == ':' {
+	if lexer_peek(l) == COLON {
 		lexer_advance(l)
 		liberty_skip_whitespace_and_comments(l)
 
 		start := l.idx
-		for lexer_peek(l) != ';' {
+		for lexer_peek(l) != SEMICOLON {
 			lexer_advance(l)
 		}
 
 		node.value = string(l.src[start:l.idx])
-		lexer_consume(l, ';')
+		lexer_consume(l, SEMICOLON)
 		return node
 	}
 
 	// COMPLEX / GROUP
-	if lexer_peek(l) == '(' {
-		node.args = parse_args(l, alloc)
+	if lexer_peek(l) == LPAREN {
+		node.args = liberty_parse_args(l, alloc)
 		liberty_skip_whitespace_and_comments(l)
 
 		// GROUP
-		if lexer_peek(l) == '{' {
+		if lexer_peek(l) == LCURLY {
 			node.children = make([dynamic]^LibertyNode, alloc)
 
-			lexer_consume(l, '{')
+			lexer_consume(l, LCURLY)
 			liberty_skip_whitespace_and_comments(l)
 
-			for lexer_peek(l) != '}' {
+			for lexer_peek(l) != RCURLY {
 				child := liberty_parse_statement(l, alloc)
 				append(&node.children, child)
 				liberty_skip_whitespace_and_comments(l)
 			}
 
-			lexer_consume(l, '}')
+			lexer_consume(l, RCURLY)
 			return node
 		}
 
 		// COMPLEX ATTR
-		lexer_consume(l, ';')
+		lexer_consume(l, SEMICOLON)
 		return node
 	}
 

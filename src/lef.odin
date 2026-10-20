@@ -572,7 +572,7 @@ lef_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
 	for {
 		lexer_skip_newlines_and_whitespaces(l)
 		if lexer_peek(l) != LEF_COMMENT { break }
-		for l.idx < len(l.src) && lexer_peek(l) != '\n' { lexer_advance(l) }
+		for l.idx < len(l.src) && lexer_peek(l) != NEWLINE { lexer_advance(l) }
 	}
 }
 

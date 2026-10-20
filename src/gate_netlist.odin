@@ -98,6 +98,8 @@ SEMICOLON :: ';'
 COMMA :: ','
 LPAREN :: '('
 RPAREN :: ')'
+LCURLY :: '{'
+RCURLY :: '}'
 ASTERISK :: '*'
 L_SQUARE_BRACKET :: '['
 R_SQUARE_BRACKET :: ']'
@@ -178,8 +180,8 @@ lex_gate_level_netlist_and_create_hypergraph :: proc(
 netlist_handle_comments :: #force_inline proc(l: ^Lexer) {
 	if (lexer_peek(l) == SLASH && lexer_peek(l, 1) == SLASH) {
 		lexer_advance(l, 2)
-		for lexer_peek(l) != '\n' && lexer_peek(l) != 0 { lexer_advance(l) }
-		if lexer_peek(l) == '\n' { lexer_advance(l) }
+		for lexer_peek(l) != NEWLINE && lexer_peek(l) != 0 { lexer_advance(l) }
+		if lexer_peek(l) == NEWLINE { lexer_advance(l) }
 	} else if (lexer_peek(l) == SLASH && lexer_peek(l, 1) == ASTERISK) {
 		lexer_advance(l, 2)
 		for !(lexer_peek(l) == ASTERISK && lexer_peek(l, 1) == SLASH) && lexer_peek(l) != 0 { lexer_advance(l) }
