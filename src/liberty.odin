@@ -422,7 +422,8 @@ liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode
 	name := lexer_scan_ident(l)
 	liberty_skip_whitespace_and_comments(l)
 
-	node, _ := new(LibertyNode, alloc)
+	node, node_alloc_err := new(LibertyNode, alloc)
+	ensure(node_alloc_err == nil, "Error allocating memory for node")
 	node.name = name
 
 	// SIMPLE: name : value ;
