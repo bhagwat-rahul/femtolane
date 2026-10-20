@@ -79,7 +79,7 @@ LibertyLibrary :: struct {
 		f64,
 		string,
 	},
-	slew_derate_from_library:      Derate,
+	slew_derate_from_library:      LibertyDerateValue,
 	slew_lower_threshold_pct_fall: TripPoint,
 	slew_lower_threshold_pct_rise: TripPoint,
 	slew_upper_threshold_pct_fall: TripPoint,
@@ -213,7 +213,9 @@ CapacitiveLoadSpec :: struct {
 	scale: f64,
 	unit:  CapacitiveLoadUnit,
 }
-Derate :: struct {}
+
+LibertyDerateValue :: distinct f64 // float between  0.0 - 1.0
+
 TableLookup :: enum {
 	UNKNOWN,
 	NLDM,
