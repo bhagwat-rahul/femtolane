@@ -433,20 +433,22 @@ liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode
 			liberty_skip_whitespace_and_comments(l)
 
 			// GROUP
-			if lexer_peek(l) == LCURLY {
-				node.children = make([dynamic]^LibertyNode, alloc)
+			liberty_group_statement: {
+				if lexer_peek(l) == LCURLY {
+					node.children = make([dynamic]^LibertyNode, alloc)
 
-				lexer_consume(l, LCURLY)
-				liberty_skip_whitespace_and_comments(l)
-
-				for lexer_peek(l) != RCURLY {
-					child := liberty_parse_statement(l, alloc)
-					append(&node.children, child)
+					lexer_consume(l, LCURLY)
 					liberty_skip_whitespace_and_comments(l)
-				}
 
-				lexer_consume(l, RCURLY)
-				return node
+					for lexer_peek(l) != RCURLY {
+						child := liberty_parse_statement(l, alloc)
+						append(&node.children, child)
+						liberty_skip_whitespace_and_comments(l)
+					}
+
+					lexer_consume(l, RCURLY)
+					return node
+				}
 			}
 
 			// COMPLEX ATTR
