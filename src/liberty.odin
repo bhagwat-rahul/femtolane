@@ -13,6 +13,7 @@ import "core:mem"
 import "core:os"
 import "core:strconv"
 import "core:strings"
+import "core:time/datetime"
 import "file_picker"
 
 LibertyProcessCorner :: distinct string
@@ -26,11 +27,6 @@ LibertyPVTCorner :: struct {
 LibraryType :: enum {
 	CMOS,
 	FPGA,
-}
-
-Revision :: union {
-	f64,
-	string,
 }
 
 TimeUnit :: enum {
@@ -56,7 +52,6 @@ TRIP_POINT_DEFAULT :: TripPoint(50.0)
 
 LibertyLibrary :: struct {
 	name:                          string,
-	description:                   string,
 	type:                          LibraryType,
 	pvt_corner:                    LibertyPVTCorner,
 	cells:                         [dynamic]LibertyCell,
@@ -66,7 +61,7 @@ LibertyLibrary :: struct {
 	bus_naming_style:              string,
 	comment:                       string,
 	current_unit:                  LibraryCurrentUnit,
-	date:                          string, // TODO(rahul): can be any dateformat, normalise to some kind of type
+	date:                          datetime.Date,
 	delay_model:                   LibraryDelayModel,
 	em_temp_degradation_factor:    f64,
 	input_threshold_pct_fall:      TripPoint,
@@ -80,7 +75,10 @@ LibertyLibrary :: struct {
 	output_threshold_pct_rise:     TripPoint,
 	power_model:                   TableLookup,
 	pulling_resistance_unit:       PullingResistanceUnit,
-	revision:                      Revision,
+	revision:                      union {
+		f64,
+		string,
+	},
 	slew_derate_from_library:      Derate,
 	slew_lower_threshold_pct_fall: TripPoint,
 	slew_lower_threshold_pct_rise: TripPoint,
