@@ -222,19 +222,16 @@ liberty_skip_whitespace_and_comments :: #force_inline proc(l: ^Lexer) {
 	for l.idx < len(l.src) {
 		c := lexer_peek(l)
 
-		// whitespace
 		if c == WHITESPACE || c == WHITESPACE_TAB || c == NEWLINE || c == NEWLINE_CARRIAGE_RETURN {
 			lexer_advance(l)
 			continue
 		}
 
-		// line comment: // ...
 		if c == SLASH && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == SLASH {
 			for l.idx < len(l.src) && lexer_peek(l) != NEWLINE { lexer_advance(l) }
 			continue
 		}
 
-		// block comment: /* ... */
 		if c == SLASH && l.idx + 1 < len(l.src) && l.src[l.idx + 1] == ASTERISK {
 			lexer_advance(l, 2)
 
@@ -413,45 +410,49 @@ liberty_parse_statement :: proc(l: ^Lexer, alloc: mem.Allocator) -> ^LibertyNode
 	node.name = name
 
 	// SIMPLE: name : value ;
-	if lexer_peek(l) == COLON {
-		lexer_advance(l)
-		liberty_skip_whitespace_and_comments(l)
-
-		start := l.idx
-		for lexer_peek(l) != SEMICOLON {
+	liberty_simple_statement: {
+		if lexer_peek(l) == COLON {
 			lexer_advance(l)
-		}
+			liberty_skip_whitespace_and_comments(l)
 
-		node.value = string(l.src[start:l.idx])
-		lexer_consume(l, SEMICOLON)
-		return node
+			start := l.idx
+			for lexer_peek(l) != SEMICOLON {
+				lexer_advance(l)
+			}
+
+			node.value = string(l.src[start:l.idx])
+			lexer_consume(l, SEMICOLON)
+			return node
+		}
 	}
 
 	// COMPLEX / GROUP
-	if lexer_peek(l) == LPAREN {
-		node.args = liberty_parse_args(l, alloc)
-		liberty_skip_whitespace_and_comments(l)
-
-		// GROUP
-		if lexer_peek(l) == LCURLY {
-			node.children = make([dynamic]^LibertyNode, alloc)
-
-			lexer_consume(l, LCURLY)
+	liberty_complex_statement: {
+		if lexer_peek(l) == LPAREN {
+			node.args = liberty_parse_args(l, alloc)
 			liberty_skip_whitespace_and_comments(l)
 
-			for lexer_peek(l) != RCURLY {
-				child := liberty_parse_statement(l, alloc)
-				append(&node.children, child)
+			// GROUP
+			if lexer_peek(l) == LCURLY {
+				node.children = make([dynamic]^LibertyNode, alloc)
+
+				lexer_consume(l, LCURLY)
 				liberty_skip_whitespace_and_comments(l)
+
+				for lexer_peek(l) != RCURLY {
+					child := liberty_parse_statement(l, alloc)
+					append(&node.children, child)
+					liberty_skip_whitespace_and_comments(l)
+				}
+
+				lexer_consume(l, RCURLY)
+				return node
 			}
 
-			lexer_consume(l, RCURLY)
+			// COMPLEX ATTR
+			lexer_consume(l, SEMICOLON)
 			return node
 		}
-
-		// COMPLEX ATTR
-		lexer_consume(l, SEMICOLON)
-		return node
 	}
 
 	panic(fmt.tprintf("Error: invalid syntax for char %r at byte %d in file %s", lexer_peek(l), l.idx, l.filepath))
