@@ -21,5 +21,13 @@ In many cases, the DEF netlist information is in a separate format, such as Veri
 It is also common to have a DEF file that only contains a COMPONENTS section to pass placement information.
 */
 
+import "core:mem"
+import "core:os"
+
 // TODO(rahul): DefDatabase for loading in floorplans and doing final gds streamout
 DefDatabase :: struct {}
+
+// TODO(rahul): maybe dont send in core database, dk where you want to import this floorplan, need user flexibility
+def_import_file_into_database :: proc(def_filepath: string, allocator: mem.Allocator, database: CoreDatabase) {
+	// TODO(rahul): read file and streamed def into design db (we need to have concept of design db not just core db, core db is libs and lefs maybe design db is what's done during pd and core/design dont need to be 2 separate things)
+}

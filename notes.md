@@ -174,3 +174,8 @@ PD for 3DIC design needs to be 3d aware from the ground up. Since decisions made
 Eg. If you partition certain blocks of the design to be on die 1 and others on die 2, that constrains pnr to not be able to move things around and use tsv's / work across die's.
 It's probably best to have a cost function that models timing / manufacturability across all dies, taking into account slowness / capacitances on cross die interconnects, thermals, etc. to not just optimise individual dies and then the system but begin to optimise / simulate the entire system from the beginning.
 If a 3D path fixes timing but messes up thermals that's still an issue, need to co-optimise on multiple metrics
+
+## Note about design continuity
+
+If we're thinking unconventionally maybe the pd flow doesnt have to be linear and we can automatically figure out where we are in the process from state of db?
+Eg. If we import a floorplan file maybe the floorplan step needs to be skipped (currently the whole thing is orchestrated with a flow script / scripting the tools) but if we rethink this then maybe db can auto detect what to do in some/all cases?
