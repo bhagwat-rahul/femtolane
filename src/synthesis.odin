@@ -39,3 +39,10 @@ synthesis_uniquify_netlist :: proc(netlist: NetlistHyperGraph) -> (uniquified_ne
 
 // end synthesis helper functions
 */
+
+// Create a majority inverter graph
+synthesis_rtl_to_mig :: proc() {  }
+// Rewrite and optimise mig
+synthesis_rewrite_mig :: proc() {  }
+// MIG to XMG for XOR heavy architectures
+synthesis_convert_mig_to_xmg :: proc() {  }
