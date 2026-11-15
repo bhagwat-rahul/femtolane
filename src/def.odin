@@ -21,6 +21,34 @@ In many cases, the DEF netlist information is in a separate format, such as Veri
 It is also common to have a DEF file that only contains a COMPONENTS section to pass placement information.
 */
 
+/* def data file format
+[ VERSION statement ]
+[ DIVIDERCHAR statement ]
+[ BUSBITCHARS statement ]
+DESIGN statement
+[ TECHNOLOGY statement ]
+[ UNITS statement ]
+[ HISTORY statement ] ...
+[ PROPERTYDEFINITIONS section ]
+[ DIEAREA statement ]
+[ ROWS statement ] ...
+[ TRACKS statement ] ...
+[ GCELLGRID statement ] ...
+[ VIAS statement ]
+[ NONDEFAULTRULES statement ]
+[ REGIONS statement ]
+[ COMPONENTMASKSHIFT statement ]
+[ COMPONENTS section ]
+[ PINS section ]
+[ BLOCKAGES section ]
+[ FILLS section ]
+[ SPECIALNETS section ]
+[ NETS section ]
+[ SCANCHAINS section ]
+[ GROUPS section ]
+END DESIGN statement
+*/
+
 import "core:mem"
 import "core:os"
 
@@ -30,4 +58,6 @@ DefDatabase :: struct {}
 // TODO(rahul): maybe dont send in core database, dk where you want to import this floorplan, need user flexibility
 def_import_file_into_database :: proc(def_filepath: string, allocator: mem.Allocator, database: CoreDatabase) {
 	// TODO(rahul): read file and streamed def into design db (we need to have concept of design db not just core db, core db is libs and lefs maybe design db is what's done during pd and core/design dont need to be 2 separate things)
+	def_data := database.def_data // append new DefDatabase struct in here using passed alloc
+
 }

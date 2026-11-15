@@ -3,6 +3,7 @@ package main
 CoreDatabase :: struct {
 	netlist_data: NetlistDatabase,
 	lef_data:     LefDatabase,
+	def_data:     DefDatabase,
 	liberty_data: [dynamic]LibertyLibrary,
 }
 
