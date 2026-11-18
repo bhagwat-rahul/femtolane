@@ -9,7 +9,7 @@ Picker_Mode :: enum {
 
 File_Type_Filter :: struct {
 	description: string,
-	extensions:  []string, // "png", "jpg", "json"
+	extensions:  []string,
 }
 
 File_Picker_Request :: struct {
