@@ -179,3 +179,11 @@ If a 3D path fixes timing but messes up thermals that's still an issue, need to 
 
 If we're thinking unconventionally maybe the pd flow doesnt have to be linear and we can automatically figure out where we are in the process from state of db?
 Eg. If we import a floorplan file maybe the floorplan step needs to be skipped (currently the whole thing is orchestrated with a flow script / scripting the tools) but if we rethink this then maybe db can auto detect what to do in some/all cases?
+
+
+## Speed
+
+Whenever we need to make a decision between speed and micro-optimization (eg. having an IR when doing frontend sv compile vs single pass code emitting like tinycc vs llvm), always pick the faster option.
+We want to avoid optimization over IR to be able to co-optimize the entire search space.
+tinycc (fabrice bellard) is a great example of this (does codegen as it goes over the c file, after a pre-processor expansion step), this doesn't let you build an IR and optimize it but let's you run code very fast like an interpreter.
+This is a useful analogy for us since the purpose is to not get the best binary but to be able to generate different binaries as quick as possible to iterate over the search space and then train a solver.
