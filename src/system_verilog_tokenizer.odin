@@ -1,11 +1,11 @@
 /*
-Fast, allocation-free SystemVerilog lexer and preprocessing token stream.
+Fast, allocation-free SystemVerilog tokenizer and preprocessing token stream.
 
 The parser never looks at raw bytes: this layer skips whitespace/comments, maps
 identifiers to keyword enum values through a small open-addressed table, and
 emits source-slice tokens. Compiler directives and macro expansion are handled
-by the preprocessor in system_verilog_pp.odin, which feeds a flat token array to
-the parser.
+by the preprocessor in system_verilog_preprocessor.odin, which feeds a flat
+token array to the parser.
 
 Token layout is 10 bytes: 32-bit source offset, 16-bit length, 16-bit source id,
 token kind and a one-byte keyword id. Text is materialized from the source buffer
@@ -54,7 +54,7 @@ SVToken :: struct #packed {
 	kw:   SVKeyword,
 }
 
-SVLexer :: struct {
+SVTokenizer :: struct {
 	src:          []byte,
 	idx:          int,
 	line:         u32,
@@ -63,16 +63,16 @@ SVLexer :: struct {
 	path:         string,
 }
 
-svl_init :: #force_inline proc(src: []byte, file_id: u16) -> SVLexer {
-	return SVLexer{src = src, line = 1, file_id = file_id}
+svt_init :: #force_inline proc(src: []byte, file_id: u16) -> SVTokenizer {
+	return SVTokenizer{src = src, line = 1, file_id = file_id}
 }
 
-svl_peek :: #force_inline proc(l: ^SVLexer, offset := 0) -> byte {
+svt_peek :: #force_inline proc(l: ^SVTokenizer, offset := 0) -> byte {
 	i := l.idx + offset
 	return l.src[i] if i < len(l.src) else 0
 }
 
-svl_advance :: #force_inline proc(l: ^SVLexer, n := 1) {
+svt_advance :: #force_inline proc(l: ^SVTokenizer, n := 1) {
 	for _ in 0 ..< n {
 		if l.idx >= len(l.src) { return }
 		if l.src[l.idx] == '\n' { l.line += 1 }
@@ -80,20 +80,20 @@ svl_advance :: #force_inline proc(l: ^SVLexer, n := 1) {
 	}
 }
 
-svl_error :: proc(l: ^SVLexer, msg: string) -> ! {
-	panic(fmt.tprintf("SystemVerilog lex error at line %d: %s", l.line, msg))
+svt_error :: proc(l: ^SVTokenizer, msg: string) -> ! {
+	panic(fmt.tprintf("SystemVerilog tokenizer error at line %d: %s", l.line, msg))
 }
 
-svl_at_eof :: #force_inline proc(l: ^SVLexer) -> bool { return l.idx >= len(l.src) }
+svt_at_eof :: #force_inline proc(l: ^SVTokenizer) -> bool { return l.idx >= len(l.src) }
 
-svl_is_space :: #force_inline proc(c: byte) -> bool { return c == ' ' || c == '\t' || c == '\v' || c == '\f' }
-svl_is_newline :: #force_inline proc(c: byte) -> bool { return c == '\n' || c == '\r' }
-svl_is_digit :: #force_inline proc "contextless" (c: byte) -> bool { return c >= '0' && c <= '9' }
-svl_is_ident_start :: #force_inline proc "contextless" (c: byte) -> bool { return c == '_' || (c | 0x20) >= 'a' && (c | 0x20) <= 'z' }
-svl_is_ident_char :: #force_inline proc "contextless" (c: byte) -> bool { return c == '_' || c == '$' || (c | 0x20) >= 'a' && (c | 0x20) <= 'z' || (c >= '0' && c <= '9') }
+svt_is_space :: #force_inline proc(c: byte) -> bool { return c == ' ' || c == '\t' || c == '\v' || c == '\f' }
+svt_is_newline :: #force_inline proc(c: byte) -> bool { return c == '\n' || c == '\r' }
+svt_is_digit :: #force_inline proc "contextless" (c: byte) -> bool { return c >= '0' && c <= '9' }
+svt_is_ident_start :: #force_inline proc "contextless" (c: byte) -> bool { return c == '_' || (c | 0x20) >= 'a' && (c | 0x20) <= 'z' }
+svt_is_ident_char :: #force_inline proc "contextless" (c: byte) -> bool { return c == '_' || c == '$' || (c | 0x20) >= 'a' && (c | 0x20) <= 'z' || (c >= '0' && c <= '9') }
 
-svl_ident_char_lut: [256]bool
-svl_simple_token_lut: [256]SVTokenKind
+svt_ident_char_lut: [256]bool
+svt_simple_token_lut: [256]SVTokenKind
 
 SV_IDENT_LANES :: 16
 sv_simd_lower: simd.u8x16 = {
@@ -108,24 +108,24 @@ sv_simd_us: simd.u8x16 = {'_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_',
 sv_simd_dollar: simd.u8x16 = {'$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$'}
 
 @(init)
-svl_lex_lut_init :: proc "contextless" () {
+svt_lut_init :: proc "contextless" () {
 	for i in 0 ..< 256 {
 		c := u8(i)
-		svl_ident_char_lut[i] = svl_is_ident_char(c)
+		svt_ident_char_lut[i] = svt_is_ident_char(c)
 	}
-	svl_simple_token_lut[')'] = .RParen
-	svl_simple_token_lut[']'] = .RBracket
-	svl_simple_token_lut['}'] = .RBrace
-	svl_simple_token_lut[','] = .Comma
-	svl_simple_token_lut[';'] = .Semicolon
-	svl_simple_token_lut['['] = .LBracket
-	svl_simple_token_lut['{'] = .LBrace
-	svl_simple_token_lut['@'] = .At
-	svl_simple_token_lut['?'] = .Question
+	svt_simple_token_lut[')'] = .RParen
+	svt_simple_token_lut[']'] = .RBracket
+	svt_simple_token_lut['}'] = .RBrace
+	svt_simple_token_lut[','] = .Comma
+	svt_simple_token_lut[';'] = .Semicolon
+	svt_simple_token_lut['['] = .LBracket
+	svt_simple_token_lut['{'] = .LBrace
+	svt_simple_token_lut['@'] = .At
+	svt_simple_token_lut['?'] = .Question
 }
-svl_is_base_char :: #force_inline proc(c: byte) -> bool { return c == 'b' || c == 'B' || c == 'o' || c == 'O' || c == 'd' || c == 'D' || c == 'h' || c == 'H' }
+svt_is_base_char :: #force_inline proc(c: byte) -> bool { return c == 'b' || c == 'B' || c == 'o' || c == 'O' || c == 'd' || c == 'D' || c == 'h' || c == 'H' }
 
-svl_record_comment :: #force_inline proc(l: ^SVLexer, start, end: int, line: u32, is_block: bool) {
+svt_record_comment :: #force_inline proc(l: ^SVTokenizer, start, end: int, line: u32, is_block: bool) {
 	if l.comment_sink == nil { return }
 	append(l.comment_sink, SVComment{
 		text = string(l.src[start:end]),
@@ -135,7 +135,7 @@ svl_record_comment :: #force_inline proc(l: ^SVLexer, start, end: int, line: u32
 	})
 }
 
-svl_skip_comment :: #force_no_inline proc(l: ^SVLexer, start: int) -> int {
+svt_skip_comment :: #force_no_inline proc(l: ^SVTokenizer, start: int) -> int {
 	src := l.src
 	n := len(src)
 	i := start
@@ -143,7 +143,7 @@ svl_skip_comment :: #force_no_inline proc(l: ^SVLexer, start: int) -> int {
 	if src[i + 1] == '/' {
 		i += 2
 		for i < n && src[i] != '\n' && src[i] != '\r' { i += 1 }
-		svl_record_comment(l, start, i, start_line, false)
+		svt_record_comment(l, start, i, start_line, false)
 		return i
 	}
 
@@ -155,17 +155,17 @@ svl_skip_comment :: #force_no_inline proc(l: ^SVLexer, start: int) -> int {
 			if src[j] == '\n' { l.line += 1 }
 		}
 		l.idx = i
-		svl_error(l, "unterminated block comment")
+		svt_error(l, "unterminated block comment")
 	}
 	for j in content_start ..< i {
 		if src[j] == '\n' { l.line += 1 }
 	}
 	i += 2
-	svl_record_comment(l, start, i, start_line, true)
+	svt_record_comment(l, start, i, start_line, true)
 	return i
 }
 
-svl_skip_trivia :: #force_inline proc(l: ^SVLexer) {
+svt_skip_trivia :: #force_inline proc(l: ^SVTokenizer) {
 	#no_bounds_check {
 	src := l.src
 	n := len(src)
@@ -197,7 +197,7 @@ svl_skip_trivia :: #force_inline proc(l: ^SVLexer) {
 			l.line += 1
 			i += 1
 		case c == '/' && i + 1 < n && (src[i + 1] == '/' || src[i + 1] == '*'):
-			i = svl_skip_comment(l, i)
+			i = svt_skip_comment(l, i)
 		case:
 			l.idx = i
 			return
@@ -209,21 +209,21 @@ svl_skip_trivia :: #force_inline proc(l: ^SVLexer) {
 
 // Identifier text after a backslash, up to whitespace (escaped identifiers include
 // punctuation and are never keywords).
-svl_scan_escaped_ident :: proc(l: ^SVLexer) -> string {
+svt_scan_escaped_ident :: proc(l: ^SVTokenizer) -> string {
 	src := l.src
 	n := len(src)
 	start := l.idx + 1 // skip backslash
 	i := start
 	for i < n {
 		c := src[i]
-		if svl_is_space(c) || svl_is_newline(c) { break }
+		if svt_is_space(c) || svt_is_newline(c) { break }
 		i += 1
 	}
 	l.idx = i
 	return string(src[start:i])
 }
 
-svl_scan_ident :: #force_inline proc(l: ^SVLexer) -> string {
+svt_scan_ident :: #force_inline proc(l: ^SVTokenizer) -> string {
 	#no_bounds_check {
 	src := l.src
 	n := len(src)
@@ -246,13 +246,13 @@ svl_scan_ident :: #force_inline proc(l: ^SVLexer) -> string {
 			return string(src[start:i])
 		}
 	}
-	for i < n && svl_ident_char_lut[src[i]] { i += 1 }
+	for i < n && svt_ident_char_lut[src[i]] { i += 1 }
 	l.idx = i
 	return string(src[start:i])
 
 	}}
 
-svl_scan_string :: proc(l: ^SVLexer) -> string {
+svt_scan_string :: proc(l: ^SVTokenizer) -> string {
 	src := l.src
 	n := len(src)
 	// Triple-quoted string literal: """ ... """
@@ -274,7 +274,7 @@ svl_scan_string :: proc(l: ^SVLexer) -> string {
 			}
 		}
 		l.idx = i
-		svl_error(l, "unterminated triple-quoted string literal")
+		svt_error(l, "unterminated triple-quoted string literal")
 	}
 	i := l.idx + 1 // opening quote
 	start := i
@@ -286,19 +286,19 @@ svl_scan_string :: proc(l: ^SVLexer) -> string {
 			continue
 		}
 		if c == '"' { break }
-		if svl_is_newline(c) {
+		if svt_is_newline(c) {
 			l.idx = i
-			svl_error(l, "unterminated string literal")
+			svt_error(l, "unterminated string literal")
 		}
 		i += 1
 	}
-	if i >= n { l.idx = i; svl_error(l, "unterminated string literal") }
+	if i >= n { l.idx = i; svt_error(l, "unterminated string literal") }
 	text := string(src[start:i])
 	l.idx = i + 1
 	return text
 }
 
-svl_scan_based_body :: #force_inline proc(l: ^SVLexer, start, i_in: int) -> string {
+svt_scan_based_body :: #force_inline proc(l: ^SVTokenizer, start, i_in: int) -> string {
 	i := i_in
 	src := l.src
 	n := len(src)
@@ -310,7 +310,7 @@ svl_scan_based_body :: #force_inline proc(l: ^SVLexer, start, i_in: int) -> stri
 
 // Numbers are one token, including a based literal's base and any time-unit suffix.
 // Raw text is preserved; decoding happens when the token becomes an SVNumber.
-svl_scan_number :: #force_inline proc(l: ^SVLexer) -> string {
+svt_scan_number :: #force_inline proc(l: ^SVTokenizer) -> string {
 	#no_bounds_check {
 	src := l.src
 	n := len(src)
@@ -320,9 +320,9 @@ svl_scan_number :: #force_inline proc(l: ^SVLexer) -> string {
 		// Unsized based literal ('hFF) or unbased literal ('0/'1/'x/'z).
 		i += 1
 		if i < n && (src[i] == 's' || src[i] == 'S') { i += 1 }
-		if i < n && svl_is_base_char(src[i]) {
+		if i < n && svt_is_base_char(src[i]) {
 			i += 1
-			return svl_scan_based_body(l, start, i)
+			return svt_scan_based_body(l, start, i)
 		}
 		if i < n {
 			c := src[i]
@@ -334,41 +334,41 @@ svl_scan_number :: #force_inline proc(l: ^SVLexer) -> string {
 
 	// Fast path: a plain decimal integer followed by a byte that cannot extend the
 	// literal. This is the common case for indices, replication counts and delays.
-	for i < n && svl_is_digit(src[i]) { i += 1 }
-	if i >= n || (src[i] != '_' && src[i] != '\'' && src[i] != '.' && src[i] != 'e' && src[i] != 'E' && !svl_is_ident_char(src[i])) {
+	for i < n && svt_is_digit(src[i]) { i += 1 }
+	if i >= n || (src[i] != '_' && src[i] != '\'' && src[i] != '.' && src[i] != 'e' && src[i] != 'E' && !svt_is_ident_char(src[i])) {
 		l.idx = i
 		return string(src[start:i])
 	}
 	i = start
-	for i < n && (svl_is_digit(src[i]) || src[i] == '_') { i += 1 }
-	if i + 1 < n && src[i] == '.' && svl_is_digit(src[i + 1]) {
+	for i < n && (svt_is_digit(src[i]) || src[i] == '_') { i += 1 }
+	if i + 1 < n && src[i] == '.' && svt_is_digit(src[i + 1]) {
 		i += 1
-		for i < n && (svl_is_digit(src[i]) || src[i] == '_') { i += 1 }
+		for i < n && (svt_is_digit(src[i]) || src[i] == '_') { i += 1 }
 	}
 	if i + 1 < n && (src[i] == 'e' || src[i] == 'E') &&
-	   (svl_is_digit(src[i + 1]) ||
-	    (i + 2 < n && (src[i + 1] == '+' || src[i + 1] == '-') && svl_is_digit(src[i + 2]))) {
+	   (svt_is_digit(src[i + 1]) ||
+	    (i + 2 < n && (src[i + 1] == '+' || src[i + 1] == '-') && svt_is_digit(src[i + 2]))) {
 		i += 1
 		if i < n && (src[i] == '+' || src[i] == '-') { i += 1 }
-		for i < n && (svl_is_digit(src[i]) || src[i] == '_') { i += 1 }
+		for i < n && (svt_is_digit(src[i]) || src[i] == '_') { i += 1 }
 	}
 
 	// Sized based literal: 12'hFF, 8'sd10. A macro-expanded size is handled by the
 	// parser by joining adjacent number tokens.
 	if i + 1 < n && src[i] == '\'' {
-		if (src[i + 1] == 's' || src[i + 1] == 'S') && i + 2 < n && svl_is_base_char(src[i + 2]) {
+		if (src[i + 1] == 's' || src[i + 1] == 'S') && i + 2 < n && svt_is_base_char(src[i + 2]) {
 			i += 3 // ' s base
-			return svl_scan_based_body(l, start, i)
+			return svt_scan_based_body(l, start, i)
 		}
-		if svl_is_base_char(src[i + 1]) {
+		if svt_is_base_char(src[i + 1]) {
 			i += 2 // ' base
-			return svl_scan_based_body(l, start, i)
+			return svt_scan_based_body(l, start, i)
 		}
 	}
 
 	// Optional time unit suffix (s, ms, us, ns, ps, fs), no whitespace between.
 	unit_start := i
-	for i < n && svl_ident_char_lut[src[i]] { i += 1 }
+	for i < n && svt_ident_char_lut[src[i]] { i += 1 }
 	unit := string(src[unit_start:i])
 	if len(unit) == 0 { l.idx = i; return string(src[start:i]) }
 	switch unit {
@@ -383,197 +383,197 @@ svl_scan_number :: #force_inline proc(l: ^SVLexer) -> string {
 	}}
 
 
-svl_scan_directive :: proc(l: ^SVLexer) -> SVToken {
+svt_scan_directive :: proc(l: ^SVTokenizer) -> SVToken {
 	start := l.idx
-	svl_advance(l) // backtick
-	if !svl_is_ident_start(svl_peek(l)) {
+	svt_advance(l) // backtick
+	if !svt_is_ident_start(svt_peek(l)) {
 		return SVToken{off = u32(start), len = 1, file = l.file_id, kind = .Backtick}
 	}
-	svl_scan_ident(l)
+	svt_scan_ident(l)
 	return SVToken{off = u32(start + 1), len = u16(l.idx - start - 1), file = l.file_id, kind = .Directive}
 }
 
-svl_check_token_len :: #force_inline proc(l: ^SVLexer, text: string) {
-	if len(text) > 0xFFFF { svl_error(l, "token too long") }
+svt_check_token_len :: #force_inline proc(l: ^SVTokenizer, text: string) {
+	if len(text) > 0xFFFF { svt_error(l, "token too long") }
 }
 
-svl_token_text :: #force_inline proc(l: ^SVLexer, t: SVToken) -> string {
+svt_token_text :: #force_inline proc(l: ^SVTokenizer, t: SVToken) -> string {
 	#no_bounds_check return string(l.src[t.off:t.off + u32(t.len)])
 }
 
-svl_op1 :: #force_inline proc(l: ^SVLexer, start: int, kind: SVTokenKind) -> SVToken {
-	svl_advance(l)
+svt_op1 :: #force_inline proc(l: ^SVTokenizer, start: int, kind: SVTokenKind) -> SVToken {
+	svt_advance(l)
 	return SVToken{off = u32(start), len = 1, file = l.file_id, kind = kind}
 }
 
-svl_op2 :: #force_inline proc(l: ^SVLexer, start: int, kind: SVTokenKind) -> SVToken {
-	svl_advance(l, 2)
+svt_op2 :: #force_inline proc(l: ^SVTokenizer, start: int, kind: SVTokenKind) -> SVToken {
+	svt_advance(l, 2)
 	return SVToken{off = u32(start), len = 2, file = l.file_id, kind = kind}
 }
 
-svl_op3 :: #force_inline proc(l: ^SVLexer, start: int, kind: SVTokenKind) -> SVToken {
-	svl_advance(l, 3)
+svt_op3 :: #force_inline proc(l: ^SVTokenizer, start: int, kind: SVTokenKind) -> SVToken {
+	svt_advance(l, 3)
 	return SVToken{off = u32(start), len = 3, file = l.file_id, kind = kind}
 }
 
-svl_next :: #force_inline proc(l: ^SVLexer) -> SVToken {
-	svl_skip_trivia(l)
+svt_next :: #force_inline proc(l: ^SVTokenizer) -> SVToken {
+	svt_skip_trivia(l)
 	start := l.idx
-	if svl_at_eof(l) {
+	if svt_at_eof(l) {
 		return SVToken{kind = .EOF}
 	}
 
-	c := svl_peek(l)
+	c := svt_peek(l)
 
 	// Most punctuation is a fixed single-character token. Testing the table first
 	// avoids the longer identifier/number/string dispatch chain for those tokens.
-	simple := svl_simple_token_lut[c]
-	if simple != .Invalid { return svl_op1(l, start, simple) }
+	simple := svt_simple_token_lut[c]
+	if simple != .Invalid { return svt_op1(l, start, simple) }
 
 	switch {
 	case c == '\\':
-		text := svl_scan_escaped_ident(l)
-		svl_check_token_len(l, text)
+		text := svt_scan_escaped_ident(l)
+		svt_check_token_len(l, text)
 		return SVToken{off = u32(start + 1), len = u16(len(text)), file = l.file_id, kind = .EscapedIdent}
-	case svl_is_ident_start(c):
-		text := svl_scan_ident(l)
-		svl_check_token_len(l, text)
-		return SVToken{off = u32(start), len = u16(len(text)), file = l.file_id, kind = .Ident, kw = svl_keyword_lookup(text)}
+	case svt_is_ident_start(c):
+		text := svt_scan_ident(l)
+		svt_check_token_len(l, text)
+		return SVToken{off = u32(start), len = u16(len(text)), file = l.file_id, kind = .Ident, kw = svt_keyword_lookup(text)}
 	case c == '$':
-		svl_advance(l)
-		_ = svl_scan_ident(l)
+		svt_advance(l)
+		_ = svt_scan_ident(l)
 		return SVToken{off = u32(start), len = u16(l.idx - start), file = l.file_id, kind = .SystemIdent}
-	case svl_is_digit(c):
-		text := svl_scan_number(l)
-		svl_check_token_len(l, text)
+	case svt_is_digit(c):
+		text := svt_scan_number(l)
+		svt_check_token_len(l, text)
 		return SVToken{off = u32(start), len = u16(len(text)), file = l.file_id, kind = .Number}
 	case c == '\'':
-		if svl_is_base_char(svl_peek(l, 1)) ||
-		   ((svl_peek(l, 1) == 's' || svl_peek(l, 1) == 'S') && svl_is_base_char(svl_peek(l, 2))) ||
-		   svl_is_digit(svl_peek(l, 1)) || svl_peek(l, 1) == '0' || svl_peek(l, 1) == '1' ||
-		   svl_peek(l, 1) == 'x' || svl_peek(l, 1) == 'X' || svl_peek(l, 1) == 'z' || svl_peek(l, 1) == 'Z' {
-			text := svl_scan_number(l)
-			svl_check_token_len(l, text)
+		if svt_is_base_char(svt_peek(l, 1)) ||
+		   ((svt_peek(l, 1) == 's' || svt_peek(l, 1) == 'S') && svt_is_base_char(svt_peek(l, 2))) ||
+		   svt_is_digit(svt_peek(l, 1)) || svt_peek(l, 1) == '0' || svt_peek(l, 1) == '1' ||
+		   svt_peek(l, 1) == 'x' || svt_peek(l, 1) == 'X' || svt_peek(l, 1) == 'z' || svt_peek(l, 1) == 'Z' {
+			text := svt_scan_number(l)
+			svt_check_token_len(l, text)
 			return SVToken{off = u32(start), len = u16(len(text)), file = l.file_id, kind = .Number}
 		}
-		svl_advance(l)
+		svt_advance(l)
 		return SVToken{off = u32(start), len = 1, file = l.file_id, kind = .Tick}
 	case c == '"':
-		triple := svl_peek(l, 1) == '"' && svl_peek(l, 2) == '"'
-		text := svl_scan_string(l)
-		if len(text) > 0xFFFF { svl_error(l, "string literal too long") }
+		triple := svt_peek(l, 1) == '"' && svt_peek(l, 2) == '"'
+		text := svt_scan_string(l)
+		if len(text) > 0xFFFF { svt_error(l, "string literal too long") }
 		quote_len := 3 if triple else 1
 		return SVToken{off = u32(start + quote_len), len = u16(len(text)), file = l.file_id, kind = .String}
 	case c == '`':
-		return svl_scan_directive(l)
+		return svt_scan_directive(l)
 	}
 
 	// Operators and punctuation.
 	switch c {
 	case '(':
-		if svl_peek(l, 1) == '*' { return svl_op2(l, start, .AttrStart) }
-		return svl_op1(l, start, .LParen)
-	case ')': return svl_op1(l, start, .RParen)
-	case '[': return svl_op1(l, start, .LBracket)
-	case ']': return svl_op1(l, start, .RBracket)
-	case '{': return svl_op1(l, start, .LBrace)
-	case '}': return svl_op1(l, start, .RBrace)
-	case ',': return svl_op1(l, start, .Comma)
-	case ';': return svl_op1(l, start, .Semicolon)
+		if svt_peek(l, 1) == '*' { return svt_op2(l, start, .AttrStart) }
+		return svt_op1(l, start, .LParen)
+	case ')': return svt_op1(l, start, .RParen)
+	case '[': return svt_op1(l, start, .LBracket)
+	case ']': return svt_op1(l, start, .RBracket)
+	case '{': return svt_op1(l, start, .LBrace)
+	case '}': return svt_op1(l, start, .RBrace)
+	case ',': return svt_op1(l, start, .Comma)
+	case ';': return svt_op1(l, start, .Semicolon)
 	case ':':
-		if svl_peek(l, 1) == ':' { return svl_op2(l, start, .ColonColon) }
-		return svl_op1(l, start, .Colon)
+		if svt_peek(l, 1) == ':' { return svt_op2(l, start, .ColonColon) }
+		return svt_op1(l, start, .Colon)
 	case '.':
-		if svl_peek(l, 1) == '*' { return svl_op2(l, start, .DotStar) }
-		return svl_op1(l, start, .Dot)
+		if svt_peek(l, 1) == '*' { return svt_op2(l, start, .DotStar) }
+		return svt_op1(l, start, .Dot)
 	case '#':
-		if svl_peek(l, 1) == '#' { return svl_op2(l, start, .HashHash) }
-		return svl_op1(l, start, .Hash)
-	case '@': return svl_op1(l, start, .At)
-	case '?': return svl_op1(l, start, .Question)
+		if svt_peek(l, 1) == '#' { return svt_op2(l, start, .HashHash) }
+		return svt_op1(l, start, .Hash)
+	case '@': return svt_op1(l, start, .At)
+	case '?': return svt_op1(l, start, .Question)
 	case '=':
-		if svl_peek(l, 1) == '=' {
-			if svl_peek(l, 2) == '=' { return svl_op3(l, start, .CaseEq) }
-			if svl_peek(l, 2) == '?' { return svl_op3(l, start, .WildEq) }
-			return svl_op2(l, start, .EqEq)
+		if svt_peek(l, 1) == '=' {
+			if svt_peek(l, 2) == '=' { return svt_op3(l, start, .CaseEq) }
+			if svt_peek(l, 2) == '?' { return svt_op3(l, start, .WildEq) }
+			return svt_op2(l, start, .EqEq)
 		}
-		if svl_peek(l, 1) == '>' { return svl_op2(l, start, .FatArrow) }
-		return svl_op1(l, start, .Assign)
+		if svt_peek(l, 1) == '>' { return svt_op2(l, start, .FatArrow) }
+		return svt_op1(l, start, .Assign)
 	case '!':
-		if svl_peek(l, 1) == '=' {
-			if svl_peek(l, 2) == '=' { return svl_op3(l, start, .CaseNeq) }
-			if svl_peek(l, 2) == '?' { return svl_op3(l, start, .WildNeq) }
-			return svl_op2(l, start, .NotEq)
+		if svt_peek(l, 1) == '=' {
+			if svt_peek(l, 2) == '=' { return svt_op3(l, start, .CaseNeq) }
+			if svt_peek(l, 2) == '?' { return svt_op3(l, start, .WildNeq) }
+			return svt_op2(l, start, .NotEq)
 		}
-		return svl_op1(l, start, .Bang)
+		return svt_op1(l, start, .Bang)
 	case '+':
-		switch svl_peek(l, 1) {
-		case '+': return svl_op2(l, start, .Inc)
-		case '=': return svl_op2(l, start, .PlusEq)
-		case ':': return svl_op2(l, start, .PlusColon)
+		switch svt_peek(l, 1) {
+		case '+': return svt_op2(l, start, .Inc)
+		case '=': return svt_op2(l, start, .PlusEq)
+		case ':': return svt_op2(l, start, .PlusColon)
 		}
-		return svl_op1(l, start, .Plus)
+		return svt_op1(l, start, .Plus)
 	case '-':
-		switch svl_peek(l, 1) {
-		case '-': return svl_op2(l, start, .Dec)
-		case '=': return svl_op2(l, start, .MinusEq)
-		case ':': return svl_op2(l, start, .MinusColon)
-		case '>': return svl_op2(l, start, .Arrow)
+		switch svt_peek(l, 1) {
+		case '-': return svt_op2(l, start, .Dec)
+		case '=': return svt_op2(l, start, .MinusEq)
+		case ':': return svt_op2(l, start, .MinusColon)
+		case '>': return svt_op2(l, start, .Arrow)
 		}
-		return svl_op1(l, start, .Minus)
+		return svt_op1(l, start, .Minus)
 	case '*':
-		if svl_peek(l, 1) == ')' { return svl_op2(l, start, .AttrEnd) }
-		if svl_peek(l, 1) == '*' { return svl_op2(l, start, .Pow) }
-		if svl_peek(l, 1) == '>' { return svl_op2(l, start, .StarGt) }
-		if svl_peek(l, 1) == '=' { return svl_op2(l, start, .StarEq) }
-		return svl_op1(l, start, .Star)
+		if svt_peek(l, 1) == ')' { return svt_op2(l, start, .AttrEnd) }
+		if svt_peek(l, 1) == '*' { return svt_op2(l, start, .Pow) }
+		if svt_peek(l, 1) == '>' { return svt_op2(l, start, .StarGt) }
+		if svt_peek(l, 1) == '=' { return svt_op2(l, start, .StarEq) }
+		return svt_op1(l, start, .Star)
 	case '/':
-		if svl_peek(l, 1) == '=' { return svl_op2(l, start, .SlashEq) }
-		return svl_op1(l, start, .Slash)
+		if svt_peek(l, 1) == '=' { return svt_op2(l, start, .SlashEq) }
+		return svt_op1(l, start, .Slash)
 	case '%':
-		if svl_peek(l, 1) == '=' { return svl_op2(l, start, .PercentEq) }
-		return svl_op1(l, start, .Percent)
+		if svt_peek(l, 1) == '=' { return svt_op2(l, start, .PercentEq) }
+		return svt_op1(l, start, .Percent)
 	case '&':
-		if svl_peek(l, 1) == '&' { return svl_op2(l, start, .AmpAmp) }
-		if svl_peek(l, 1) == '=' { return svl_op2(l, start, .AmpEq) }
-		return svl_op1(l, start, .Amp)
+		if svt_peek(l, 1) == '&' { return svt_op2(l, start, .AmpAmp) }
+		if svt_peek(l, 1) == '=' { return svt_op2(l, start, .AmpEq) }
+		return svt_op1(l, start, .Amp)
 	case '|':
-		if svl_peek(l, 1) == '|' { return svl_op2(l, start, .PipePipe) }
-		if svl_peek(l, 1) == '-' && svl_peek(l, 2) == '>' { return svl_op3(l, start, .PipeArrow) }
-		if svl_peek(l, 1) == '=' && svl_peek(l, 2) == '>' { return svl_op3(l, start, .PipeFatArrow) }
-		if svl_peek(l, 1) == '=' { return svl_op2(l, start, .PipeEq) }
-		return svl_op1(l, start, .Pipe)
+		if svt_peek(l, 1) == '|' { return svt_op2(l, start, .PipePipe) }
+		if svt_peek(l, 1) == '-' && svt_peek(l, 2) == '>' { return svt_op3(l, start, .PipeArrow) }
+		if svt_peek(l, 1) == '=' && svt_peek(l, 2) == '>' { return svt_op3(l, start, .PipeFatArrow) }
+		if svt_peek(l, 1) == '=' { return svt_op2(l, start, .PipeEq) }
+		return svt_op1(l, start, .Pipe)
 	case '^':
-		if svl_peek(l, 1) == '~' { return svl_op2(l, start, .CaretTilde) }
-		if svl_peek(l, 1) == '=' { return svl_op2(l, start, .CaretEq) }
-		return svl_op1(l, start, .Caret)
+		if svt_peek(l, 1) == '~' { return svt_op2(l, start, .CaretTilde) }
+		if svt_peek(l, 1) == '=' { return svt_op2(l, start, .CaretEq) }
+		return svt_op1(l, start, .Caret)
 	case '~':
-		switch svl_peek(l, 1) {
-		case '^': return svl_op2(l, start, .TildeCaret)
-		case '&': return svl_op2(l, start, .TildeAmp)
-		case '|': return svl_op2(l, start, .TildePipe)
+		switch svt_peek(l, 1) {
+		case '^': return svt_op2(l, start, .TildeCaret)
+		case '&': return svt_op2(l, start, .TildeAmp)
+		case '|': return svt_op2(l, start, .TildePipe)
 		}
-		return svl_op1(l, start, .Tilde)
+		return svt_op1(l, start, .Tilde)
 	case '<':
-		switch svl_peek(l, 1) {
+		switch svt_peek(l, 1) {
 		case '<':
-			if svl_peek(l, 2) == '<' { return svl_op3(l, start, .Ashl) }
-			if svl_peek(l, 2) == '=' { return svl_op3(l, start, .ShlEq) }
-			return svl_op2(l, start, .Shl)
-		case '=': return svl_op2(l, start, .Le)
+			if svt_peek(l, 2) == '<' { return svt_op3(l, start, .Ashl) }
+			if svt_peek(l, 2) == '=' { return svt_op3(l, start, .ShlEq) }
+			return svt_op2(l, start, .Shl)
+		case '=': return svt_op2(l, start, .Le)
 		}
-		return svl_op1(l, start, .Lt)
+		return svt_op1(l, start, .Lt)
 	case '>':
-		switch svl_peek(l, 1) {
+		switch svt_peek(l, 1) {
 		case '>':
-			if svl_peek(l, 2) == '>' { return svl_op3(l, start, .Ashr) }
-			if svl_peek(l, 2) == '=' { return svl_op3(l, start, .ShrEq) }
-			return svl_op2(l, start, .Shr)
-		case '=': return svl_op2(l, start, .Ge)
+			if svt_peek(l, 2) == '>' { return svt_op3(l, start, .Ashr) }
+			if svt_peek(l, 2) == '=' { return svt_op3(l, start, .ShrEq) }
+			return svt_op2(l, start, .Shr)
+		case '=': return svt_op2(l, start, .Ge)
 		}
-		return svl_op1(l, start, .Gt)
+		return svt_op1(l, start, .Gt)
 	}
-	svl_error(l, fmt.tprintf("unexpected character '%r'", c))
+	svt_error(l, fmt.tprintf("unexpected character '%r'", c))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -659,7 +659,7 @@ sv_keyword_lut_init :: proc "contextless" () {
 	}
 }
 
-svl_keyword_lookup :: #force_inline proc(text: string) -> SVKeyword {
+svt_keyword_lookup :: #force_inline proc(text: string) -> SVKeyword {
 	n := len(text)
 	if n < 2 || n > sv_keyword_max_len { return .None }
 	c := text[0]
@@ -722,15 +722,15 @@ SVKeyword :: enum u8 {
 }
 
 
-svl_skip_to_line_end :: proc(l: ^SVLexer) {
+svt_skip_to_line_end :: proc(l: ^SVTokenizer) {
 	src := l.src
 	n := len(src)
 	i := l.idx
-	for i < n && !svl_is_newline(src[i]) { i += 1 }
+	for i < n && !svt_is_newline(src[i]) { i += 1 }
 	l.idx = i
 }
 
-svl_skip_blank :: #force_inline proc(l: ^SVLexer) {
+svt_skip_blank :: #force_inline proc(l: ^SVTokenizer) {
 	src := l.src
 	n := len(src)
 	i := l.idx

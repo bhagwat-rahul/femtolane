@@ -1,9 +1,9 @@
 /*
-SystemVerilog preprocessor: raw lexer frames in, a flat token array out.
+SystemVerilog preprocessor: raw tokenizer frames in, a flat token array out.
 
 All sources (files, includes, macro expansions, __FILE__/__LINE__ text) are byte
 streams. That keeps argument scanning and nested macro expansion ordinary raw
-lexing, exactly like the language's replacement-list model, and lets the parser
+tokenizing, exactly like the language's replacement-list model, and lets the parser
 stay token-only.
 */
 
@@ -15,8 +15,8 @@ import "core:os"
 import "core:strings"
 
 SVPPFrame :: struct {
-	lex:  SVLexer,
-	path: string,
+	tokenizer: SVTokenizer,
+	path:      string,
 }
 
 SVCond :: struct {
@@ -52,9 +52,9 @@ svpp_push_include :: proc(pp: ^SVPreprocessor, path: string) {
 	data, err := os.read_entire_file_from_path(path, pp.allocator)
 	ensure(err == nil, fmt.tprint("SystemVerilog include read error: ", err, " ", path))
 	file_id := svpp_add_file(pp, data, path)
-	frame := SVPPFrame{lex = svl_init(data, file_id), path = path}
-	frame.lex.comment_sink = &pp.ast.comments
-	frame.lex.path = path
+	frame := SVPPFrame{tokenizer = svt_init(data, file_id), path = path}
+	frame.tokenizer.comment_sink = &pp.ast.comments
+	frame.tokenizer.path = path
 	append(&pp.sources, frame)
 	// Includes can be nested arbitrarily through the same frame stack; cap it for safety.
 	pp.total_depth += 1
@@ -67,17 +67,17 @@ svpp_push_text :: proc(pp: ^SVPreprocessor, text: string, path: string, line: u3
 	data := transmute([]byte)text
 	append(&pp.source_data, SVSource{data = data, line_base = line, path = path})
 	file_id := u16(len(pp.source_data) - 1)
-	frame := SVPPFrame{lex = svl_init(data, file_id), path = path}
-	frame.lex.comment_sink = &pp.ast.comments
-	frame.lex.path = path
-	frame.lex.line = line
+	frame := SVPPFrame{tokenizer = svt_init(data, file_id), path = path}
+	frame.tokenizer.comment_sink = &pp.ast.comments
+	frame.tokenizer.path = path
+	frame.tokenizer.line = line
 	append(&pp.sources, frame)
 	pp.total_depth += 1
 	ensure(pp.total_depth < 4096, "SystemVerilog macro expansion nesting too deep")
 }
 
-svpp_cur_lexer :: #force_inline proc(pp: ^SVPreprocessor) -> ^SVLexer {
-	return &pp.sources[len(pp.sources) - 1].lex
+svpp_cur_tokenizer :: #force_inline proc(pp: ^SVPreprocessor) -> ^SVTokenizer {
+	return &pp.sources[len(pp.sources) - 1].tokenizer
 }
 
 svpp_error :: proc(pp: ^SVPreprocessor, msg: string) -> ! {
@@ -88,49 +88,49 @@ svpp_error :: proc(pp: ^SVPreprocessor, msg: string) -> ! {
 // Macro bodies and invocations
 // ---------------------------------------------------------------------------------------
 
-svpp_skip_define_line :: proc(l: ^SVLexer) {
+svpp_skip_define_line :: proc(l: ^SVTokenizer) {
 	for {
-		for !svl_at_eof(l) && !svl_is_newline(svl_peek(l)) { svl_advance(l) }
+		for !svt_at_eof(l) && !svt_is_newline(svt_peek(l)) { svt_advance(l) }
 		continued := l.idx > 0 && l.src[l.idx - 1] == '\\'
-		if svl_peek(l) == '\r' { svl_advance(l) }
-		if svl_peek(l) == '\n' { svl_advance(l) }
+		if svt_peek(l) == '\r' { svt_advance(l) }
+		if svt_peek(l) == '\n' { svt_advance(l) }
 		if !continued { break }
 	}
 }
 
 svpp_scan_define :: proc(pp: ^SVPreprocessor) {
-	l := svpp_cur_lexer(pp)
-	svl_skip_blank(l)
-	if !svl_is_ident_start(svl_peek(l)) {
+	l := svpp_cur_tokenizer(pp)
+	svt_skip_blank(l)
+	if !svt_is_ident_start(svt_peek(l)) {
 		svpp_error(pp, "`define requires a macro name")
 	}
-	macro := svl_scan_ident(l)
+	macro := svt_scan_ident(l)
 	def := SVDefine {
 		params         = make([dynamic]string, pp.allocator),
 		param_defaults = make([dynamic]string, pp.allocator),
 	}
 
 	// Function-like only when '(' immediately follows the name (IEEE 1800-2023 22.5.1).
-	if svl_peek(l) == '(' {
+	if svt_peek(l) == '(' {
 		def.is_function_like = true
-		svl_advance(l)
-		svl_skip_blank(l)
-		if svl_peek(l) != ')' {
+		svt_advance(l)
+		svt_skip_blank(l)
+		if svt_peek(l) != ')' {
 			for {
-				svl_skip_blank(l)
-				append(&def.params, svl_scan_ident(l))
-				svl_skip_blank(l)
+				svt_skip_blank(l)
+				append(&def.params, svt_scan_ident(l))
+				svt_skip_blank(l)
 				default_text := ""
-				if svl_peek(l) == '=' {
-					svl_advance(l)
-					svl_skip_blank(l)
+				if svt_peek(l) == '=' {
+					svt_advance(l)
+					svt_skip_blank(l)
 					start := l.idx
 					depth := 0
 					for {
-						c := svl_peek(l)
-						if svl_at_eof(l) { svpp_error(pp, "unterminated macro parameter default") }
+						c := svt_peek(l)
+						if svt_at_eof(l) { svpp_error(pp, "unterminated macro parameter default") }
 						if c == '"' {
-							_ = svl_scan_string(l)
+							_ = svt_scan_string(l)
 							continue
 						}
 						if c == '(' { depth += 1 }
@@ -139,69 +139,69 @@ svpp_scan_define :: proc(pp: ^SVPreprocessor) {
 							depth -= 1
 						}
 						if c == ',' && depth == 0 { break }
-						svl_advance(l)
+						svt_advance(l)
 					}
 					default_text = strings.trim_space(string(l.src[start:l.idx]))
 				}
 				append(&def.param_defaults, default_text)
-				svl_skip_blank(l)
-				if svl_peek(l) == ',' {
-					svl_advance(l)
+				svt_skip_blank(l)
+				if svt_peek(l) == ',' {
+					svt_advance(l)
 					continue
 				}
 				break
 			}
 		}
-		svl_skip_blank(l)
-		if svl_peek(l) != ')' { svpp_error(pp, "expected ')' after macro parameters") }
-		svl_advance(l)
+		svt_skip_blank(l)
+		if svt_peek(l) != ')' { svpp_error(pp, "expected ')' after macro parameters") }
+		svt_advance(l)
 	}
 
 	// Replacement text runs to the end of the line; backslash-newline continues it and
 	// is removed from the stored body. Comments are not part of the substituted text
 	// and string literals are copied verbatim (22.5.1).
 	b := strings.builder_make(pp.allocator)
-	for !svl_at_eof(l) {
-		c := svl_peek(l)
-		if svl_is_newline(c) || c == 0 { break }
+	for !svt_at_eof(l) {
+		c := svt_peek(l)
+		if svt_is_newline(c) || c == 0 { break }
 		if c == '"' {
 			start := l.idx
-			svl_advance(l)
-			if svl_peek(l) == '"' && svl_peek(l, 1) == '"' {
-				svl_advance(l, 2)
-				for !svl_at_eof(l) {
-					if svl_peek(l) == '"' && svl_peek(l, 1) == '"' && svl_peek(l, 2) == '"' {
-						svl_advance(l, 3)
+			svt_advance(l)
+			if svt_peek(l) == '"' && svt_peek(l, 1) == '"' {
+				svt_advance(l, 2)
+				for !svt_at_eof(l) {
+					if svt_peek(l) == '"' && svt_peek(l, 1) == '"' && svt_peek(l, 2) == '"' {
+						svt_advance(l, 3)
 						break
 					}
-					if svl_peek(l) == '\\' { svl_advance(l, 2) } else { svl_advance(l) }
+					if svt_peek(l) == '\\' { svt_advance(l, 2) } else { svt_advance(l) }
 				}
 			} else {
-				for !svl_at_eof(l) {
-					if svl_peek(l) == '\\' { svl_advance(l, 2); continue }
-					if svl_peek(l) == '"' { svl_advance(l); break }
-					if svl_is_newline(svl_peek(l)) { break }
-					svl_advance(l)
+				for !svt_at_eof(l) {
+					if svt_peek(l) == '\\' { svt_advance(l, 2); continue }
+					if svt_peek(l) == '"' { svt_advance(l); break }
+					if svt_is_newline(svt_peek(l)) { break }
+					svt_advance(l)
 				}
 			}
 			strings.write_string(&b, string(l.src[start:l.idx]))
 			continue
 		}
-		if c == '/' && svl_peek(l, 1) == '/' {
-			for !svl_at_eof(l) && !svl_is_newline(svl_peek(l)) { svl_advance(l) }
+		if c == '/' && svt_peek(l, 1) == '/' {
+			for !svt_at_eof(l) && !svt_is_newline(svt_peek(l)) { svt_advance(l) }
 			continued := l.idx > 0 && l.src[l.idx - 1] == '\\'
 			if continued {
-				if svl_peek(l) == '\r' { svl_advance(l) }
-				if svl_peek(l) == '\n' { svl_advance(l) }
+				if svt_peek(l) == '\r' { svt_advance(l) }
+				if svt_peek(l) == '\n' { svt_advance(l) }
 				continue
 			}
 			break
 		}
-		if c == '/' && svl_peek(l, 1) == '*' {
-			svl_advance(l, 2)
-			for !svl_at_eof(l) && !(svl_peek(l) == '*' && svl_peek(l, 1) == '/') { svl_advance(l) }
-			if svl_at_eof(l) { svpp_error(pp, "unterminated comment in macro body") }
-			svl_advance(l, 2)
+		if c == '/' && svt_peek(l, 1) == '*' {
+			svt_advance(l, 2)
+			for !svt_at_eof(l) && !(svt_peek(l) == '*' && svt_peek(l, 1) == '/') { svt_advance(l) }
+			if svt_at_eof(l) { svpp_error(pp, "unterminated comment in macro body") }
+			svt_advance(l, 2)
 			continue
 		}
 		if c == '\\' {
@@ -215,24 +215,24 @@ svpp_scan_define :: proc(pp: ^SVPreprocessor) {
 			}
 		}
 		strings.write_byte(&b, c)
-		svl_advance(l)
+		svt_advance(l)
 	}
 	def.body = strings.to_string(b)
 	def.body_owned = true
 	pp.ast.defines[macro] = def
-	svl_skip_to_line_end(l)
+	svt_skip_to_line_end(l)
 }
 
 // Raw text between balanced parentheses, split on top-level commas.
 svpp_scan_macro_args :: proc(pp: ^SVPreprocessor) -> [dynamic]string {
-	l := svpp_cur_lexer(pp)
+	l := svpp_cur_tokenizer(pp)
 	args := make([dynamic]string, pp.allocator)
-	svl_skip_trivia(l)
-	if svl_peek(l) != '(' { svpp_error(pp, "macro invocation requires an argument list") }
-	svl_advance(l)
-	svl_skip_trivia(l)
-	if svl_peek(l) == ')' {
-		svl_advance(l)
+	svt_skip_trivia(l)
+	if svt_peek(l) != '(' { svpp_error(pp, "macro invocation requires an argument list") }
+	svt_advance(l)
+	svt_skip_trivia(l)
+	if svt_peek(l) == ')' {
+		svt_advance(l)
 		return args
 	}
 	paren_depth := 0
@@ -240,21 +240,21 @@ svpp_scan_macro_args :: proc(pp: ^SVPreprocessor) -> [dynamic]string {
 	bracket_depth := 0
 	arg_start := l.idx
 	for {
-		c := svl_peek(l)
-		if svl_at_eof(l) { svpp_error(pp, "unterminated macro argument list") }
+		c := svt_peek(l)
+		if svt_at_eof(l) { svpp_error(pp, "unterminated macro argument list") }
 		if c == '"' {
-			_ = svl_scan_string(l)
+			_ = svt_scan_string(l)
 			continue
 		}
-		if c == '/' && svl_peek(l, 1) == '/' {
-			for !svl_at_eof(l) && !svl_is_newline(svl_peek(l)) { svl_advance(l) }
+		if c == '/' && svt_peek(l, 1) == '/' {
+			for !svt_at_eof(l) && !svt_is_newline(svt_peek(l)) { svt_advance(l) }
 			continue
 		}
-		if c == '/' && svl_peek(l, 1) == '*' {
-			svl_advance(l, 2)
-			for !svl_at_eof(l) && !(svl_peek(l) == '*' && svl_peek(l, 1) == '/') { svl_advance(l) }
-			if svl_at_eof(l) { svpp_error(pp, "unterminated comment in macro arguments") }
-			svl_advance(l, 2)
+		if c == '/' && svt_peek(l, 1) == '*' {
+			svt_advance(l, 2)
+			for !svt_at_eof(l) && !(svt_peek(l) == '*' && svt_peek(l, 1) == '/') { svt_advance(l) }
+			if svt_at_eof(l) { svpp_error(pp, "unterminated comment in macro arguments") }
+			svt_advance(l, 2)
 			continue
 		}
 		switch c {
@@ -262,7 +262,7 @@ svpp_scan_macro_args :: proc(pp: ^SVPreprocessor) -> [dynamic]string {
 		case ')':
 			if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 {
 				append(&args, strings.trim_space(string(l.src[arg_start:l.idx])))
-				svl_advance(l)
+				svt_advance(l)
 				return args
 			}
 			paren_depth -= 1
@@ -273,12 +273,12 @@ svpp_scan_macro_args :: proc(pp: ^SVPreprocessor) -> [dynamic]string {
 		case ',':
 			if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 {
 				append(&args, strings.trim_space(string(l.src[arg_start:l.idx])))
-				svl_advance(l)
+				svt_advance(l)
 				arg_start = l.idx
 				continue
 			}
 		}
-		svl_advance(l)
+		svt_advance(l)
 	}
 }
 
@@ -315,14 +315,14 @@ svpp_expand_text :: proc(pp: ^SVPreprocessor, def: SVDefine, args: [dynamic]stri
 			// such as `__foo`__LINE__`.
 			line_end := i + 1 + len("__LINE__")
 			if strings.has_prefix(body[i + 1:], "__LINE__") &&
-			   (line_end >= len(body) || !svl_is_ident_char(body[line_end])) {
+			   (line_end >= len(body) || !svt_is_ident_char(body[line_end])) {
 				strings.write_string(&b, fmt.aprintf("%d", line, allocator = pp.allocator))
 				i = line_end
 				continue
 			}
 			file_end := i + 1 + len("__FILE__")
 			if strings.has_prefix(body[i + 1:], "__FILE__") &&
-			   (file_end >= len(body) || !svl_is_ident_char(body[file_end])) {
+			   (file_end >= len(body) || !svt_is_ident_char(body[file_end])) {
 				strings.write_byte(&b, '"')
 				for c in path {
 					if c == '\\' || c == '"' { strings.write_byte(&b, '\\') }
@@ -358,16 +358,16 @@ svpp_expand_text :: proc(pp: ^SVPreprocessor, def: SVDefine, args: [dynamic]stri
 			i = j
 			continue
 		}
-		if def.is_function_like && (svl_is_ident_start(c) || c == '\\') {
+		if def.is_function_like && (svt_is_ident_start(c) || c == '\\') {
 			j := i + 1
 			if c == '\\' {
 				for j < len(body) {
 					ch := body[j]
-					if svl_is_space(ch) || svl_is_newline(ch) { break }
+					if svt_is_space(ch) || svt_is_newline(ch) { break }
 					j += 1
 				}
 			} else {
-				for j < len(body) && svl_is_ident_char(body[j]) { j += 1 }
+				for j < len(body) && svt_is_ident_char(body[j]) { j += 1 }
 			}
 			word := body[i:j]
 			substituted := false
@@ -401,7 +401,7 @@ svpp_expand_macro :: proc(pp: ^SVPreprocessor, name: string, tok: SVToken) {
 	if def.is_function_like {
 		args = svpp_scan_macro_args(pp)
 	}
-	line := pp.sources[len(pp.sources) - 1].lex.line
+	line := pp.sources[len(pp.sources) - 1].tokenizer.line
 	text := svpp_expand_text(pp, def, args, line, pp.sources[len(pp.sources)-1].path)
 	svpp_push_text(pp, text, pp.sources[len(pp.sources) - 1].path, line)
 }
@@ -437,27 +437,27 @@ svpp_resolve_include :: proc(pp: ^SVPreprocessor, include_path: string, current_
 }
 
 svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
-	cur := svpp_cur_lexer(pp)
-	name := svl_token_text(cur, tok)
+	cur := svpp_cur_tokenizer(pp)
+	name := svt_token_text(cur, tok)
 	active := svpp_active(pp)
 
 	switch name {
 	case "define":
-		if active { svpp_scan_define(pp) } else { svpp_skip_define_line(svpp_cur_lexer(pp)) }
+		if active { svpp_scan_define(pp) } else { svpp_skip_define_line(svpp_cur_tokenizer(pp)) }
 	case "undef":
 		if active {
-			l := svpp_cur_lexer(pp)
-			svl_skip_blank(l)
-			macro := svl_scan_ident(l)
+			l := svpp_cur_tokenizer(pp)
+			svt_skip_blank(l)
+			macro := svt_scan_ident(l)
 			if len(macro) > 0 { delete_key(&pp.ast.defines, macro) }
-			svl_skip_to_line_end(l)
-		} else { svl_skip_to_line_end(svpp_cur_lexer(pp)) }
+			svt_skip_to_line_end(l)
+		} else { svt_skip_to_line_end(svpp_cur_tokenizer(pp)) }
 	case "undefineall":
 		if active { clear(&pp.ast.defines) }
 	case "ifdef", "ifndef":
-		l := svpp_cur_lexer(pp)
-		svl_skip_blank(l)
-		macro := svl_scan_ident(l)
+		l := svpp_cur_tokenizer(pp)
+		svt_skip_blank(l)
+		macro := svt_scan_ident(l)
 		if len(macro) == 0 { svpp_error(pp, fmt.tprintf("`%s requires a macro name", name)) }
 		defined := macro in pp.ast.defines
 		cond := defined if name == "ifdef" else !defined
@@ -467,11 +467,11 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 	case "elsif":
 		if len(pp.cond_stack) == 0 { svpp_error(pp, "unexpected `elsif") }
 		top := &pp.cond_stack[len(pp.cond_stack) - 1]
-		l := svpp_cur_lexer(pp)
+		l := svpp_cur_tokenizer(pp)
 		branch := false
 		if top.parent_active && !top.any_taken {
-			svl_skip_blank(l)
-			macro := svl_scan_ident(l)
+			svt_skip_blank(l)
+			macro := svt_scan_ident(l)
 			branch = macro in pp.ast.defines
 		}
 		top.active = top.parent_active && branch
@@ -485,14 +485,14 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 		if len(pp.cond_stack) == 0 { svpp_error(pp, "unexpected `endif") }
 		_ = pop(&pp.cond_stack)
 	case "include":
-		if !active { svl_skip_to_line_end(svpp_cur_lexer(pp)); return }
-		l := svpp_cur_lexer(pp)
-		svl_skip_blank(l)
+		if !active { svt_skip_to_line_end(svpp_cur_tokenizer(pp)); return }
+		l := svpp_cur_tokenizer(pp)
+		svt_skip_blank(l)
 		include_path: string
-		if svl_peek(l) == '`' {
-			svl_advance(l)
-			svl_skip_blank(l)
-			macro := svl_scan_ident(l)
+		if svt_peek(l) == '`' {
+			svt_advance(l)
+			svt_skip_blank(l)
+			macro := svt_scan_ident(l)
 			def, defined := pp.ast.defines[macro]
 			if !defined { svpp_error(pp, fmt.tprintf("Undefined macro `%s used by `include", macro)) }
 			include_path = strings.trim_space(def.body)
@@ -500,8 +500,8 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 				include_path = include_path[1:len(include_path) - 1]
 			}
 		} else {
-			if svl_peek(l) != '"' { svpp_error(pp, "expected a quoted path after `include") }
-			include_path = svl_scan_string(l)
+			if svt_peek(l) != '"' { svpp_error(pp, "expected a quoted path after `include") }
+			include_path = svt_scan_string(l)
 		}
 		path := svpp_resolve_include(pp, include_path, pp.sources[len(pp.sources) - 1].path)
 		svpp_push_include(pp, path)
@@ -509,7 +509,7 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 	     "resetall", "line", "begin_keywords", "end_keywords", "nounconnected_drive",
 	     "unconnected_drive", "default_decay_time", "default_trireg_strength",
 	     "delay_mode_distributed", "delay_mode_path", "delay_mode_unit", "delay_mode_zero":
-		svl_skip_to_line_end(svpp_cur_lexer(pp))
+		svt_skip_to_line_end(svpp_cur_tokenizer(pp))
 	case:
 		// `__FILE__ and `__LINE__ are built-ins, not entries in the define table.
 		if name == "__FILE__" {
@@ -549,13 +549,13 @@ svpp_preprocess :: proc(pp: ^SVPreprocessor, data: []byte, filepath: string) -> 
 		non_zero_reserve(&pp.tokens, len(data) / 8 + 64)
 	}
 	file_id := svpp_add_file(pp, data, filepath)
-	frame := SVPPFrame{lex = svl_init(data, file_id), path = filepath}
-	frame.lex.comment_sink = &pp.ast.comments
-	frame.lex.path = filepath
+	frame := SVPPFrame{tokenizer = svt_init(data, file_id), path = filepath}
+	frame.tokenizer.comment_sink = &pp.ast.comments
+	frame.tokenizer.path = filepath
 	append(&pp.sources, frame)
 	for len(pp.sources) > 0 {
 		top := &pp.sources[len(pp.sources) - 1]
-		t := svl_next(&top.lex)
+		t := svt_next(&top.tokenizer)
 		if t.kind == .EOF {
 			_ = pop(&pp.sources)
 			if pp.total_depth > 0 { pp.total_depth -= 1 }

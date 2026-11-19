@@ -3,7 +3,7 @@ Compact SystemVerilog parser over the preprocessed token stream.
 
 This is the data-oriented replacement for the byte-scanning recursive descent
 parser: the parser only ever indexes SVToken values, so there is no trivia
-rescanning, no save/restore of the lexer for lookahead, and keyword dispatch is
+rescanning, no save/restore of the tokenizer for lookahead, and keyword dispatch is
 an enum switch. AST nodes keep the same public types used by the rest of the
 frontend.
 */
@@ -1109,7 +1109,7 @@ svp_number_body :: #force_inline proc(text: string, start: int) -> (body: string
 		signed = true
 		body = body[1:]
 	}
-	if len(body) > 0 && svl_is_base_char(body[0]) {
+	if len(body) > 0 && svt_is_base_char(body[0]) {
 		base = sv_number_base_of(body[0])
 		body = body[1:]
 		if len(body) > 0 && (body[0] == ' ' || body[0] == '\t' || body[len(body) - 1] == ' ' || body[len(body) - 1] == '\t') {

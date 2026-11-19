@@ -3,10 +3,10 @@ Femtolane SystemVerilog frontend, stage 1: source text -> typed AST.
 
 The frontend is split into four small layers:
 
-  system_verilog_lex.odin    raw ASCII lexer, token layout, keyword lookup
-  system_verilog_pp.odin     `define/`ifdef/`include and macro expansion
-  system_verilog_parser.odin hand-written recursive descent over tokens
-  this file                  AST types and the public entry points
+  system_verilog_tokenizer.odin     raw ASCII tokenizer, token layout, keyword lookup
+  system_verilog_preprocessor.odin  `define/`ifdef/`include and macro expansion
+  system_verilog_parser.odin        hand-written recursive descent over tokens
+  this file                         AST types and the public entry points
 
 There is no token buffer in the parser and no grammar file: the preprocessor
 produces a flat token array once, and every parser function indexes it. The AST

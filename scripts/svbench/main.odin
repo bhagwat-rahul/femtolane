@@ -4,8 +4,8 @@ Response-file driven SystemVerilog parser harness.
 Modes:
   svbench <response>          batch parse; RESET starts a new compilation unit
   svbench --time <response>   preload files, then report preprocess/parse phases
-  svbench --read <response>   file read throughput (no lexing)
-  svbench --lex <response>    raw lexer throughput (no preprocessing or AST)
+  svbench --read <response>   file read throughput (no tokenizing)
+  svbench --lex <response>    raw tokenizer throughput (no preprocessing or AST)
 
 Response-file format, one directive per line:
   INCDIR <directory>
@@ -271,7 +271,7 @@ read_mode :: proc(response_path: string) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Raw lexer mode: useful for separating scanner cost from parser/AST cost.
+// Raw tokenizer mode: useful for separating scanner cost from parser/AST cost.
 // ---------------------------------------------------------------------------------------
 
 lex_mode :: proc(response_path: string) {
@@ -303,10 +303,10 @@ lex_mode :: proc(response_path: string) {
 	total_time: time.Duration
 	total_tokens: int
 	for file, i in files {
-		l := svl_init(file.data, u16(i))
+		l := svt_init(file.data, u16(i))
 		t0 := time.tick_now()
 		for {
-			t := svl_next(&l)
+			t := svt_next(&l)
 			if t.kind == .EOF { break }
 			total_tokens += 1
 		}
