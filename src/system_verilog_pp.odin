@@ -76,23 +76,6 @@ svpp_push_text :: proc(pp: ^SVPreprocessor, text: string, path: string, line: u3
 	ensure(pp.total_depth < 4096, "SystemVerilog macro expansion nesting too deep")
 }
 
-// Returns the next non-trivia token across the source stack.
-svpp_next_raw :: proc(pp: ^SVPreprocessor) -> SVToken {
-	for {
-		if len(pp.sources) == 0 {
-			return SVToken{kind = .EOF}
-		}
-		top := &pp.sources[len(pp.sources) - 1]
-		t := svl_next(&top.lex)
-		if t.kind == .EOF {
-			_ = pop(&pp.sources)
-			if pp.total_depth > 0 { pp.total_depth -= 1 }
-			continue
-		}
-		return t
-	}
-}
-
 svpp_cur_lexer :: #force_inline proc(pp: ^SVPreprocessor) -> ^SVLexer {
 	return &pp.sources[len(pp.sources) - 1].lex
 }
@@ -562,18 +545,22 @@ svpp_preprocess :: proc(pp: ^SVPreprocessor, data: []byte, filepath: string) -> 
 
 	// Large RTL files have roughly one token per ten source bytes. Reserving up
 	// front avoids the repeated zero-and-copy growth of the token array.
-	if len(pp.tokens) == 0 && len(data) >= 1 << 20 {
-		non_zero_reserve(&pp.tokens, len(data) / 10 + 64)
+	if len(pp.tokens) == 0 {
+		non_zero_reserve(&pp.tokens, len(data) / 8 + 64)
 	}
 	file_id := svpp_add_file(pp, data, filepath)
 	frame := SVPPFrame{lex = svl_init(data, file_id), path = filepath}
 	frame.lex.comment_sink = &pp.ast.comments
 	frame.lex.path = filepath
 	append(&pp.sources, frame)
-	for {
-		if len(pp.sources) == 0 { break }
-		t := svpp_next_raw(pp)
-		if t.kind == .EOF { break }
+	for len(pp.sources) > 0 {
+		top := &pp.sources[len(pp.sources) - 1]
+		t := svl_next(&top.lex)
+		if t.kind == .EOF {
+			_ = pop(&pp.sources)
+			if pp.total_depth > 0 { pp.total_depth -= 1 }
+			continue
+		}
 		if t.kind == .Directive {
 			svpp_handle_directive(pp, t)
 			continue
@@ -582,5 +569,7 @@ svpp_preprocess :: proc(pp: ^SVPreprocessor, data: []byte, filepath: string) -> 
 		append(&pp.tokens, t)
 	}
 	ensure(len(pp.cond_stack) == 0, "Unterminated `ifdef/`ifndef at end of file")
+	// Give the parser a few EOF sentinels so lookahead never needs a bounds check.
+	for _ in 0 ..< 4 { append(&pp.tokens, SVToken{kind = .EOF}) }
 	return pp.tokens[:]
 }

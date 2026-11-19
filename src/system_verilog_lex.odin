@@ -7,9 +7,10 @@ emits source-slice tokens. Compiler directives and macro expansion are handled
 by the preprocessor in system_verilog_pp.odin, which feeds a flat token array to
 the parser.
 
-Token layout is 16 bytes: source id, byte offset/length, token kind and keyword.
-Text is materialized from the source buffer only when the parser or preprocessor
-needs it, so the token stream stays cache-friendly. Numbers are decoded once
+Token layout is 10 bytes: 32-bit source offset, 16-bit length, 16-bit source id,
+token kind and a one-byte keyword id. Text is materialized from the source buffer
+only when the parser or preprocessor needs it, so the token stream is compact and
+cache-friendly. Numbers are decoded once
 when they become AST nodes, not during the scan; the source slice keeps every
 literal lossless.
 */
@@ -110,9 +111,9 @@ SVTokenKind :: enum u8 {
 	TildeCaret,
 }
 
-SVToken :: struct {
+SVToken :: struct #packed {
 	off:  u32, // byte offset into the source selected by `file`
-	len:  u32,
+	len:  u16,
 	file: u16,
 	kind: SVTokenKind,
 	kw:   SVKeyword,
@@ -157,6 +158,7 @@ svl_is_ident_start :: #force_inline proc "contextless" (c: byte) -> bool { retur
 svl_is_ident_char :: #force_inline proc "contextless" (c: byte) -> bool { return c == '_' || c == '$' || (c | 0x20) >= 'a' && (c | 0x20) <= 'z' || (c >= '0' && c <= '9') }
 
 svl_ident_char_lut: [256]bool
+svl_simple_token_lut: [256]SVTokenKind
 
 SV_IDENT_LANES :: 16
 sv_simd_lower: simd.u8x16 = {
@@ -176,6 +178,15 @@ svl_lex_lut_init :: proc "contextless" () {
 		c := u8(i)
 		svl_ident_char_lut[i] = svl_is_ident_char(c)
 	}
+	svl_simple_token_lut[')'] = .RParen
+	svl_simple_token_lut[']'] = .RBracket
+	svl_simple_token_lut['}'] = .RBrace
+	svl_simple_token_lut[','] = .Comma
+	svl_simple_token_lut[';'] = .Semicolon
+	svl_simple_token_lut['['] = .LBracket
+	svl_simple_token_lut['{'] = .LBrace
+	svl_simple_token_lut['@'] = .At
+	svl_simple_token_lut['?'] = .Question
 }
 svl_is_base_char :: #force_inline proc(c: byte) -> bool { return c == 'b' || c == 'B' || c == 'o' || c == 'O' || c == 'd' || c == 'D' || c == 'h' || c == 'H' }
 
@@ -189,7 +200,38 @@ svl_record_comment :: #force_inline proc(l: ^SVLexer, start, end: int, line: u32
 	})
 }
 
-svl_skip_trivia :: proc(l: ^SVLexer) {
+svl_skip_comment :: #force_no_inline proc(l: ^SVLexer, start: int) -> int {
+	src := l.src
+	n := len(src)
+	i := start
+	start_line := l.line
+	if src[i + 1] == '/' {
+		i += 2
+		for i < n && src[i] != '\n' && src[i] != '\r' { i += 1 }
+		svl_record_comment(l, start, i, start_line, false)
+		return i
+	}
+
+	i += 2
+	content_start := i
+	for i + 1 < n && !(src[i] == '*' && src[i + 1] == '/') { i += 1 }
+	if i + 1 >= n {
+		for j in content_start ..< i {
+			if src[j] == '\n' { l.line += 1 }
+		}
+		l.idx = i
+		svl_error(l, "unterminated block comment")
+	}
+	for j in content_start ..< i {
+		if src[j] == '\n' { l.line += 1 }
+	}
+	i += 2
+	svl_record_comment(l, start, i, start_line, true)
+	return i
+}
+
+svl_skip_trivia :: #force_inline proc(l: ^SVLexer) {
+	#no_bounds_check {
 	src := l.src
 	n := len(src)
 	i := l.idx
@@ -198,6 +240,20 @@ svl_skip_trivia :: proc(l: ^SVLexer) {
 		switch {
 		case c == ' ' || c == '\t' || c == '\v' || c == '\f':
 			i += 1
+			// Indentation is usually a run of spaces. Check eight at a time and
+			// locate the first non-space with the standard per-byte zero mask.
+			for i + 8 <= n && src[i] == ' ' {
+				v := intrinsics.unaligned_load((^u64)(&src[i]))
+				x := v ~ u64(0x2020202020202020)
+				t := ((x & 0x7f7f7f7f7f7f7f7f) + 0x7f7f7f7f7f7f7f7f)
+				nz := (t | x) & 0x8080808080808080
+				if nz == 0 {
+					i += 8
+					continue
+				}
+				i += int(intrinsics.count_trailing_zeros(nz)) >> 3
+				break
+			}
 			for i < n && (src[i] == ' ' || src[i] == '\t' || src[i] == '\v' || src[i] == '\f') { i += 1 }
 		case c == '\r':
 			// CRLF/CL counts as one line: only '\n' increments the line counter.
@@ -205,37 +261,16 @@ svl_skip_trivia :: proc(l: ^SVLexer) {
 		case c == '\n':
 			l.line += 1
 			i += 1
-		case c == '/' && i + 1 < n && src[i + 1] == '/':
-			start := i
-			start_line := l.line
-			i += 2
-			for i < n && src[i] != '\n' && src[i] != '\r' { i += 1 }
-			svl_record_comment(l, start, i, start_line, false)
-		case c == '/' && i + 1 < n && src[i + 1] == '*':
-			start := i
-			start_line := l.line
-			i += 2
-			comment_start := i
-			for i + 1 < n && !(src[i] == '*' && src[i + 1] == '/') { i += 1 }
-			if i + 1 >= n {
-				for j in comment_start ..< i {
-					if src[j] == '\n' { l.line += 1 }
-				}
-				l.idx = i
-				svl_error(l, "unterminated block comment")
-			}
-			for j in comment_start ..< i {
-				if src[j] == '\n' { l.line += 1 }
-			}
-			i += 2
-			svl_record_comment(l, start, i, start_line, true)
+		case c == '/' && i + 1 < n && (src[i + 1] == '/' || src[i + 1] == '*'):
+			i = svl_skip_comment(l, i)
 		case:
 			l.idx = i
 			return
 		}
 	}
 	l.idx = i
-}
+
+	}}
 
 // Identifier text after a backslash, up to whitespace (escaped identifiers include
 // punctuation and are never keywords).
@@ -254,6 +289,7 @@ svl_scan_escaped_ident :: proc(l: ^SVLexer) -> string {
 }
 
 svl_scan_ident :: #force_inline proc(l: ^SVLexer) -> string {
+	#no_bounds_check {
 	src := l.src
 	n := len(src)
 	start := l.idx
@@ -278,7 +314,8 @@ svl_scan_ident :: #force_inline proc(l: ^SVLexer) -> string {
 	for i < n && svl_ident_char_lut[src[i]] { i += 1 }
 	l.idx = i
 	return string(src[start:i])
-}
+
+	}}
 
 svl_scan_string :: proc(l: ^SVLexer) -> string {
 	src := l.src
@@ -328,7 +365,8 @@ svl_scan_string :: proc(l: ^SVLexer) -> string {
 
 // Numbers are one token, including a based literal's base and any time-unit suffix.
 // Raw text is preserved; decoding happens when the token becomes an SVNumber.
-svl_scan_number :: proc(l: ^SVLexer) -> string {
+svl_scan_number :: #force_inline proc(l: ^SVLexer) -> string {
+	#no_bounds_check {
 	src := l.src
 	n := len(src)
 	start := l.idx
@@ -352,6 +390,14 @@ svl_scan_number :: proc(l: ^SVLexer) -> string {
 		return string(src[start:i])
 	}
 
+	// Fast path: a plain decimal integer followed by a byte that cannot extend the
+	// literal. This is the common case for indices, replication counts and delays.
+	for i < n && svl_is_digit(src[i]) { i += 1 }
+	if i >= n || (src[i] != '_' && src[i] != '\'' && src[i] != '.' && src[i] != 'e' && src[i] != 'E' && !svl_is_ident_char(src[i])) {
+		l.idx = i
+		return string(src[start:i])
+	}
+	i = start
 	for i < n && (svl_is_digit(src[i]) || src[i] == '_') { i += 1 }
 	if i + 1 < n && src[i] == '.' && svl_is_digit(src[i + 1]) {
 		i += 1
@@ -388,6 +434,7 @@ svl_scan_number :: proc(l: ^SVLexer) -> string {
 	unit_start := i
 	for i < n && svl_is_ident_char(src[i]) { i += 1 }
 	unit := string(src[unit_start:i])
+	if len(unit) == 0 { l.idx = i; return string(src[start:i]) }
 	switch unit {
 	case "s", "ms", "us", "ns", "ps", "fs":
 	// keep it in the token
@@ -396,7 +443,8 @@ svl_scan_number :: proc(l: ^SVLexer) -> string {
 	}
 	l.idx = i
 	return string(src[start:i])
-}
+
+	}}
 
 svl_is_number_char :: #force_inline proc(c: byte) -> bool {
 	return svl_is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') ||
@@ -410,11 +458,15 @@ svl_scan_directive :: proc(l: ^SVLexer) -> SVToken {
 		return SVToken{off = u32(start), len = 1, file = l.file_id, kind = .Backtick}
 	}
 	svl_scan_ident(l)
-	return SVToken{off = u32(start + 1), len = u32(l.idx - start - 1), file = l.file_id, kind = .Directive}
+	return SVToken{off = u32(start + 1), len = u16(l.idx - start - 1), file = l.file_id, kind = .Directive}
+}
+
+svl_check_token_len :: #force_inline proc(l: ^SVLexer, text: string) {
+	if len(text) > 0xFFFF { svl_error(l, "token too long") }
 }
 
 svl_token_text :: #force_inline proc(l: ^SVLexer, t: SVToken) -> string {
-	#no_bounds_check return string(l.src[t.off:t.off + t.len])
+	#no_bounds_check return string(l.src[t.off:t.off + u32(t.len)])
 }
 
 svl_op1 :: #force_inline proc(l: ^SVLexer, start: int, kind: SVTokenKind) -> SVToken {
@@ -432,7 +484,7 @@ svl_op3 :: #force_inline proc(l: ^SVLexer, start: int, kind: SVTokenKind) -> SVT
 	return SVToken{off = u32(start), len = 3, file = l.file_id, kind = kind}
 }
 
-svl_next :: proc(l: ^SVLexer) -> SVToken {
+svl_next :: #force_inline proc(l: ^SVLexer) -> SVToken {
 	svl_skip_trivia(l)
 	start := l.idx
 	if svl_at_eof(l) {
@@ -440,35 +492,46 @@ svl_next :: proc(l: ^SVLexer) -> SVToken {
 	}
 
 	c := svl_peek(l)
+
+	// Most punctuation is a fixed single-character token. Testing the table first
+	// avoids the longer identifier/number/string dispatch chain for those tokens.
+	simple := svl_simple_token_lut[c]
+	if simple != .Invalid { return svl_op1(l, start, simple) }
+
 	switch {
 	case c == '\\':
 		text := svl_scan_escaped_ident(l)
-		return SVToken{off = u32(start + 1), len = u32(len(text)), file = l.file_id, kind = .EscapedIdent}
+		svl_check_token_len(l, text)
+		return SVToken{off = u32(start + 1), len = u16(len(text)), file = l.file_id, kind = .EscapedIdent}
 	case svl_is_ident_start(c):
 		text := svl_scan_ident(l)
-		return SVToken{off = u32(start), len = u32(len(text)), file = l.file_id, kind = .Ident, kw = svl_keyword_lookup(text)}
+		svl_check_token_len(l, text)
+		return SVToken{off = u32(start), len = u16(len(text)), file = l.file_id, kind = .Ident, kw = svl_keyword_lookup(text)}
 	case c == '$':
 		svl_advance(l)
 		_ = svl_scan_ident(l)
-		return SVToken{off = u32(start), len = u32(l.idx - start), file = l.file_id, kind = .SystemIdent}
+		return SVToken{off = u32(start), len = u16(l.idx - start), file = l.file_id, kind = .SystemIdent}
 	case svl_is_digit(c):
 		text := svl_scan_number(l)
-		return SVToken{off = u32(start), len = u32(len(text)), file = l.file_id, kind = .Number}
+		svl_check_token_len(l, text)
+		return SVToken{off = u32(start), len = u16(len(text)), file = l.file_id, kind = .Number}
 	case c == '\'':
 		if svl_is_base_char(svl_peek(l, 1)) ||
 		   ((svl_peek(l, 1) == 's' || svl_peek(l, 1) == 'S') && svl_is_base_char(svl_peek(l, 2))) ||
 		   svl_is_digit(svl_peek(l, 1)) || svl_peek(l, 1) == '0' || svl_peek(l, 1) == '1' ||
 		   svl_peek(l, 1) == 'x' || svl_peek(l, 1) == 'X' || svl_peek(l, 1) == 'z' || svl_peek(l, 1) == 'Z' {
 			text := svl_scan_number(l)
-			return SVToken{off = u32(start), len = u32(len(text)), file = l.file_id, kind = .Number}
+			svl_check_token_len(l, text)
+			return SVToken{off = u32(start), len = u16(len(text)), file = l.file_id, kind = .Number}
 		}
 		svl_advance(l)
 		return SVToken{off = u32(start), len = 1, file = l.file_id, kind = .Tick}
 	case c == '"':
 		triple := svl_peek(l, 1) == '"' && svl_peek(l, 2) == '"'
 		text := svl_scan_string(l)
+		if len(text) > 0xFFFF { svl_error(l, "string literal too long") }
 		quote_len := 3 if triple else 1
-		return SVToken{off = u32(start + quote_len), len = u32(len(text)), file = l.file_id, kind = .String}
+		return SVToken{off = u32(start + quote_len), len = u16(len(text)), file = l.file_id, kind = .String}
 	case c == '`':
 		return svl_scan_directive(l)
 	}
@@ -655,7 +718,7 @@ sv_keyword_name :: proc(kw: SVKeyword) -> string {
 // Kept in enum('s) numerical order so it can double as a name table.
 // ---------------------------------------------------------------------------------------
 
-SVKeyword :: enum u16 {
+SVKeyword :: enum u8 {
 	None,
 	AcceptOn, Alias, Always, AlwaysComb, AlwaysFf, AlwaysLatch, And, Assert,
 	Assign, Assume, Automatic, Before, Begin, Bind, Bins, Binsof,

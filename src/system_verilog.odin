@@ -578,6 +578,16 @@ SVNumber :: struct {
 	time_unit:  SVTimeUnit, // NONE for ordinary literals
 }
 
+// Compact integer literal used for the common case that fits in 64 bits. Keeping
+// it inline in SVExpr avoids a heap node for the majority of numeric literals.
+SVSmallNumber :: struct {
+	value:     u64,
+	width:     u32,
+	base:      SVNumberBase,
+	is_signed: bool,
+	time_unit: SVTimeUnit,
+}
+
 SVStringLit :: distinct string
 
 // Scoped constant/parameter reference: `pkg::NAME`.
@@ -736,6 +746,7 @@ SVIncDec :: struct {
 SVExpr :: union {
 	string, // plain identifier
 	^SVNumber,
+	SVSmallNumber,
 	SVStringLit,
 	^SVSelect,
 	^SVConcat,

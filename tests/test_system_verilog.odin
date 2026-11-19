@@ -101,9 +101,20 @@ sv_select :: proc(t: ^testing.T, expr: main.SVExpr) -> ^main.SVSelect {
 }
 
 sv_number :: proc(t: ^testing.T, expr: main.SVExpr) -> main.SVNumber {
-	number, ok := expr.(^main.SVNumber)
-	testing.expect(t, ok, "expected a numeric literal")
-	return number^
+	if number, ok := expr.(^main.SVNumber); ok {
+		return number^
+	}
+	if small, ok := expr.(main.SVSmallNumber); ok {
+		return main.SVNumber{
+			width = small.width,
+			base = small.base,
+			is_signed = small.is_signed,
+			value = small.value,
+			time_unit = small.time_unit,
+		}
+	}
+	testing.expect(t, false, "expected a numeric literal")
+	return {}
 }
 
 sv_find_decl :: proc(t: ^testing.T, module: ^main.SVModule, name: string) -> ^main.SVNetDecl {

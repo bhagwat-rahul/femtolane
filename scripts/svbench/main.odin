@@ -4,6 +4,7 @@ Response-file driven SystemVerilog parser harness.
 Modes:
   svbench <response>          batch parse; RESET starts a new compilation unit
   svbench --time <response>   preload files, then report preprocess/parse phases
+  svbench --read <response>   file read throughput (no lexing)
   svbench --lex <response>    raw lexer throughput (no preprocessing or AST)
 
 Response-file format, one directive per line:
@@ -30,6 +31,7 @@ SVFile :: struct {
 Mode :: enum {
 	Batch,
 	Time,
+	Read,
 	Lex,
 }
 
@@ -46,6 +48,8 @@ main :: proc() {
 		switch {
 		case arg == "--time":
 			mode = .Time
+		case arg == "--read":
+			mode = .Read
 		case arg == "--lex":
 			mode = .Lex
 		case arg == "-h" || arg == "--help":
@@ -70,12 +74,13 @@ main :: proc() {
 	switch mode {
 	case .Batch: batch_mode(response_path)
 	case .Time:  time_mode(response_path)
+	case .Read:  read_mode(response_path)
 	case .Lex:   lex_mode(response_path)
 	}
 }
 
 usage :: proc() {
-	fmt.eprintln("usage: svbench [--time|--lex] <response-file>")
+	fmt.eprintln("usage: svbench [--time|--read|--lex] <response-file>")
 }
 
 response_lines :: proc(path: string) -> ([]string, []byte) {
@@ -234,6 +239,35 @@ time_mode :: proc(response_path: string) {
 			f64(arena.peak_used - pre_offset) / (1 << 20),
 		)
 	}
+}
+
+// ---------------------------------------------------------------------------------------
+// Read mode: isolate file I/O from scanning, so scanner cost can be derived by subtraction.
+// ---------------------------------------------------------------------------------------
+
+read_mode :: proc(response_path: string) {
+	lines, response := response_lines(response_path)
+	defer delete(lines)
+	defer delete(response, context.allocator)
+
+	files: [dynamic]SVFile
+	defer delete(files)
+	defer for f in files { delete(f.data, context.allocator) }
+	bytes: int
+	for line in lines {
+		if len(line) == 0 || is_comment(line) { continue }
+		if strings.has_prefix(line, "FILE ") {
+			path := line[len("FILE "):]
+			data, err := os.read_entire_file_from_path(path, context.allocator)
+			if err != nil {
+				fmt.eprintfln("read error %s", path)
+				os.exit(2)
+			}
+			bytes += len(data)
+			append(&files, SVFile{path = path, data = data})
+		}
+	}
+	fmt.eprintfln("READ files=%d bytes=%d", len(files), bytes)
 }
 
 // ---------------------------------------------------------------------------------------
