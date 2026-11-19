@@ -45,6 +45,7 @@ scripts/make_response.py rtl/ --reset --out /tmp/per_file.resp
 ```sh
 build/svbench /tmp/soc.resp          # batch parse
 build/svbench --time /tmp/soc.resp   # preprocess + parse phase timings
+build/svbench --read /tmp/soc.resp   # file read throughput (no lexing)
 build/svbench --lex /tmp/soc.resp    # raw lexer throughput
 ```
 
@@ -62,7 +63,8 @@ Timed mode reads all sources once, then reports:
 - `pp_alloc=` bytes used by the token/source stream
 - `parse_alloc=` bytes used by AST nodes and arrays
 
-Lex mode reports raw lexer tokens and time only.
+Read mode reads every source once and reports bytes, which isolates file I/O
+from scanning. Lex mode reports raw lexer tokens and time only.
 
 The parsed AST also retains source trivia:
 

@@ -635,8 +635,22 @@ svp_bin_op :: proc(kind: SVTokenKind) -> SVBinOp {
 	return .ADD
 }
 
-svp_parse_expr :: proc(p: ^SVParser2, min_prec: u8 = 0) -> SVExpr {
+// Most expressions are a single unary/primary with no following operator. Keep
+// that case in a small inlined wrapper; the precedence loop's frame (inside,
+// ternary and binary temporaries) is only built when an operator follows.
+svp_parse_expr :: #force_inline proc(p: ^SVParser2, min_prec: u8 = 0) -> SVExpr {
 	lhs := svp_parse_unary(p)
+	kind := svp_peek(p).kind
+	if !(kind == .Question && min_prec <= 1) &&
+	   !(min_prec <= 8 && svp_kw_at(p, .Inside)) {
+		prec := svp_bin_prec_lut[kind]
+		if prec == 0 || prec < min_prec { return lhs }
+	}
+	return svp_parse_expr_slow(p, min_prec, lhs)
+}
+
+svp_parse_expr_slow :: proc(p: ^SVParser2, min_prec: u8, lhs_in: SVExpr) -> SVExpr {
+	lhs := lhs_in
 	for {
 		// inside { range_list }
 		if min_prec <= 8 && svp_kw_at(p, .Inside) {
@@ -680,7 +694,28 @@ svp_parse_expr :: proc(p: ^SVParser2, min_prec: u8 = 0) -> SVExpr {
 	return lhs
 }
 
-svp_parse_unary :: proc(p: ^SVParser2) -> SVExpr {
+svp_is_unop_token :: #force_inline proc(kind: SVTokenKind) -> bool {
+	#partial switch kind {
+	case .Plus, .Minus, .Bang, .Tilde, .Amp, .TildeAmp, .Pipe, .TildePipe,
+	     .Caret, .CaretTilde, .TildeCaret, .Inc, .Dec:
+		return true
+	}
+	return false
+}
+
+// Most operands have no unary operator and no attributes. Keep that case in a
+// small inlined wrapper so the large recursive/sret frame is only built when a
+// prefix operator or attribute actually appears.
+svp_parse_unary :: #force_inline proc(p: ^SVParser2) -> SVExpr {
+	if !svp_at(p, .AttrStart) {
+		if !svp_is_unop_token(svp_peek(p).kind) {
+			return svp_parse_postfix(p, svp_parse_primary(p))
+		}
+	}
+	return svp_parse_unary_slow(p)
+}
+
+svp_parse_unary_slow :: proc(p: ^SVParser2) -> SVExpr {
 	svp_skip_attributes(p)
 	op: SVUnOp
 	has_op := true
@@ -717,6 +752,11 @@ svp_parse_postfix :: #force_inline proc(p: ^SVParser2, prefix: SVExpr) -> SVExpr
 			return base
 		}
 	}
+	return svp_parse_postfix_slow(p, base)
+}
+
+svp_parse_postfix_slow :: proc(p: ^SVParser2, base_in: SVExpr) -> SVExpr {
+	base := base_in
 	parts: [dynamic]SVSelectPart
 
 	// Scoped names and calls are handled here too, because statement-leading
@@ -794,8 +834,20 @@ svp_parse_postfix :: #force_inline proc(p: ^SVParser2, prefix: SVExpr) -> SVExpr
 	return svp_set(p, SVSelect{base = base, parts = parts})
 }
 
-svp_parse_primary :: proc(p: ^SVParser2) -> SVExpr {
+// Numbers and plain identifiers are the overwhelming majority of primaries.
+// Handling them in a small inlined wrapper keeps the large switch below (casts,
+// aggregates, calls, scoped names) out of the hot frame.
+svp_parse_primary :: #force_inline proc(p: ^SVParser2) -> SVExpr {
 	t := svp_peek(p)
+	if t.kind == .Number { return svp_parse_number(p) }
+	if (t.kind == .Ident || t.kind == .EscapedIdent) && t.kw == .None &&
+	   !svp_at(p, .ColonColon, 1) && !svp_at(p, .LParen, 1) && !svp_at(p, .Tick, 1) {
+		return svp_text(p, svp_advance(p))
+	}
+	return svp_parse_primary_slow(p, t)
+}
+
+svp_parse_primary_slow :: proc(p: ^SVParser2, t: SVToken) -> SVExpr {
 	if t.kw != .None {
 		_, is_var_type := svp_var_type(t.kw)
 		if t.kw == .Signed || t.kw == .Unsigned || t.kw == .Void || (is_var_type && svp_at(p, .Tick, 1)) {
@@ -1067,10 +1119,20 @@ svp_fast_based_number :: #force_inline proc(text: string) -> (SVSmallNumber, boo
 	}, true
 }
 
-svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
+// Most literals in RTL are based integers. Detect those before entering the
+// generic literal function, whose frame holds the real/unit/unbased state.
+svp_parse_number :: #force_inline proc(p: ^SVParser2) -> SVExpr {
+	text := svp_text(p, svp_peek(p))
+	if small, ok := svp_fast_based_number(text); ok {
+		_ = svp_advance(p)
+		return small
+	}
+	return svp_parse_number_slow(p)
+}
+
+svp_parse_number_slow :: proc(p: ^SVParser2) -> SVExpr {
 	t := svp_advance(p)
 	text := svp_text(p, t)
-	if small, ok := svp_fast_based_number(text); ok { return small }
 	width: u32
 	base := SVNumberBase.DEC
 	signed := false
