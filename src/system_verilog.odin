@@ -62,11 +62,7 @@ SVAttribute :: struct {
 
 // One source buffer owned by the preprocessor: the original file, an include, or
 // macro-expanded text. Token file ids index an array of these.
-SVSource :: struct {
-	data:      []byte,
-	line_base: u32,
-	path:      string,
-}
+SVSource :: struct { data:      []byte, line_base: u32, path:      string }
 
 SystemVerilogAST :: struct {
 	modules:           [dynamic]^SVModule,
@@ -91,21 +87,11 @@ SVImport :: struct {
 	name:         string, // "*" for wildcard imports
 }
 
-SVPackage :: struct {
-	name:    string,
-	imports: [dynamic]SVImport,
-	items:   [dynamic]SVItem,
-}
+SVPackage :: struct { name:    string, imports: [dynamic]SVImport, items:   [dynamic]SVItem }
 
-SVModportPort :: struct {
-	dir:  SVPortDir,
-	name: string,
-}
+SVModportPort :: struct { dir:  SVPortDir, name: string }
 
-SVModport :: struct {
-	name:  string,
-	ports: [dynamic]SVModportPort,
-}
+SVModport :: struct { name:  string, ports: [dynamic]SVModportPort }
 
 SVInterface :: struct {
 	name:     string,
@@ -130,11 +116,7 @@ SVModule :: struct {
 // ---- ports & declarations --------------------------------------------------------------
 
 SVPortDir :: enum u8 {
-	NONE,
-	INPUT,
-	OUTPUT,
-	INOUT,
-	REF,
+	NONE, INPUT, OUTPUT, INOUT, REF,
 }
 
 SVPort :: struct {
@@ -151,34 +133,14 @@ SVPort :: struct {
 
 SVNetType :: enum u8 {
 	NONE, // variable declaration / no explicit net type
-	WIRE,
-	TRI,
-	WAND,
-	WOR,
-	TRIAND,
-	TRIOR,
-	TRI0,
-	TRI1,
-	TRIREG,
-	SUPPLY0,
-	SUPPLY1,
-	UWIRE,
+	WIRE, TRI, WAND, WOR, TRIAND, TRIOR, TRI0, TRI1,
+	TRIREG, SUPPLY0, SUPPLY1, UWIRE,
 }
 
 SVVarType :: enum u8 {
 	IMPLICIT, // no type keyword, e.g. `[3:0] x;`
-	LOGIC,
-	BIT,
-	REG,
-	INT,
-	INTEGER,
-	SHORTINT,
-	LONGINT,
-	BYTE,
-	TIME,
-	REAL,
-	SHORTREAL,
-	REALTIME,
+	LOGIC, BIT, REG, INT, INTEGER, SHORTINT, LONGINT, BYTE,
+	TIME, REAL, SHORTREAL, REALTIME,
 	STRING, // parameter/typedef type; parsed for completeness
 	VOID, // function/task return only
 }
@@ -193,15 +155,9 @@ SVTypeSpec :: struct {
 	enum_names: [dynamic]SVEnumName,
 }
 
-SVStructMember :: struct {
-	data:        SVDataType,
-	declarators: [dynamic]SVDeclarator,
-}
+SVStructMember :: struct { data:        SVDataType, declarators: [dynamic]SVDeclarator }
 
-SVEnumName :: struct {
-	name:  string,
-	value: ^SVExpr,
-}
+SVEnumName :: struct { name:  string, value: ^SVExpr }
 
 SVDataType :: struct {
 	type_scope:  string, // package/class scope of a named type (`pkg::type`)
@@ -212,11 +168,7 @@ SVDataType :: struct {
 	is_signed:   bool,
 }
 
-SVTypeDecl :: struct {
-	name:          string,
-	data:          SVDataType,
-	unpacked_dims: [dynamic]SVRange,
-}
+SVTypeDecl :: struct { name:          string, data:          SVDataType, unpacked_dims: [dynamic]SVRange }
 
 // [msb:lsb] packed/unpacked range, or [size] unpacked size (is_size = true)
 SVRange :: struct {
@@ -237,10 +189,7 @@ SVNetDecl :: struct {
 	net_type:    SVNetType, // NONE for variable declarations
 }
 
-SVPortDecl :: struct {
-	dir:  SVPortDir,
-	decl: ^SVNetDecl,
-}
+SVPortDecl :: struct { dir:  SVPortDir, decl: ^SVNetDecl }
 
 SVParamAssign :: struct {
 	name:          string,
@@ -262,9 +211,7 @@ SVParamOverride :: struct {
 	type_value: ^SVDataType, // type argument, e.g. `#(.T(logic [7:0]))`
 }
 
-SVGenvarDecl :: struct {
-	names: [dynamic]string,
-}
+SVGenvarDecl :: struct { names: [dynamic]string }
 
 // ---- instantiations --------------------------------------------------------------------
 
@@ -285,39 +232,23 @@ SVInstance :: struct {
 
 // ---- continuous assignment -------------------------------------------------------------
 
-SVAssignPair :: struct {
-	lhs: SVExpr,
-	rhs: SVExpr,
-}
+SVAssignPair :: struct { lhs: SVExpr, rhs: SVExpr }
 
-SVContAssign :: struct {
-	pairs: [dynamic]SVAssignPair,
-}
+SVContAssign :: struct { pairs: [dynamic]SVAssignPair }
 
 // alias a = b = c;  (multiple names for the same physical net)
-SVAlias :: struct {
-	names: [dynamic]SVExpr,
-}
+SVAlias :: struct { names: [dynamic]SVExpr }
 
 // defparam a.b = expr { , c.d = expr } ;  (hierarchical parameter override)
-SVDefparam :: struct {
-	pairs: [dynamic]SVAssignPair,
-}
+SVDefparam :: struct { pairs: [dynamic]SVAssignPair }
 
 // ---- procedural constructs -------------------------------------------------------------
 
 SVEdgeKind :: enum u8 {
-	NONE,
-	POSEDGE,
-	NEGEDGE,
-	EDGE,
+	NONE, POSEDGE, NEGEDGE, EDGE,
 }
 
-SVEvent :: struct {
-	edge: SVEdgeKind,
-	expr: SVExpr,
-	iff:  ^SVExpr,
-}
+SVEvent :: struct { edge: SVEdgeKind, expr: SVExpr, iff:  ^SVExpr }
 
 SVTimingCtl :: struct {
 	is_delay:  bool,
@@ -327,12 +258,7 @@ SVTimingCtl :: struct {
 }
 
 SVProcKind :: enum u8 {
-	INITIAL,
-	FINAL,
-	ALWAYS,
-	ALWAYS_COMB,
-	ALWAYS_FF,
-	ALWAYS_LATCH,
+	INITIAL, FINAL, ALWAYS, ALWAYS_COMB, ALWAYS_FF, ALWAYS_LATCH,
 }
 
 SVProc :: struct {
@@ -385,34 +311,15 @@ SVGenIf :: struct {
 	else_blk: ^SVGenBlock, // nil when there is no else branch
 }
 
-SVGenCaseItem :: struct {
-	exprs:      [dynamic]SVExpr,
-	is_default: bool,
-	body:       ^SVGenBlock,
-}
+SVGenCaseItem :: struct { exprs:      [dynamic]SVExpr, is_default: bool, body:       ^SVGenBlock }
 
-SVGenCase :: struct {
-	kind:    SVCaseKind,
-	subject: SVExpr,
-	items:   [dynamic]SVGenCaseItem,
-}
+SVGenCase :: struct { kind:    SVCaseKind, subject: SVExpr, items:   [dynamic]SVGenCaseItem }
 
 // ---- statements ------------------------------------------------------------------------
 
 SVAssignOp :: enum u8 {
-	EQ,
-	ADD_EQ,
-	SUB_EQ,
-	MUL_EQ,
-	DIV_EQ,
-	MOD_EQ,
-	AND_EQ,
-	OR_EQ,
-	XOR_EQ,
-	SHL_EQ,
-	SHR_EQ,
-	ASH_L_EQ,
-	ASH_R_EQ,
+	EQ, ADD_EQ, SUB_EQ, MUL_EQ, DIV_EQ, MOD_EQ, AND_EQ, OR_EQ,
+	XOR_EQ, SHL_EQ, SHR_EQ, ASH_L_EQ, ASH_R_EQ,
 }
 
 SVAssignStmt :: struct {
@@ -423,24 +330,14 @@ SVAssignStmt :: struct {
 	timing:      ^SVTimingCtl, // intra-assignment delay/event control
 }
 
-SVIf :: struct {
-	qualifier: SVQualifier,
-	cond:      SVExpr,
-	then_body: ^SVStmt,
-	else_body: ^SVStmt,
-}
+SVIf :: struct { qualifier: SVQualifier, cond:      SVExpr, then_body: ^SVStmt, else_body: ^SVStmt }
 
 SVQualifier :: enum u8 {
-	NONE,
-	UNIQUE,
-	UNIQUE0,
-	PRIORITY,
+	NONE, UNIQUE, UNIQUE0, PRIORITY,
 }
 
 SVCaseKind :: enum u8 {
-	CASE,
-	CASEZ,
-	CASEX,
+	CASE, CASEZ, CASEX,
 }
 
 SVCaseItem :: struct {
@@ -466,20 +363,11 @@ SVFor :: struct {
 	body:         ^SVStmt,
 }
 
-SVWhile :: struct {
-	do_while: bool,
-	cond:     SVExpr,
-	body:     ^SVStmt,
-}
+SVWhile :: struct { do_while: bool, cond:     SVExpr, body:     ^SVStmt }
 
-SVRepeat :: struct {
-	count: SVExpr,
-	body:  ^SVStmt,
-}
+SVRepeat :: struct { count: SVExpr, body:  ^SVStmt }
 
-SVForever :: struct {
-	body: ^SVStmt,
-}
+SVForever :: struct { body: ^SVStmt }
 
 SVForeach :: struct {
 	array:     SVExpr,
@@ -499,9 +387,7 @@ SVAssert :: struct {
 }
 
 SVJumpKind :: enum u8 {
-	BREAK,
-	CONTINUE,
-	RETURN,
+	BREAK, CONTINUE, RETURN,
 }
 
 SVJump :: struct {
@@ -549,20 +435,11 @@ SVStmt :: union {
 // ---- expressions -----------------------------------------------------------------------
 
 SVTimeUnit :: enum u8 {
-	NONE,
-	S,
-	MS,
-	US,
-	NS,
-	PS,
-	FS,
+	NONE, S, MS, US, NS, PS, FS,
 }
 
 SVNumberBase :: enum u8 {
-	DEC,
-	BIN,
-	OCT,
-	HEX,
+	DEC, BIN, OCT, HEX,
 }
 
 SVNumber :: struct {
@@ -591,10 +468,7 @@ SVSmallNumber :: struct {
 SVStringLit :: distinct string
 
 // Scoped constant/parameter reference: `pkg::NAME`.
-SVScopedName :: struct {
-	scope: string,
-	name:  string,
-}
+SVScopedName :: struct { scope: string, name:  string }
 
 // Assignment pattern `'{...}`: positional or keyed entries, optionally replicated.
 SVAggregateEntry :: struct {
@@ -610,10 +484,7 @@ SVAggregate :: struct {
 }
 
 SVSelectKind :: enum u8 {
-	BIT,
-	PART,
-	INDEXED_PLUS,
-	INDEXED_MINUS,
+	BIT, PART, INDEXED_PLUS, INDEXED_MINUS,
 }
 
 SVSelectPart :: struct {
@@ -624,10 +495,7 @@ SVSelectPart :: struct {
 	has_second: bool,
 }
 
-SVSelect :: struct {
-	base:  SVExpr,
-	parts: [dynamic]SVSelectPart,
-}
+SVSelect :: struct { base:  SVExpr, parts: [dynamic]SVSelectPart }
 
 SVInsideRange :: struct {
 	lo:     SVExpr,
@@ -635,10 +503,7 @@ SVInsideRange :: struct {
 	has_hi: bool, // false for a single value
 }
 
-SVInside :: struct {
-	subject: SVExpr,
-	ranges:  [dynamic]SVInsideRange,
-}
+SVInside :: struct { subject: SVExpr, ranges:  [dynamic]SVInsideRange }
 
 SVConcat :: struct {
 	parts: [dynamic]SVExpr,
@@ -654,9 +519,7 @@ SVStream :: struct {
 }
 
 SVCastKind :: enum u8 {
-	SIGNING,
-	TYPE,
-	SIZE,
+	SIGNING, TYPE, SIZE,
 }
 
 SVCast :: struct {
@@ -679,69 +542,24 @@ SVCall :: struct {
 }
 
 SVUnOp :: enum u8 {
-	PLUS,
-	MINUS,
-	NOT,
-	BIT_NOT,
-	RED_AND,
-	RED_NAND,
-	RED_OR,
-	RED_NOR,
-	RED_XOR,
-	RED_XNOR,
+	PLUS, MINUS, NOT, BIT_NOT, RED_AND, RED_NAND, RED_OR, RED_NOR,
+	RED_XOR, RED_XNOR,
 }
 
 SVBinOp :: enum u8 {
-	POW,
-	MUL,
-	DIV,
-	MOD,
-	ADD,
-	SUB,
-	SHL,
-	SHR,
-	ASH_L,
-	ASH_R,
-	LT,
-	LE,
-	GT,
-	GE,
-	EQ,
-	NE,
-	CASE_EQ,
-	CASE_NE,
-	WILD_EQ,
-	WILD_NE,
-	BIT_AND,
-	BIT_XOR,
-	BIT_XNOR,
-	BIT_OR,
-	LOG_AND,
-	LOG_OR,
+	POW, MUL, DIV, MOD, ADD, SUB, SHL, SHR,
+	ASH_L, ASH_R, LT, LE, GT, GE, EQ, NE,
+	CASE_EQ, CASE_NE, WILD_EQ, WILD_NE, BIT_AND, BIT_XOR, BIT_XNOR, BIT_OR,
+	LOG_AND, LOG_OR,
 }
 
-SVUnary :: struct {
-	op:      SVUnOp,
-	operand: SVExpr,
-}
+SVUnary :: struct { op:      SVUnOp, operand: SVExpr }
 
-SVBinary :: struct {
-	op:  SVBinOp,
-	lhs: SVExpr,
-	rhs: SVExpr,
-}
+SVBinary :: struct { op:  SVBinOp, lhs: SVExpr, rhs: SVExpr }
 
-SVTernary :: struct {
-	cond: SVExpr,
-	lhs:  SVExpr,
-	rhs:  SVExpr,
-}
+SVTernary :: struct { cond: SVExpr, lhs:  SVExpr, rhs:  SVExpr }
 
-SVIncDec :: struct {
-	operand:   SVExpr,
-	is_dec:    bool,
-	is_prefix: bool,
-}
+SVIncDec :: struct { operand:   SVExpr, is_dec:    bool, is_prefix: bool }
 
 SVExpr :: union {
 	string, // plain identifier
@@ -815,6 +633,23 @@ sv_number_base_of :: #force_inline proc(c: byte) -> SVNumberBase {
 	}
 }
 
+sv_digit_value_lut: [256]u8
+
+@(init)
+sv_digit_value_init :: proc "contextless" () {
+	for i in 0 ..< 256 {
+		c := u8(i)
+		switch {
+		case c >= '0' && c <= '9': sv_digit_value_lut[i] = c - '0'
+		case c >= 'a' && c <= 'f': sv_digit_value_lut[i] = c - 'a' + 10
+		case c >= 'A' && c <= 'F': sv_digit_value_lut[i] = c - 'A' + 10
+		case c == 'x' || c == 'X' || c == 'z' || c == 'Z' || c == '?': sv_digit_value_lut[i] = 16
+		case c == '_': sv_digit_value_lut[i] = 17
+		case: sv_digit_value_lut[i] = 255
+		}
+	}
+}
+
 sv_decode_number :: proc(digits: string, base: SVNumberBase) -> (value: u64, has_x_z: bool) {
 	radix: u64 = 10
 	switch base {
@@ -824,18 +659,12 @@ sv_decode_number :: proc(digits: string, base: SVNumberBase) -> (value: u64, has
 	case .HEX: radix = 16
 	}
 	for c in digits {
-		d: u64
-		switch c {
-		case '_': continue
-		case '0' ..= '9': d = u64(c - '0')
-		case 'a' ..= 'f': d = u64(c - 'a' + 10)
-		case 'A' ..= 'F': d = u64(c - 'A' + 10)
-		case 'x', 'X', 'z', 'Z', '?':
+		d := sv_digit_value_lut[c]
+		if d < 16 {
+			value = value * radix + u64(d)
+		} else if d == 16 {
 			has_x_z = true
-			continue
-		case: continue
 		}
-		value = value * radix + d
 	}
 	return
 }
