@@ -151,7 +151,7 @@ svp_expr :: proc(p: ^SVParser2, e: SVExpr) -> ^SVExpr {
 // common case. Odin's default dynamic-array growth starts at eight elements, so
 // reserving a small initial capacity avoids a large amount of wasted arena and
 // the zeroing/copying that comes with it.
-svp_add :: #force_inline proc(p: ^SVParser2, list: ^[dynamic]$T, value: T, initial_cap := 2) {
+svp_add :: #force_inline proc(p: ^SVParser2, list: ^[dynamic]$T, value: T, initial_cap := 1) {
 	if cap(list^) == 0 {
 		list^ = make([dynamic]T, 0, initial_cap, p.allocator)
 	}
@@ -1972,7 +1972,7 @@ svp_parse_port_connections :: proc(p: ^SVParser2, inst: ^SVInstance) {
 		} else if !svp_at(p, .Comma) {
 			conn.value = svp_expr(p, svp_parse_expr(p, 0))
 		}
-		svp_add(p, &inst.port_conns, conn, 4)
+		svp_add(p, &inst.port_conns, conn, 2)
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .RParen)

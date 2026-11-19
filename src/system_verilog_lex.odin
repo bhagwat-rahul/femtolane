@@ -16,7 +16,9 @@ literal lossless.
 
 package main
 
+import "base:intrinsics"
 import "core:fmt"
+import "core:simd"
 import "core:strconv"
 import "core:strings"
 
@@ -154,6 +156,18 @@ svl_is_ident_char :: #force_inline proc "contextless" (c: byte) -> bool { return
 
 svl_ident_char_lut: [256]bool
 
+SV_IDENT_LANES :: 16
+sv_simd_lower: simd.u8x16 = {
+	0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+	0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+}
+sv_simd_a: simd.u8x16 = {'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a'}
+sv_simd_z: simd.u8x16 = {'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z'}
+sv_simd_0: simd.u8x16 = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'}
+sv_simd_9: simd.u8x16 = {'9', '9', '9', '9', '9', '9', '9', '9', '9', '9', '9', '9', '9', '9', '9', '9'}
+sv_simd_us: simd.u8x16 = {'_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_', '_'}
+sv_simd_dollar: simd.u8x16 = {'$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$', '$'}
+
 @(init)
 svl_lex_lut_init :: proc "contextless" () {
 	for i in 0 ..< 256 {
@@ -226,6 +240,23 @@ svl_scan_ident :: #force_inline proc(l: ^SVLexer) -> string {
 	n := len(src)
 	start := l.idx
 	i := start
+	when simd.HAS_HARDWARE_SIMD {
+		for i + SV_IDENT_LANES <= n {
+			#no_bounds_check v := intrinsics.unaligned_load((^simd.u8x16)(&src[i]))
+			lower := v | sv_simd_lower
+			is_alpha := simd.lanes_ge(lower, sv_simd_a) & simd.lanes_le(lower, sv_simd_z)
+			is_digit := simd.lanes_ge(v, sv_simd_0) & simd.lanes_le(v, sv_simd_9)
+			is_us := simd.lanes_eq(v, sv_simd_us) | simd.lanes_eq(v, sv_simd_dollar)
+			bits := transmute(u16)(simd.extract_msbs(is_alpha | is_digit | is_us))
+			if bits == 0xFFFF {
+				i += SV_IDENT_LANES
+				continue
+			}
+			i += int(intrinsics.count_trailing_zeros(~bits))
+			l.idx = i
+			return string(src[start:i])
+		}
+	}
 	for i < n && svl_ident_char_lut[src[i]] { i += 1 }
 	l.idx = i
 	return string(src[start:i])
