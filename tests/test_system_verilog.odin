@@ -1802,3 +1802,80 @@ test_sv_full_subset_smoke :: proc(t: ^testing.T) {
 		testing.expect_value(t, len(module.ports), 4)
 	}
 }
+
+// ---------------------------------------------------------------------------------------
+// Practical RTL leniency found in vendor/OpenROAD/HighTide corpora
+// ---------------------------------------------------------------------------------------
+
+@(test)
+test_sv_practical_leniency :: proc(t: ^testing.T) {
+	ctx: SVTestContext
+	sv_test_begin(&ctx)
+	defer virtual.arena_destroy(&ctx.arena)
+
+	source := sv_src(
+		"package p;",
+		"  typedef logic [7:0] t;",
+		"endpackage",
+		"`define MODE 1",
+		"`define SIG(name) name``__LINE__",
+		"module lenient #(parameter int W = `ifdef MODE 1 `else 2 `endif) (",
+		"  input  .A(a),",
+		"  input  [7:0] b,",
+		"  output [7:0] c,",
+		");",
+		"  logic [7:0] assoc [string];",
+		"  p::t [1:0] arr;",
+		"  wire #(1, 2) delayed;",
+		"  assign #1 c = &b;",
+		"  sub u0 (",
+		"    (* keep *) .a(a),",
+		"    .b(b)",
+		"  );",
+		"  function integer legacy;",
+		"    input [7:0] x, y;",
+		"    begin",
+		"      legacy = x + y;",
+		"    end",
+		"  endfunction",
+		"  always_comb c = `SIG(sig);",
+		"endmodule",
+		"module nonansi (a, b,);",
+		"endmodule",
+	)
+	sv_test_parse(&ctx, source)
+
+	module := sv_module(t, &ctx, "lenient")
+	testing.expect_value(t, len(module.params), 1)
+	testing.expect_value(t, len(module.ports), 3)
+
+	assoc := sv_find_decl(t, module, "assoc")
+	testing.expect_value(t, len(assoc.declarators[0].unpacked_dims), 1)
+
+	arr := sv_find_decl(t, module, "arr")
+	testing.expect_value(t, len(arr.data.packed_dims), 1)
+
+	delayed := sv_find_decl(t, module, "delayed")
+	testing.expect_value(t, delayed.net_type, main.SVNetType.WIRE)
+
+	legacy: ^main.SVSubroutine
+	for item in module.items {
+		if sub, ok := item.(^main.SVSubroutine); ok && sub.name == "legacy" { legacy = sub }
+	}
+	testing.expect(t, legacy != nil, "legacy function missing")
+	if legacy != nil {
+		testing.expect_value(t, len(legacy.ports), 2)
+	}
+
+	instance: ^main.SVInstance
+	for item in module.items {
+		if inst, ok := item.(^main.SVInstance); ok { instance = inst }
+	}
+	testing.expect(t, instance != nil, "instance missing")
+	if instance != nil {
+		testing.expect_value(t, len(instance.port_conns), 2)
+	}
+
+	nonansi := sv_module(t, &ctx, "nonansi")
+	testing.expect_value(t, len(nonansi.ports), 2)
+}
