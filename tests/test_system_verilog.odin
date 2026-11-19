@@ -1828,6 +1828,9 @@ test_sv_practical_leniency :: proc(t: ^testing.T) {
 		"  p::t [1:0] arr;",
 		"  wire #(1, 2) delayed;",
 		"  assign #1 c = &b;",
+		"  assign (strong0, strong1) c = b + (* keep *) 1;",
+		"  localparam int A [1:0] = '{0: 1, default: 0};",
+		"  localparam int R = '{p::N{0}};",
 		"  sub u0 (",
 		"    (* keep *) .a(a),",
 		"    .b(b)",
@@ -1841,6 +1844,8 @@ test_sv_practical_leniency :: proc(t: ^testing.T) {
 		"  always_comb c = `SIG(sig);",
 		"endmodule",
 		"module nonansi (a, b,);",
+		"endmodule",
+		"module dimports (a[3:0], b);",
 		"endmodule",
 	)
 	sv_test_parse(&ctx, source)
@@ -1878,4 +1883,8 @@ test_sv_practical_leniency :: proc(t: ^testing.T) {
 
 	nonansi := sv_module(t, &ctx, "nonansi")
 	testing.expect_value(t, len(nonansi.ports), 2)
+
+	dimports := sv_module(t, &ctx, "dimports")
+	dim_a := sv_find_port(t, dimports, "a")
+	testing.expect_value(t, len(dim_a.unpacked_dims), 1)
 }
