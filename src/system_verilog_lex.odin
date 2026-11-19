@@ -688,7 +688,7 @@ sv_keyword_lut_init :: proc "contextless" () {
 	}
 }
 
-svl_keyword_lookup :: proc(text: string) -> SVKeyword {
+svl_keyword_lookup :: #force_inline proc(text: string) -> SVKeyword {
 	n := len(text)
 	if n < 2 || n > sv_keyword_max_len { return .None }
 	c := text[0]
