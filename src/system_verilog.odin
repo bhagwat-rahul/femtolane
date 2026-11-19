@@ -98,7 +98,7 @@ SVModule :: struct {
 
 // ---- ports & declarations --------------------------------------------------------------
 
-SVPortDir :: enum {
+SVPortDir :: enum u8 {
 	NONE,
 	INPUT,
 	OUTPUT,
@@ -107,18 +107,18 @@ SVPortDir :: enum {
 }
 
 SVPort :: struct {
-	name:          string,
-	dir:           SVPortDir,
-	net_type:      SVNetType,
 	data:          SVDataType,
+	name:          string,
 	iface_name:    string, // interface port (`axi_if.Slave bus`)
 	modport:       string,
-	expr:          ^SVExpr, // explicit port expression `.P(expr)` / concatenated port
 	unpacked_dims: [dynamic]SVRange,
+	expr:          ^SVExpr, // explicit port expression `.P(expr)` / concatenated port
 	default_value: ^SVExpr,
+	dir:           SVPortDir,
+	net_type:      SVNetType,
 }
 
-SVNetType :: enum {
+SVNetType :: enum u8 {
 	NONE, // variable declaration / no explicit net type
 	WIRE,
 	TRI,
@@ -134,7 +134,7 @@ SVNetType :: enum {
 	UWIRE,
 }
 
-SVVarType :: enum {
+SVVarType :: enum u8 {
 	IMPLICIT, // no type keyword, e.g. `[3:0] x;`
 	LOGIC,
 	BIT,
@@ -152,7 +152,7 @@ SVVarType :: enum {
 	VOID, // function/task return only
 }
 
-SVTypeSpecKind :: enum { ENUM, STRUCT, UNION }
+SVTypeSpecKind :: enum u8 { ENUM, STRUCT, UNION }
 
 SVTypeSpec :: struct {
 	kind:       SVTypeSpecKind,
@@ -173,12 +173,12 @@ SVEnumName :: struct {
 }
 
 SVDataType :: struct {
-	var_type:    SVVarType,
 	type_scope:  string, // package/class scope of a named type (`pkg::type`)
 	type_name:   string, // user-defined type reference, "" for builtin/inline types
-	spec:        ^SVTypeSpec, // inline enum/struct/union
-	is_signed:   bool,
 	packed_dims: [dynamic]SVRange,
+	spec:        ^SVTypeSpec, // inline enum/struct/union
+	var_type:    SVVarType,
+	is_signed:   bool,
 }
 
 SVTypeDecl :: struct {
@@ -201,9 +201,9 @@ SVDeclarator :: struct {
 }
 
 SVNetDecl :: struct {
-	net_type:    SVNetType, // NONE for variable declarations
 	data:        SVDataType,
 	declarators: [dynamic]SVDeclarator,
+	net_type:    SVNetType, // NONE for variable declarations
 }
 
 SVPortDecl :: struct {
@@ -219,10 +219,10 @@ SVParamAssign :: struct {
 }
 
 SVParamDecl :: struct {
-	is_local:    bool, // localparam
-	is_type:     bool, // `parameter type T = ...`
 	data:        SVDataType,
 	assignments: [dynamic]SVParamAssign,
+	is_local:    bool, // localparam
+	is_type:     bool, // `parameter type T = ...`
 }
 
 SVParamOverride :: struct {
@@ -275,7 +275,7 @@ SVDefparam :: struct {
 
 // ---- procedural constructs -------------------------------------------------------------
 
-SVEdgeKind :: enum {
+SVEdgeKind :: enum u8 {
 	NONE,
 	POSEDGE,
 	NEGEDGE,
@@ -295,7 +295,7 @@ SVTimingCtl :: struct {
 	any_event: bool, // @* or @(*)
 }
 
-SVProcKind :: enum {
+SVProcKind :: enum u8 {
 	INITIAL,
 	FINAL,
 	ALWAYS,
@@ -367,7 +367,7 @@ SVGenCase :: struct {
 
 // ---- statements ------------------------------------------------------------------------
 
-SVAssignOp :: enum {
+SVAssignOp :: enum u8 {
 	EQ,
 	ADD_EQ,
 	SUB_EQ,
@@ -398,14 +398,14 @@ SVIf :: struct {
 	else_body: ^SVStmt,
 }
 
-SVQualifier :: enum {
+SVQualifier :: enum u8 {
 	NONE,
 	UNIQUE,
 	UNIQUE0,
 	PRIORITY,
 }
 
-SVCaseKind :: enum {
+SVCaseKind :: enum u8 {
 	CASE,
 	CASEZ,
 	CASEX,
@@ -455,7 +455,7 @@ SVForeach :: struct {
 	body:      ^SVStmt,
 }
 
-SVAssertKind :: enum { ASSERT, ASSUME, COVER, EXPECT }
+SVAssertKind :: enum u8 { ASSERT, ASSUME, COVER, EXPECT }
 
 SVAssert :: struct {
 	kind:          SVAssertKind,
@@ -466,7 +466,7 @@ SVAssert :: struct {
 	else_body:     ^SVStmt,
 }
 
-SVJumpKind :: enum {
+SVJumpKind :: enum u8 {
 	BREAK,
 	CONTINUE,
 	RETURN,
@@ -516,7 +516,17 @@ SVStmt :: union {
 
 // ---- expressions -----------------------------------------------------------------------
 
-SVNumberBase :: enum {
+SVTimeUnit :: enum u8 {
+	NONE,
+	S,
+	MS,
+	US,
+	NS,
+	PS,
+	FS,
+}
+
+SVNumberBase :: enum u8 {
 	DEC,
 	BIN,
 	OCT,
@@ -533,7 +543,7 @@ SVNumber :: struct {
 	real_value: f64,
 	value:      u64, // decoded low 64 bits; raw keeps the full text for wider literals
 	has_x_z:    bool,
-	time_unit:  string, // "s", "ms", "us", "ns", "ps", "fs" for time literals
+	time_unit:  SVTimeUnit, // NONE for ordinary literals
 }
 
 SVStringLit :: distinct string
@@ -557,7 +567,7 @@ SVAggregate :: struct {
 	type_scope: string,
 }
 
-SVSelectKind :: enum {
+SVSelectKind :: enum u8 {
 	BIT,
 	PART,
 	INDEXED_PLUS,
@@ -593,7 +603,7 @@ SVConcat :: struct {
 	count: ^SVExpr, // replication count for {N{a, b}}, nil for a plain concatenation
 }
 
-SVStreamDir :: enum { LEFT, RIGHT }
+SVStreamDir :: enum u8 { LEFT, RIGHT }
 
 SVStream :: struct {
 	dir:   SVStreamDir, // {<<{...}} / {>>{...}}
@@ -601,7 +611,7 @@ SVStream :: struct {
 	parts: [dynamic]SVExpr,
 }
 
-SVCastKind :: enum {
+SVCastKind :: enum u8 {
 	SIGNING,
 	TYPE,
 	SIZE,
@@ -626,7 +636,7 @@ SVCall :: struct {
 	args:      [dynamic]SVCallArg,
 }
 
-SVUnOp :: enum {
+SVUnOp :: enum u8 {
 	PLUS,
 	MINUS,
 	NOT,
@@ -639,7 +649,7 @@ SVUnOp :: enum {
 	RED_XNOR,
 }
 
-SVBinOp :: enum {
+SVBinOp :: enum u8 {
 	POW,
 	MUL,
 	DIV,
@@ -693,7 +703,7 @@ SVIncDec :: struct {
 
 SVExpr :: union {
 	string, // plain identifier
-	SVNumber,
+	^SVNumber,
 	SVStringLit,
 	^SVSelect,
 	^SVConcat,
@@ -706,7 +716,7 @@ SVExpr :: union {
 	^SVIncDec,
 	^SVCast,
 	^SVAggregate,
-	SVScopedName,
+	^SVScopedName,
 }
 
 // ---- module items ----------------------------------------------------------------------

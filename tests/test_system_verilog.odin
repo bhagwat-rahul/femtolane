@@ -101,9 +101,9 @@ sv_select :: proc(t: ^testing.T, expr: main.SVExpr) -> ^main.SVSelect {
 }
 
 sv_number :: proc(t: ^testing.T, expr: main.SVExpr) -> main.SVNumber {
-	number, ok := expr.(main.SVNumber)
+	number, ok := expr.(^main.SVNumber)
 	testing.expect(t, ok, "expected a numeric literal")
-	return number
+	return number^
 }
 
 sv_find_decl :: proc(t: ^testing.T, module: ^main.SVModule, name: string) -> ^main.SVNetDecl {
@@ -245,7 +245,7 @@ test_sv_numbers :: proc(t: ^testing.T) {
 	testing.expect(t, exp.real_value == f64(1000.0), "exponent literal value")
 
 	tim := sv_param_number(t, module, "TIME")
-	testing.expect_value(t, tim.time_unit, "ps")
+	testing.expect_value(t, tim.time_unit, main.SVTimeUnit.PS)
 	testing.expect_value(t, tim.value, u64(300))
 
 	space := sv_param_number(t, module, "SPACE")
@@ -606,7 +606,7 @@ test_sv_expressions :: proc(t: ^testing.T) {
 	testing.expect(t, is_sys && sys_call.is_system && sys_call.name == "$unsigned", "system call missing")
 
 	scoped_expr, _ := sv_assign_rhs(t, module, "scoped")
-	scoped_name, is_name := scoped_expr.(main.SVScopedName)
+	scoped_name, is_name := scoped_expr.(^main.SVScopedName)
 	testing.expect(t, is_name, "expected a scoped name")
 	if is_name {
 		testing.expect_value(t, scoped_name.scope, "pkg")

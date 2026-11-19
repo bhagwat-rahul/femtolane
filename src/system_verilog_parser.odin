@@ -17,12 +17,20 @@ import "core:strings"
 
 SVParser2 :: struct {
 	toks:      []SVToken,
+	sources:   [][]byte, // token offsets index these source buffers
+	source_line_base: []u32,
+
 	i:         int,
 	ast:       ^SystemVerilogAST,
 	allocator: mem.Allocator,
 	module:    ^SVModule,
 	iface:     ^SVInterface,
 	filepath:  string,
+
+	// AST nodes are bump-allocated from large chunks. This avoids one arena
+	// allocator call per node and keeps sibling nodes close in memory.
+	node_buf:  []byte,
+	node_off:  int,
 }
 
 svp_peek :: #force_inline proc(p: ^SVParser2, n := 0) -> SVToken {
@@ -31,17 +39,38 @@ svp_peek :: #force_inline proc(p: ^SVParser2, n := 0) -> SVToken {
 }
 
 svp_at :: #force_inline proc(p: ^SVParser2, kind: SVTokenKind, n := 0) -> bool {
-	return svp_peek(p, n).kind == kind
+	j := p.i + n
+	if j < 0 || j >= len(p.toks) { return kind == .EOF }
+	return p.toks[j].kind == kind
 }
 
 svp_kw_at :: #force_inline proc(p: ^SVParser2, kw: SVKeyword, n := 0) -> bool {
-	return svp_peek(p, n).kw == kw
+	j := p.i + n
+	if j < 0 || j >= len(p.toks) { return kw == .None }
+	return p.toks[j].kw == kw
 }
 
 svp_advance :: #force_inline proc(p: ^SVParser2) -> SVToken {
 	t := svp_peek(p)
 	if t.kind != .EOF { p.i += 1 }
 	return t
+}
+
+svp_text :: #force_inline proc(p: ^SVParser2, t: SVToken) -> string {
+	#no_bounds_check return string(p.sources[t.file][t.off:t.off + t.len])
+}
+
+svp_token_line :: proc(p: ^SVParser2, t: SVToken) -> u32 {
+	#no_bounds_check src := p.sources[t.file]
+	line := p.source_line_base[t.file]
+	#no_bounds_check for i in 0 ..< int(t.off) {
+		if src[i] == '\n' { line += 1 }
+	}
+	return line
+}
+
+svp_bump :: #force_inline proc(p: ^SVParser2) {
+	if p.i < len(p.toks) && p.toks[p.i].kind != .EOF { p.i += 1 }
 }
 
 svp_accept :: #force_inline proc(p: ^SVParser2, kind: SVTokenKind) -> bool {
@@ -54,18 +83,18 @@ svp_accept_kw :: #force_inline proc(p: ^SVParser2, kw: SVKeyword) -> bool {
 	return false
 }
 
-svp_expect :: proc(p: ^SVParser2, kind: SVTokenKind) -> SVToken {
+svp_expect :: #force_inline proc(p: ^SVParser2, kind: SVTokenKind) -> SVToken {
 	t := svp_peek(p)
 	if t.kind != kind {
-		svp_error(p, fmt.tprintf("expected %v, got %v '%s'", kind, t.kind, t.text))
+		svp_error(p, fmt.tprintf("expected %v, got %v '%s'", kind, t.kind, svp_text(p, t)))
 	}
 	return svp_advance(p)
 }
 
-svp_expect_kw :: proc(p: ^SVParser2, kw: SVKeyword) -> SVToken {
+svp_expect_kw :: #force_inline proc(p: ^SVParser2, kw: SVKeyword) -> SVToken {
 	t := svp_peek(p)
 	if t.kw != kw {
-		svp_error(p, fmt.tprintf("expected '%s', got '%s'", sv_keyword_name(kw), t.text))
+		svp_error(p, fmt.tprintf("expected '%s', got '%s'", sv_keyword_name(kw), svp_text(p, t)))
 	}
 	return svp_advance(p)
 }
@@ -74,35 +103,59 @@ svp_is_ident :: #force_inline proc(t: SVToken) -> bool {
 	return t.kind == .EscapedIdent || (t.kind == .Ident && t.kw == .None)
 }
 
-svp_expect_ident :: proc(p: ^SVParser2) -> string {
+svp_expect_ident :: #force_inline proc(p: ^SVParser2) -> string {
 	t := svp_peek(p)
 	if !svp_is_ident(t) {
-		svp_error(p, fmt.tprintf("expected an identifier, got '%s'", t.text))
+		svp_error(p, fmt.tprintf("expected an identifier, got '%s'", svp_text(p, t)))
 	}
-	return svp_advance(p).text
+	return svp_text(p, svp_advance(p))
 }
 
 svp_error :: proc(p: ^SVParser2, msg: string) -> ! {
 	t := svp_peek(p)
-	panic(fmt.tprintf("SystemVerilog parse error at line %d: %s (near '%s')", t.line, msg, t.text))
+	panic(fmt.tprintf("SystemVerilog parse error at line %d: %s (near '%s')", svp_token_line(p, t), msg, svp_text(p, t)))
 }
 
 svp_at_eof :: #force_inline proc(p: ^SVParser2) -> bool { return svp_at(p, .EOF) }
 
+svp_node_alloc :: #force_inline proc(p: ^SVParser2, size, alignment: int) -> rawptr {
+	if p.node_off + size + alignment > len(p.node_buf) {
+		chunk, err := mem.alloc_bytes_non_zeroed(16 << 10, 16, p.allocator)
+		ensure(err == nil, "SystemVerilog AST allocation failed")
+		p.node_buf = chunk
+		p.node_off = 0
+	}
+	off := (p.node_off + alignment - 1) & ~(alignment - 1)
+	p.node_off = off + size
+	return rawptr(&p.node_buf[off])
+}
+
 svp_new :: proc(p: ^SVParser2, $T: typeid) -> ^T {
-	ptr, err := new(T, p.allocator)
-	ensure(err == nil, "SystemVerilog AST allocation failed")
+	ptr := cast(^T)svp_node_alloc(p, size_of(T), align_of(T))
+	mem.zero_slice(mem.byte_slice(ptr, size_of(T)))
 	return ptr
 }
 
 svp_set :: proc(p: ^SVParser2, value: $T) -> ^T {
-	ptr := svp_new(p, T)
+	// The value initializes every byte, so the chunk does not need zeroing first.
+	ptr := cast(^T)svp_node_alloc(p, size_of(T), align_of(T))
 	ptr^ = value
 	return ptr
 }
 
 svp_expr :: proc(p: ^SVParser2, e: SVExpr) -> ^SVExpr {
 	return svp_set(p, e)
+}
+
+// Small AST lists (one or two ports, one range, one call argument, ...) are the
+// common case. Odin's default dynamic-array growth starts at eight elements, so
+// reserving a small initial capacity avoids a large amount of wasted arena and
+// the zeroing/copying that comes with it.
+svp_add :: #force_inline proc(p: ^SVParser2, list: ^[dynamic]$T, value: T, initial_cap := 2) {
+	if cap(list^) == 0 {
+		list^ = make([dynamic]T, 0, initial_cap, p.allocator)
+	}
+	append(list, value)
 }
 
 svp_skip_attributes :: proc(p: ^SVParser2) {
@@ -115,8 +168,8 @@ svp_skip_attributes :: proc(p: ^SVParser2) {
 
 svp_skip_until_kw :: proc(p: ^SVParser2, kw: SVKeyword) {
 	for !svp_at_eof(p) {
-		if svp_kw_at(p, kw) { _ = svp_advance(p); return }
-		_ = svp_advance(p)
+		if svp_kw_at(p, kw) { svp_bump(p); return }
+		svp_bump(p)
 	}
 	svp_error(p, fmt.tprintf("unterminated construct, expected '%s'", sv_keyword_name(kw)))
 }
@@ -124,7 +177,7 @@ svp_skip_until_kw :: proc(p: ^SVParser2, kw: SVKeyword) {
 svp_skip_until_semicolon :: proc(p: ^SVParser2) {
 	for !svp_at_eof(p) {
 		if svp_accept(p, .Semicolon) { return }
-		_ = svp_advance(p)
+		svp_bump(p)
 	}
 }
 
@@ -143,7 +196,7 @@ svp_parse :: proc(p: ^SVParser2) {
 		case .Interface: _ = svp_parse_interface(p)
 		case .Typedef: append(&p.ast.items, svp_parse_typedef(p))
 		case .Parameter, .Localparam:
-			_ = svp_advance(p)
+			svp_bump(p)
 			decl := svp_parse_param_decl_after_keyword(p, t.kw == .Localparam, false)
 			_ = svp_expect(p, .Semicolon)
 			append(&p.ast.items, decl)
@@ -154,7 +207,7 @@ svp_parse :: proc(p: ^SVParser2) {
 			svp_skip_until_kw(p, .Endclass)
 			svp_skip_end_label(p)
 		case:
-			svp_error(p, fmt.tprintf("unsupported top-level construct '%s'", t.text))
+			svp_error(p, fmt.tprintf("unsupported top-level construct '%s'", svp_text(p, t)))
 		}
 	}
 }
@@ -250,8 +303,8 @@ svp_parse_range :: proc(p: ^SVParser2, unpacked: bool) -> SVRange {
 	if svp_at(p, .RBracket, 1) {
 		t := svp_peek(p)
 		_, is_var_type := svp_var_type(t.kw)
-		if is_var_type || (t.kind == .SystemIdent && t.text == "$") {
-			_ = svp_advance(p)
+		if is_var_type || (t.kind == .SystemIdent && svp_text(p, t) == "$") {
+			svp_bump(p)
 			_ = svp_expect(p, .RBracket)
 			r.is_size = true
 			return r
@@ -273,7 +326,7 @@ svp_parse_type_signing_dims :: proc(p: ^SVParser2, data: SVDataType) -> SVDataTy
 		d.is_signed = false
 	}
 	for svp_at(p, .LBracket) {
-		append(&d.packed_dims, svp_parse_range(p, false))
+		svp_add(p, &d.packed_dims, svp_parse_range(p, false))
 	}
 	return d
 }
@@ -283,20 +336,20 @@ svp_parse_type :: proc(p: ^SVParser2, allow_implicit := true) -> SVDataType {
 	for {
 		t := svp_peek(p)
 		if t.kw == .Var || t.kw == .Const || t.kw == .Automatic || t.kw == .Static {
-			_ = svp_advance(p)
+			svp_bump(p)
 			continue
 		}
 		break
 	}
 	t := svp_peek(p)
 	if vt, ok := svp_var_type(t.kw); ok {
-		_ = svp_advance(p)
+		svp_bump(p)
 		data.var_type = vt
 	} else if t.kw == .Enum {
-		_ = svp_advance(p)
+		svp_bump(p)
 		data.spec = svp_parse_type_spec(p, .ENUM)
 	} else if t.kw == .Struct || t.kw == .Union {
-		_ = svp_advance(p)
+		svp_bump(p)
 		data.spec = svp_parse_type_spec(p, t.kw == .Struct ? .STRUCT : .UNION)
 	} else if svp_is_ident(t) {
 		scope, name := svp_parse_scoped_type_name(p)
@@ -326,11 +379,11 @@ svp_parse_type_spec :: proc(p: ^SVParser2, kind: SVTypeSpecKind) -> ^SVTypeSpec 
 		for !svp_at(p, .RBrace) {
 			entry := SVEnumName{name = svp_expect_ident(p)}
 			if svp_accept(p, .LBracket) {
-				for !svp_at(p, .RBracket) && !svp_at_eof(p) { _ = svp_advance(p) }
+				for !svp_at(p, .RBracket) && !svp_at_eof(p) { svp_bump(p) }
 				_ = svp_expect(p, .RBracket)
 			}
 			if svp_accept(p, .Assign) { entry.value = svp_expr(p, svp_parse_expr(p, 0)) }
-			append(&spec.enum_names, entry)
+			svp_add(p, &spec.enum_names, entry)
 			if !svp_accept(p, .Comma) { break }
 		}
 		_ = svp_expect(p, .RBrace)
@@ -346,13 +399,13 @@ svp_parse_type_spec :: proc(p: ^SVParser2, kind: SVTypeSpecKind) -> ^SVTypeSpec 
 		member := SVStructMember{data = data}
 		for {
 			decl := SVDeclarator{name = svp_expect_ident(p)}
-			for svp_at(p, .LBracket) { append(&decl.unpacked_dims, svp_parse_range(p, true)) }
+			for svp_at(p, .LBracket) { svp_add(p, &decl.unpacked_dims, svp_parse_range(p, true)) }
 			if svp_accept(p, .Assign) { decl.init = svp_expr(p, svp_parse_expr(p, 0)) }
-			append(&member.declarators, decl)
+			svp_add(p, &member.declarators, decl)
 			if !svp_accept(p, .Comma) { break }
 		}
 		_ = svp_expect(p, .Semicolon)
-		append(&spec.members, member)
+		svp_add(p, &spec.members, member)
 	}
 	_ = svp_expect(p, .RBrace)
 	return spec
@@ -362,9 +415,9 @@ svp_parse_declarators :: proc(p: ^SVParser2) -> [dynamic]SVDeclarator {
 	decls: [dynamic]SVDeclarator
 	for {
 		decl := SVDeclarator{name = svp_expect_ident(p)}
-		for svp_at(p, .LBracket) { append(&decl.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &decl.unpacked_dims, svp_parse_range(p, true)) }
 		if svp_accept(p, .Assign) { decl.init = svp_expr(p, svp_parse_expr(p, 0)) }
-		append(&decls, decl)
+		svp_add(p, &decls, decl)
 		if !svp_accept(p, .Comma) { break }
 	}
 	return decls
@@ -375,7 +428,7 @@ svp_parse_typedef :: proc(p: ^SVParser2) -> ^SVTypeDecl {
 	decl := svp_new(p, SVTypeDecl)
 	decl.data = svp_parse_type(p, false)
 	decl.name = svp_expect_ident(p)
-	for svp_at(p, .LBracket) { append(&decl.unpacked_dims, svp_parse_range(p, true)) }
+	for svp_at(p, .LBracket) { svp_add(p, &decl.unpacked_dims, svp_parse_range(p, true)) }
 	_ = svp_expect(p, .Semicolon)
 	p.ast.type_names[decl.name] = true
 	return decl
@@ -410,13 +463,13 @@ svp_parse_net_decl :: proc(p: ^SVParser2) -> ^SVNetDecl {
 	net_type := SVNetType.NONE
 	data: SVDataType
 	if nt, ok := svp_net_type(t.kw); ok {
-		_ = svp_advance(p)
+		svp_bump(p)
 		net_type = nt
 		if svp_accept(p, .Hash) {
 			if svp_at(p, .LParen) {
-				for !svp_at(p, .RParen) && !svp_at_eof(p) { _ = svp_advance(p) }
+				for !svp_at(p, .RParen) && !svp_at_eof(p) { svp_bump(p) }
 				_ = svp_expect(p, .RParen)
-			} else { _ = svp_advance(p) }
+			} else { svp_bump(p) }
 		}
 		svp_skip_strengths(p)
 		data = svp_parse_net_data_type(p)
@@ -429,9 +482,9 @@ svp_parse_net_decl :: proc(p: ^SVParser2) -> ^SVNetDecl {
 svp_parse_param_assignments :: proc(p: ^SVParser2, decl: ^SVParamDecl, in_port_list: bool) {
 	for {
 		a := SVParamAssign{name = svp_expect_ident(p)}
-		for svp_at(p, .LBracket) { append(&a.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &a.unpacked_dims, svp_parse_range(p, true)) }
 		if svp_accept(p, .Assign) { a.value = svp_expr(p, svp_parse_expr(p, 0)) }
-		append(&decl.assignments, a)
+		svp_add(p, &decl.assignments, a)
 		if !svp_accept(p, .Comma) { break }
 		if in_port_list && svp_at(p, .RParen) { break }
 	}
@@ -449,7 +502,7 @@ svp_parse_type_param_decl :: proc(p: ^SVParser2, is_local: bool, in_port_list: b
 			v^ = svp_parse_type(p, true)
 			a.type_value = v
 		}
-		append(&decl.assignments, a)
+		svp_add(p, &decl.assignments, a)
 		if !svp_accept(p, .Comma) { break }
 		if in_port_list && svp_at(p, .RParen) { break }
 	}
@@ -471,22 +524,38 @@ svp_parse_param_decl_after_keyword :: proc(p: ^SVParser2, is_local: bool, in_por
 // Expressions
 // ---------------------------------------------------------------------------------------
 
-svp_bin_prec :: proc(kind: SVTokenKind) -> u8 {
-	#partial switch kind {
-	case .Question: return 1
-	case .PipePipe: return 2
-	case .AmpAmp: return 3
-	case .Pipe: return 4
-	case .Caret, .CaretTilde, .TildeCaret: return 5
-	case .Amp: return 6
-	case .EqEq, .NotEq, .CaseEq, .CaseNeq, .WildEq, .WildNeq: return 7
-	case .Lt, .Le, .Gt, .Ge: return 8
-	case .Shl, .Shr, .Ashl, .Ashr: return 9
-	case .Plus, .Minus: return 10
-	case .Star, .Slash, .Percent: return 11
-	case .Pow: return 12
-	}
-	return 0
+svp_bin_prec_lut: [SVTokenKind]u8
+
+@(init)
+svp_bin_prec_init :: proc "contextless" () {
+	svp_bin_prec_lut[.Question] = 1
+	svp_bin_prec_lut[.PipePipe] = 2
+	svp_bin_prec_lut[.AmpAmp] = 3
+	svp_bin_prec_lut[.Pipe] = 4
+	svp_bin_prec_lut[.Caret] = 5
+	svp_bin_prec_lut[.CaretTilde] = 5
+	svp_bin_prec_lut[.TildeCaret] = 5
+	svp_bin_prec_lut[.Amp] = 6
+	svp_bin_prec_lut[.EqEq] = 7
+	svp_bin_prec_lut[.NotEq] = 7
+	svp_bin_prec_lut[.CaseEq] = 7
+	svp_bin_prec_lut[.CaseNeq] = 7
+	svp_bin_prec_lut[.WildEq] = 7
+	svp_bin_prec_lut[.WildNeq] = 7
+	svp_bin_prec_lut[.Lt] = 8
+	svp_bin_prec_lut[.Le] = 8
+	svp_bin_prec_lut[.Gt] = 8
+	svp_bin_prec_lut[.Ge] = 8
+	svp_bin_prec_lut[.Shl] = 9
+	svp_bin_prec_lut[.Shr] = 9
+	svp_bin_prec_lut[.Ashl] = 9
+	svp_bin_prec_lut[.Ashr] = 9
+	svp_bin_prec_lut[.Plus] = 10
+	svp_bin_prec_lut[.Minus] = 10
+	svp_bin_prec_lut[.Star] = 11
+	svp_bin_prec_lut[.Slash] = 11
+	svp_bin_prec_lut[.Percent] = 11
+	svp_bin_prec_lut[.Pow] = 12
 }
 
 svp_bin_op :: proc(kind: SVTokenKind) -> SVBinOp {
@@ -526,7 +595,7 @@ svp_parse_expr :: proc(p: ^SVParser2, min_prec: u8 = 0) -> SVExpr {
 	for {
 		// inside { range_list }
 		if min_prec <= 8 && svp_kw_at(p, .Inside) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			_ = svp_expect(p, .LBrace)
 			ranges: [dynamic]SVInsideRange
 			for {
@@ -541,7 +610,7 @@ svp_parse_expr :: proc(p: ^SVParser2, min_prec: u8 = 0) -> SVExpr {
 				} else {
 					r.lo = svp_parse_expr(p, 0)
 				}
-				append(&ranges, r)
+				svp_add(p, &ranges, r)
 				if !svp_accept(p, .Comma) { break }
 			}
 			_ = svp_expect(p, .RBrace)
@@ -550,16 +619,16 @@ svp_parse_expr :: proc(p: ^SVParser2, min_prec: u8 = 0) -> SVExpr {
 		}
 		kind := svp_peek(p).kind
 		if kind == .Question && min_prec <= 1 {
-			_ = svp_advance(p)
+			svp_bump(p)
 			t := svp_parse_expr(p, 0)
 			_ = svp_expect(p, .Colon)
 			f := svp_parse_expr(p, 1)
 			lhs = svp_set(p, SVTernary{cond = lhs, lhs = t, rhs = f})
 			continue
 		}
-		prec := svp_bin_prec(kind)
+		prec := svp_bin_prec_lut[kind]
 		if prec == 0 || prec < min_prec { break }
-		_ = svp_advance(p)
+		svp_bump(p)
 		rhs := svp_parse_expr(p, prec + 1)
 		lhs = svp_set(p, SVBinary{op = svp_bin_op(kind), lhs = lhs, rhs = rhs})
 	}
@@ -584,14 +653,14 @@ svp_parse_unary :: proc(p: ^SVParser2) -> SVExpr {
 	case .CaretTilde, .TildeCaret: op = .RED_XNOR
 	case .Inc, .Dec:
 		is_dec := t.kind == .Dec
-		_ = svp_advance(p)
+		svp_bump(p)
 		operand := svp_parse_unary(p)
 		return svp_set(p, SVIncDec{operand = operand, is_dec = is_dec, is_prefix = true})
 	case:
 		has_op = false
 	}
 	if !has_op { return svp_parse_postfix(p, svp_parse_primary(p)) }
-	_ = svp_advance(p)
+	svp_bump(p)
 	operand := svp_parse_unary(p)
 	return svp_set(p, SVUnary{op = op, operand = operand})
 }
@@ -605,7 +674,7 @@ svp_parse_postfix :: proc(p: ^SVParser2, prefix: SVExpr) -> SVExpr {
 	if name, is_ident := base.(string); is_ident {
 		if svp_accept(p, .ColonColon) {
 			member := svp_expect_ident(p)
-			base = SVScopedName{scope = name, name = member}
+			base = svp_set(p, SVScopedName{scope = name, name = member})
 			if svp_at(p, .LParen) {
 				qual := strings.concatenate({name, "::", member}, p.allocator)
 				base = svp_parse_call(p, qual, false)
@@ -632,7 +701,7 @@ svp_parse_postfix :: proc(p: ^SVParser2, prefix: SVExpr) -> SVExpr {
 				part.has_second = true
 			}
 			_ = svp_expect(p, .RBracket)
-			append(&parts, part)
+			svp_add(p, &parts, part)
 			continue
 		}
 		if svp_accept(p, .Dot) {
@@ -653,19 +722,19 @@ svp_parse_postfix :: proc(p: ^SVParser2, prefix: SVExpr) -> SVExpr {
 				}
 				svp_error(p, "method calls are not supported in the synthesizable subset")
 			}
-			append(&parts, SVSelectPart{member = member})
+			svp_add(p, &parts, SVSelectPart{member = member})
 			continue
 		}
 		break
 	}
 
 	if svp_at(p, .Tick) && svp_at(p, .LParen, 1) {
-		_ = svp_advance(p)
+		svp_bump(p)
 		return svp_parse_cast(p, "", base)
 	}
 	if svp_at(p, .Inc) || svp_at(p, .Dec) {
 		is_dec := svp_at(p, .Dec)
-		_ = svp_advance(p)
+		svp_bump(p)
 		selected := base
 		if len(parts) > 0 { selected = svp_set(p, SVSelect{base = base, parts = parts}) }
 		return svp_set(p, SVIncDec{operand = selected, is_dec = is_dec})
@@ -676,19 +745,21 @@ svp_parse_postfix :: proc(p: ^SVParser2, prefix: SVExpr) -> SVExpr {
 
 svp_parse_primary :: proc(p: ^SVParser2) -> SVExpr {
 	t := svp_peek(p)
-	_, is_var_type := svp_var_type(t.kw)
-	if t.kw == .Signed || t.kw == .Unsigned || t.kw == .Void || (is_var_type && svp_at(p, .Tick, 1)) {
-		target := svp_advance(p).text
-		_ = svp_expect(p, .Tick)
-		return svp_parse_cast(p, target, nil)
+	if t.kw != .None {
+		_, is_var_type := svp_var_type(t.kw)
+		if t.kw == .Signed || t.kw == .Unsigned || t.kw == .Void || (is_var_type && svp_at(p, .Tick, 1)) {
+			target := svp_text(p, svp_advance(p))
+			_ = svp_expect(p, .Tick)
+			return svp_parse_cast(p, target, nil)
+		}
 	}
 	#partial switch t.kind {
 	case .LParen:
-		_ = svp_advance(p)
+		svp_bump(p)
 		e := svp_parse_expr(p, 0)
 		_ = svp_expect(p, .RParen)
 		if svp_at(p, .Tick) && svp_at(p, .LParen, 1) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			return svp_parse_cast(p, "", e)
 		}
 		return e
@@ -696,51 +767,51 @@ svp_parse_primary :: proc(p: ^SVParser2) -> SVExpr {
 		return svp_parse_concat(p)
 	case .Tick:
 		if svp_at(p, .LBrace, 1) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			return svp_parse_aggregate(p, "", "")
 		}
 		return svp_parse_number(p)
 	case .Number:
 		return svp_parse_number(p)
 	case .String:
-		_ = svp_advance(p)
-		return SVStringLit(t.text)
+		svp_bump(p)
+		return SVStringLit(svp_text(p, t))
 	case .SystemIdent:
-		name := svp_advance(p).text
+		name := svp_text(p, svp_advance(p))
 		if svp_at(p, .LParen) { return svp_parse_call(p, name, true) }
 		return svp_set(p, SVCall{name = name, is_system = true})
 	case .EscapedIdent, .Ident:
-		if t.kw != .None { svp_error(p, fmt.tprintf("unexpected keyword '%s' in expression", t.text)) }
-		name := svp_advance(p).text
+		if t.kw != .None { svp_error(p, fmt.tprintf("unexpected keyword '%s' in expression", svp_text(p, t))) }
+		name := svp_text(p, svp_advance(p))
 		if svp_accept(p, .ColonColon) {
 			member := svp_expect_ident(p)
-			scoped := SVScopedName{scope = name, name = member}
+			scoped := svp_set(p, SVScopedName{scope = name, name = member})
 			qual := strings.concatenate({name, "::", member}, p.allocator)
 			if svp_at(p, .LParen) {
 				return svp_parse_call(p, qual, false)
 			}
 			if svp_at(p, .Tick) && svp_at(p, .LParen, 1) {
-				_ = svp_advance(p)
+				svp_bump(p)
 				return svp_parse_cast(p, qual, nil)
 			}
 			if svp_at(p, .Tick) && svp_at(p, .LBrace, 1) {
-				_ = svp_advance(p)
+				svp_bump(p)
 				return svp_parse_aggregate(p, name, member)
 			}
 			return scoped
 		}
 		if svp_at(p, .LParen) { return svp_parse_call(p, name, false) }
 		if svp_at(p, .Tick) && svp_at(p, .LParen, 1) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			return svp_parse_cast(p, name, nil)
 		}
 		if svp_at(p, .Tick) && svp_at(p, .LBrace, 1) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			return svp_parse_aggregate(p, "", name)
 		}
 		return name
 	}
-	svp_error(p, fmt.tprintf("unexpected token '%s' in expression", t.text))
+	svp_error(p, fmt.tprintf("unexpected token '%s' in expression", svp_text(p, t)))
 }
 
 svp_parse_cast :: proc(p: ^SVParser2, target: string, size: SVExpr) -> SVExpr {
@@ -770,7 +841,7 @@ svp_parse_call :: proc(p: ^SVParser2, name: string, is_system: bool) -> SVExpr {
 	for !svp_at(p, .RParen) {
 		arg: SVCallArg
 		if svp_at(p, .Dot) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			arg.name = svp_expect_ident(p)
 			_ = svp_expect(p, .LParen)
 			if !svp_at(p, .RParen) { arg.value = svp_expr(p, svp_parse_expr(p, 0)) }
@@ -778,7 +849,7 @@ svp_parse_call :: proc(p: ^SVParser2, name: string, is_system: bool) -> SVExpr {
 		} else if !svp_at(p, .Comma) {
 			arg.value = svp_expr(p, svp_parse_expr(p, 0))
 		}
-		append(&call.args, arg)
+		svp_add(p, &call.args, arg)
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .RParen)
@@ -788,18 +859,18 @@ svp_parse_call :: proc(p: ^SVParser2, name: string, is_system: bool) -> SVExpr {
 svp_parse_concat :: proc(p: ^SVParser2) -> SVExpr {
 	_ = svp_expect(p, .LBrace)
 	if svp_at(p, .RBrace) {
-		_ = svp_advance(p)
+		svp_bump(p)
 		return svp_set(p, SVConcat{})
 	}
 	// Streaming concatenation: {<< [slice] { a, b }} / {>> ...}
-	if (svp_at(p, .Shl) && svp_peek(p).text == "<<") || (svp_at(p, .Shr) && svp_peek(p).text == ">>") {
+	if (svp_at(p, .Shl) && svp_text(p, svp_peek(p)) == "<<") || (svp_at(p, .Shr) && svp_text(p, svp_peek(p)) == ">>") {
 		stream := svp_new(p, SVStream)
 		stream.dir = svp_at(p, .Shl) ? .LEFT : .RIGHT
-		_ = svp_advance(p)
+		svp_bump(p)
 		if !svp_at(p, .LBrace) { stream.slice = svp_expr(p, svp_parse_expr(p, 0)) }
 		_ = svp_expect(p, .LBrace)
 		for {
-			append(&stream.parts, svp_parse_expr(p, 0))
+			svp_add(p, &stream.parts, svp_parse_expr(p, 0))
 			if !svp_accept(p, .Comma) { break }
 		}
 		_ = svp_expect(p, .RBrace)
@@ -809,10 +880,10 @@ svp_parse_concat :: proc(p: ^SVParser2) -> SVExpr {
 	first := svp_parse_expr(p, 0)
 	if svp_at(p, .LBrace) {
 		// replication
-		_ = svp_advance(p)
+		svp_bump(p)
 		parts: [dynamic]SVExpr
 		for {
-			append(&parts, svp_parse_expr(p, 0))
+			svp_add(p, &parts, svp_parse_expr(p, 0))
 			if !svp_accept(p, .Comma) { break }
 		}
 		_ = svp_expect(p, .RBrace)
@@ -823,9 +894,9 @@ svp_parse_concat :: proc(p: ^SVParser2) -> SVExpr {
 		return rep
 	}
 	node := svp_new(p, SVConcat)
-	append(&node.parts, first)
+	svp_add(p, &node.parts, first)
 	for svp_accept(p, .Comma) {
-		append(&node.parts, svp_parse_expr(p, 0))
+		svp_add(p, &node.parts, svp_parse_expr(p, 0))
 	}
 	_ = svp_expect(p, .RBrace)
 	return node
@@ -845,7 +916,7 @@ svp_parse_aggregate :: proc(p: ^SVParser2, type_scope, type_name: string) -> SVE
 	agg.type_scope = type_scope
 	agg.type_name = type_name
 	if svp_at(p, .RBrace) {
-		_ = svp_advance(p)
+		svp_bump(p)
 		return agg
 	}
 	if svp_aggregate_is_replicated(p) {
@@ -858,15 +929,15 @@ svp_parse_aggregate :: proc(p: ^SVParser2, type_scope, type_name: string) -> SVE
 			entry.key = svp_expect_ident(p)
 			_ = svp_expect(p, .Colon)
 		} else if (svp_at(p, .String) || svp_at(p, .Number)) && svp_at(p, .Colon, 1) {
-			entry.key = svp_advance(p).text
+			entry.key = svp_text(p, svp_advance(p))
 			_ = svp_expect(p, .Colon)
 		} else if svp_kw_at(p, .Default) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			_ = svp_expect(p, .Colon)
 			entry.key = "default"
 		}
 		entry.value = svp_parse_expr(p, 0)
-		append(&agg.entries, entry)
+		svp_add(p, &agg.entries, entry)
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .RBrace)
@@ -876,7 +947,7 @@ svp_parse_aggregate :: proc(p: ^SVParser2, type_scope, type_name: string) -> SVE
 
 svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
 	t := svp_advance(p)
-	text := t.text
+	text := svp_text(p, t)
 	width: u32
 	base := SVNumberBase.DEC
 	signed := false
@@ -884,15 +955,40 @@ svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
 	is_real := false
 	real_value: f64
 	raw := text
-	time_unit := ""
+	time_unit := SVTimeUnit.NONE
 
-	// Macro-expanded size: XLEN'd4 arrives as Number("32") + Number("'d4").
-	if !strings.contains(text, "'") && svp_at(p, .Number) && strings.has_prefix(svp_peek(p).text, "'") {
-		t2 := svp_advance(p)
-		text = strings.concatenate({t.text, t2.text}, p.allocator)
+	// One pass classifies the literal and accumulates the size prefix. Numbers are
+	// short; a single loop avoids half a dozen string-search calls per token.
+	apostrophe := -1
+	has_dot := false
+	has_exp := false
+	prefix: u32
+	for i in 0 ..< len(text) {
+		c := text[i]
+		if apostrophe < 0 {
+			if c == '\'' {
+				apostrophe = i
+				width = prefix
+			} else if c >= '0' && c <= '9' {
+				prefix = prefix * 10 + u32(c - '0')
+			}
+		}
+		if c == '.' { has_dot = true }
+		if c == 'e' || c == 'E' { has_exp = true }
 	}
 
-	if strings.has_prefix(text, "'") {
+	// Macro-expanded size: XLEN'd4 arrives as Number("32") + Number("'d4").
+	if apostrophe < 0 && svp_at(p, .Number) {
+		next_text := svp_text(p, svp_peek(p))
+		if len(next_text) > 0 && next_text[0] == '\'' {
+			t2 := svp_advance(p)
+			text = strings.concatenate({text, svp_text(p, t2)}, p.allocator)
+			apostrophe = strings.index_byte(text, '\'')
+		}
+	}
+
+	if apostrophe > 0 { width = prefix }
+	if apostrophe == 0 {
 		// unbased ('0/'1/'x/'z) or unsized based ('hFF)
 		body := text[1:]
 		if len(body) > 0 && (body[0] == 's' || body[0] == 'S') {
@@ -901,15 +997,13 @@ svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
 		}
 		if len(body) > 0 && svl_is_base_char(body[0]) {
 			base = sv_number_base_of(body[0])
-			raw = body[1:]
-			raw = strings.trim_space(raw)
+			raw = strings.trim_space(body[1:])
 		} else {
 			is_unbased = true
 			raw = body
 		}
-	} else if idx := strings.index_byte(text, '\''); idx >= 0 {
-		width = sv_parse_size_text(text[:idx])
-		body := text[idx + 1:]
+	} else if apostrophe > 0 {
+		body := text[apostrophe + 1:]
 		if len(body) > 0 && (body[0] == 's' || body[0] == 'S') {
 			signed = true
 			body = body[1:]
@@ -920,20 +1014,26 @@ svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
 		}
 	} else {
 		// Real literal?
-		if strings.contains(text, ".") || strings.contains_any(text, "eE") {
+		if has_dot || has_exp {
 			if v, ok := strconv.parse_f64(text); ok {
 				is_real = true
 				real_value = v
 			}
 		}
 		// trailing time unit
-		switch {
-		case strings.has_suffix(text, "ms"): time_unit = "ms"; raw = text[:len(text)-2]
-		case strings.has_suffix(text, "us"): time_unit = "us"; raw = text[:len(text)-2]
-		case strings.has_suffix(text, "ns"): time_unit = "ns"; raw = text[:len(text)-2]
-		case strings.has_suffix(text, "ps"): time_unit = "ps"; raw = text[:len(text)-2]
-		case strings.has_suffix(text, "fs"): time_unit = "fs"; raw = text[:len(text)-2]
-		case strings.has_suffix(text, "s"): time_unit = "s"; raw = text[:len(text)-1]
+		n := len(text)
+		if n >= 2 && text[n - 1] == 's' {
+			switch text[n - 2] {
+			case 'm': time_unit = .MS; raw = text[:n - 2]
+			case 'u': time_unit = .US; raw = text[:n - 2]
+			case 'n': time_unit = .NS; raw = text[:n - 2]
+			case 'p': time_unit = .PS; raw = text[:n - 2]
+			case 'f': time_unit = .FS; raw = text[:n - 2]
+			}
+		}
+		if time_unit == .NONE && n >= 1 && text[n - 1] == 's' {
+			time_unit = .S
+			raw = text[:n - 1]
 		}
 	}
 	value: u64
@@ -948,7 +1048,7 @@ svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
 		}
 		signed = true
 	}
-	return SVNumber {
+	return svp_set(p, SVNumber {
 		raw = raw,
 		width = width,
 		base = base,
@@ -959,15 +1059,15 @@ svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
 		value = value,
 		has_x_z = has_x_z,
 		time_unit = time_unit,
-	}
+	})
 }
 
 // ---------------------------------------------------------------------------------------
 // Entry point (temporary name; the public API switches to this once it covers the suite)
 // ---------------------------------------------------------------------------------------
 
-svp_parse_tokens :: proc(ast: ^SystemVerilogAST, toks: []SVToken, filepath: string, allocator: mem.Allocator) {
-	p := SVParser2{toks = toks, ast = ast, allocator = allocator, filepath = filepath}
+svp_parse_tokens :: proc(ast: ^SystemVerilogAST, toks: []SVToken, sources: [][]byte, source_line_base: []u32, filepath: string, allocator: mem.Allocator) {
+	p := SVParser2{toks = toks, sources = sources, source_line_base = source_line_base, ast = ast, allocator = allocator, filepath = filepath}
 	old := context.allocator
 	context.allocator = allocator
 	defer context.allocator = old
@@ -1025,7 +1125,7 @@ svp_parse_package_item :: proc(p: ^SVParser2, pkg: ^SVPackage) {
 	#partial switch t.kw {
 	case .Typedef: append(&pkg.items, svp_parse_typedef(p))
 	case .Parameter, .Localparam:
-		_ = svp_advance(p)
+		svp_bump(p)
 		decl := svp_parse_param_decl_after_keyword(p, t.kw == .Localparam, false)
 		_ = svp_expect(p, .Semicolon)
 		append(&pkg.items, decl)
@@ -1058,7 +1158,7 @@ svp_parse_package_item :: proc(p: ^SVParser2, pkg: ^SVPackage) {
 			decl := svp_parse_net_decl_after_keyword(p, .NONE, data)
 			append(&pkg.items, decl)
 		} else {
-			svp_error(p, fmt.tprintf("unsupported package item '%s'", t.text))
+			svp_error(p, fmt.tprintf("unsupported package item '%s'", svp_text(p, t)))
 		}
 	}
 }
@@ -1070,7 +1170,7 @@ svp_port_list_is_ansi :: proc(p: ^SVParser2) -> bool {
 	if svp_is_decl_kw(t.kw) { return true }
 	if t.kw == .Interface { return true }
 	if svp_is_ident(t) {
-		if t.text in p.ast.type_names || t.text in p.ast.iface_names { return true }
+		if svp_text(p, t) in p.ast.type_names || svp_text(p, t) in p.ast.iface_names { return true }
 		n := svp_peek(p, 1)
 		if svp_is_ident(n) || n.kind == .Dot { return true }
 	}
@@ -1078,7 +1178,7 @@ svp_port_list_is_ansi :: proc(p: ^SVParser2) -> bool {
 }
 
 svp_parse_module :: proc(p: ^SVParser2) -> ^SVModule {
-	_ = svp_advance(p) // module/macromodule
+	svp_bump(p) // module/macromodule
 	module := svp_new(p, SVModule)
 	module.name = svp_expect_ident(p)
 	module.source_path = p.filepath
@@ -1113,7 +1213,7 @@ svp_parse_interface :: proc(p: ^SVParser2) -> ^SVInterface {
 	p.iface = iface
 	for !svp_at_eof(p) && !svp_kw_at(p, .Endinterface) {
 		if svp_kw_at(p, .Modport) {
-			append(&iface.modports, svp_parse_modport(p))
+			svp_add(p, &iface.modports, svp_parse_modport(p))
 			continue
 		}
 		svp_parse_module_item(p, &iface.items)
@@ -1138,11 +1238,11 @@ svp_parse_modport :: proc(p: ^SVParser2) -> SVModport {
 		dir := SVPortDir.NONE
 		if d, ok := svp_port_dir(svp_peek(p).kw); ok {
 			dir = d
-			_ = svp_advance(p)
+			svp_bump(p)
 		} else if svp_accept_kw(p, .Ref) {
 			dir = .REF
 		}
-		append(&mp.ports, SVModportPort{dir = dir, name = svp_expect_ident(p)})
+		svp_add(p, &mp.ports, SVModportPort{dir = dir, name = svp_expect_ident(p)})
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .RParen)
@@ -1189,9 +1289,9 @@ svp_parse_param_group :: proc(p: ^SVParser2, in_port_list: bool) -> ^SVParamDecl
 	decl.data = svp_parse_type_for_param(p)
 	for {
 		a := SVParamAssign{name = svp_expect_ident(p)}
-		for svp_at(p, .LBracket) { append(&a.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &a.unpacked_dims, svp_parse_range(p, true)) }
 		if svp_accept(p, .Assign) { a.value = svp_expr(p, svp_parse_expr(p, 0)) }
-		append(&decl.assignments, a)
+		svp_add(p, &decl.assignments, a)
 		if !svp_accept(p, .Comma) { break }
 		if in_port_list && svp_at(p, .RParen) { break }
 		if in_port_list && svp_param_comma_starts_group(p) { p.i -= 1; break }
@@ -1247,7 +1347,7 @@ svp_parse_type_param_decl2 :: proc(p: ^SVParser2, is_local: bool, in_port_list: 
 			v^ = svp_parse_type(p, true)
 			a.type_value = v
 		}
-		append(&decl.assignments, a)
+		svp_add(p, &decl.assignments, a)
 		if !svp_accept(p, .Comma) { break }
 		if in_port_list && svp_at(p, .RParen) { break }
 		if in_port_list && svp_param_comma_starts_group(p) { p.i -= 1; break }
@@ -1265,7 +1365,7 @@ svp_parse_module_ports :: proc(p: ^SVParser2, module: ^SVModule) {
 		return
 	}
 	if svp_at(p, .RParen) {
-		_ = svp_advance(p)
+		svp_bump(p)
 		module.is_ansi = true
 		return
 	}
@@ -1284,7 +1384,7 @@ svp_parse_module_ports :: proc(p: ^SVParser2, module: ^SVModule) {
 				port.expr = svp_expr(p, svp_parse_concat(p))
 			} else {
 				port.name = svp_expect_ident(p)
-				for svp_at(p, .LBracket) { append(&port.unpacked_dims, svp_parse_range(p, true)) }
+				for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p, true)) }
 			}
 			append(&module.ports, port)
 			if !svp_accept(p, .Comma) { break }
@@ -1296,7 +1396,7 @@ svp_parse_module_ports :: proc(p: ^SVParser2, module: ^SVModule) {
 
 svp_parse_interface_ports :: proc(p: ^SVParser2, iface: ^SVInterface) {
 	_ = svp_expect(p, .LParen)
-	if svp_at(p, .RParen) { _ = svp_advance(p); return }
+	if svp_at(p, .RParen) { svp_bump(p); return }
 	svp_parse_ansi_ports(p, &iface.ports)
 	_ = svp_expect(p, .RParen)
 }
@@ -1315,7 +1415,7 @@ svp_parse_ansi_ports :: proc(p: ^SVParser2, ports: ^[dynamic]^SVPort) {
 
 		if svp_at(p, .Dot) {
 			// explicit port `.name(expr)`
-			_ = svp_advance(p)
+			svp_bump(p)
 			port.name = svp_expect_ident(p)
 			if svp_accept(p, .LParen) {
 				if !svp_at(p, .RParen) { port.expr = svp_expr(p, svp_parse_expr(p, 0)) }
@@ -1328,7 +1428,7 @@ svp_parse_ansi_ports :: proc(p: ^SVParser2, ports: ^[dynamic]^SVPort) {
 
 		if d, ok := svp_port_dir(svp_peek(p).kw); ok {
 			port.dir = d
-			_ = svp_advance(p)
+			svp_bump(p)
 			given_dir = true
 		} else {
 			port.dir = prev_dir
@@ -1336,14 +1436,14 @@ svp_parse_ansi_ports :: proc(p: ^SVParser2, ports: ^[dynamic]^SVPort) {
 
 		if nt, ok := svp_net_type(svp_peek(p).kw); ok {
 			port.net_type = nt
-			_ = svp_advance(p)
+			svp_bump(p)
 			given_net = true
 		} else {
 			port.net_type = prev_net
 		}
 
 		if svp_at(p, .Dot) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			port.name = svp_expect_ident(p)
 			_ = svp_expect(p, .LParen)
 			if !svp_at(p, .RParen) { port.expr = svp_expr(p, svp_parse_expr(p, 0)) }
@@ -1358,20 +1458,20 @@ svp_parse_ansi_ports :: proc(p: ^SVParser2, ports: ^[dynamic]^SVPort) {
 		// Interface port: iface.modport name, generic `interface name`, or a known
 		// interface name followed by the port name.
 		if svp_kw_at(p, .Interface) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			port.iface_name = "interface"
 			port.name = svp_expect_ident(p)
 			given_data = true
 		} else if t := svp_peek(p); svp_is_ident(t) && svp_at(p, .Dot, 1) {
-			port.iface_name = t.text
-			_ = svp_advance(p)
+			port.iface_name = svp_text(p, t)
+			svp_bump(p)
 			_ = svp_expect(p, .Dot)
 			port.modport = svp_expect_ident(p)
 			port.name = svp_expect_ident(p)
 			given_data = true
-		} else if t := svp_peek(p); svp_is_ident(t) && t.text in p.ast.iface_names && svp_is_ident(svp_peek(p, 1)) {
-			port.iface_name = t.text
-			_ = svp_advance(p)
+		} else if t := svp_peek(p); svp_is_ident(t) && svp_text(p, t) in p.ast.iface_names && svp_is_ident(svp_peek(p, 1)) {
+			port.iface_name = svp_text(p, t)
+			svp_bump(p)
 			port.name = svp_expect_ident(p)
 			given_data = true
 		} else if svp_starts_port_type(p) {
@@ -1387,7 +1487,7 @@ svp_parse_ansi_ports :: proc(p: ^SVParser2, ports: ^[dynamic]^SVPort) {
 			port.name = svp_expect_ident(p)
 		}
 
-		for svp_at(p, .LBracket) { append(&port.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p, true)) }
 		if svp_accept(p, .Assign) { port.default_value = svp_expr(p, svp_parse_expr(p, 0)) }
 		append(ports, port)
 		if given_dir { prev_dir = port.dir }
@@ -1405,7 +1505,7 @@ svp_starts_port_type :: proc(p: ^SVParser2) -> bool {
 	if t.kw == .Var || t.kw == .Const || t.kw == .Signed || t.kw == .Unsigned ||
 	   t.kw == .Enum || t.kw == .Struct || t.kw == .Union { return true }
 	if svp_is_ident(t) {
-		if t.text in p.ast.type_names { return true }
+		if svp_text(p, t) in p.ast.type_names { return true }
 		n := svp_peek(p, 1)
 		if n.kind == .ColonColon { return true }
 		if svp_is_ident(n) { return true }
@@ -1415,11 +1515,11 @@ svp_starts_port_type :: proc(p: ^SVParser2) -> bool {
 }
 
 svp_parse_port_declaration :: proc(p: ^SVParser2, dir: SVPortDir) -> ^SVPortDecl {
-	_ = svp_advance(p) // direction keyword
+	svp_bump(p) // direction keyword
 	net_type := SVNetType.NONE
 	if nt, ok := svp_net_type(svp_peek(p).kw); ok {
 		net_type = nt
-		_ = svp_advance(p)
+		svp_bump(p)
 	}
 	data := svp_parse_net_data_type(p)
 	decl := svp_new(p, SVNetDecl)
@@ -1494,7 +1594,7 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 	if svp_is_ident(t) && svp_at(p, .Colon, 1) {
 		n := svp_peek(p, 2)
 		if n.kw == .Assert || n.kw == .Assume || n.kw == .Cover {
-			_ = svp_advance(p)
+			svp_bump(p)
 			_ = svp_expect(p, .Colon)
 			append(items, svp_parse_assertion(p, n.kw == .Assert ? .ASSERT : (n.kw == .Assume ? .ASSUME : .COVER)))
 			return
@@ -1516,7 +1616,7 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 	case .Inout: append(items, svp_parse_port_declaration(p, .INOUT))
 	case .Ref: append(items, svp_parse_port_declaration(p, .REF))
 	case .Parameter, .Localparam:
-		_ = svp_advance(p)
+		svp_bump(p)
 		decl := svp_parse_param_decl_after_keyword(p, t.kw == .Localparam, false)
 		_ = svp_expect(p, .Semicolon)
 		append(items, decl)
@@ -1528,7 +1628,7 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 	case .Defparam: append(items, svp_parse_defparam(p))
 	case .Initial: append(items, svp_parse_proc(p, .INITIAL))
 	case .Final:
-		_ = svp_advance(p)
+		svp_bump(p)
 		proc_node := svp_new(p, SVProc)
 		proc_node.kind = .FINAL
 		proc_node.body = svp_parse_statement(p)
@@ -1544,7 +1644,7 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 	case .If: append(items, svp_parse_gen_if(p))
 	case .Case, .Casez, .Casex: append(items, svp_parse_gen_case(p))
 	case .Genvar:
-		_ = svp_advance(p)
+		svp_bump(p)
 		gv := svp_new(p, SVGenvarDecl)
 		for {
 			append(&gv.names, svp_expect_ident(p))
@@ -1556,15 +1656,15 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 	case .Assume: append(items, svp_parse_assertion(p, .ASSUME))
 	case .Cover: append(items, svp_parse_assertion(p, .COVER))
 	case .Restrict:
-		_ = svp_advance(p)
+		svp_bump(p)
 		if svp_kw_at(p, .Property) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			if svp_at(p, .LParen) {
 				depth := 0
 				for !svp_at_eof(p) {
 					if svp_at(p, .LParen) { depth += 1 }
-					if svp_at(p, .RParen) { depth -= 1; if depth == 0 { _ = svp_advance(p); break } }
-					_ = svp_advance(p)
+					if svp_at(p, .RParen) { depth -= 1; if depth == 0 { svp_bump(p); break } }
+					svp_bump(p)
 				}
 			}
 		}
@@ -1587,7 +1687,7 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 	case .Specify:
 		svp_skip_until_kw(p, .Endspecify)
 	case .Default:
-		_ = svp_advance(p)
+		svp_bump(p)
 		if svp_kw_at(p, .Clocking) {
 			svp_skip_until_kw(p, .Endclocking)
 			svp_skip_end_label(p)
@@ -1606,13 +1706,13 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 		_ = svp_parse_module(p)
 	case:
 		if svp_is_gate_kw(t.kw) {
-			name := t.text
-			_ = svp_advance(p)
+			name := svp_text(p, t)
+			svp_bump(p)
 			svp_parse_instantiation(p, name, true, items)
 			return
 		}
 		if t.kind == .SystemIdent {
-			name := svp_advance(p).text
+			name := svp_text(p, svp_advance(p))
 			call: SVCall
 			if svp_at(p, .LParen) {
 				e := svp_parse_call(p, name, true)
@@ -1644,7 +1744,7 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 			}
 			if svp_at(p, .ColonColon) {
 				scope := name
-				_ = svp_advance(p)
+				svp_bump(p)
 				member := svp_expect_ident(p)
 				if svp_is_ident(svp_peek(p)) || svp_at(p, .LBracket) {
 					data := svp_type_from_name(p, scope, member)
@@ -1654,7 +1754,7 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 				}
 				// scoped task call
 				if svp_at(p, .Semicolon) {
-					_ = svp_advance(p)
+					svp_bump(p)
 					append(items, svp_set(p, SVCall{name = strings.concatenate({scope, "::", member}, p.allocator)}))
 					return
 				}
@@ -1664,7 +1764,7 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 			svp_parse_instantiation(p, name, is_gate, items)
 			return
 		}
-		svp_error(p, fmt.tprintf("unexpected token '%s' in module body", t.text))
+		svp_error(p, fmt.tprintf("unexpected token '%s' in module body", svp_text(p, t)))
 	}
 }
 
@@ -1673,8 +1773,8 @@ svp_skip_strengths :: proc(p: ^SVParser2) {
 		depth := 0
 		for !svp_at_eof(p) {
 			if svp_at(p, .LParen) { depth += 1 }
-			if svp_at(p, .RParen) { depth -= 1; if depth == 0 { _ = svp_advance(p); break } }
-			_ = svp_advance(p)
+			if svp_at(p, .RParen) { depth -= 1; if depth == 0 { svp_bump(p); break } }
+			svp_bump(p)
 		}
 	}
 }
@@ -1686,10 +1786,10 @@ svp_parse_cont_assign :: proc(p: ^SVParser2) -> ^SVContAssign {
 			depth := 0
 			for !svp_at_eof(p) {
 				if svp_at(p, .LParen) { depth += 1 }
-				if svp_at(p, .RParen) { depth -= 1; if depth == 0 { _ = svp_advance(p); break } }
-				_ = svp_advance(p)
+				if svp_at(p, .RParen) { depth -= 1; if depth == 0 { svp_bump(p); break } }
+				svp_bump(p)
 			}
-		} else { _ = svp_advance(p) }
+		} else { svp_bump(p) }
 	}
 	svp_skip_strengths(p)
 	node := svp_new(p, SVContAssign)
@@ -1697,7 +1797,7 @@ svp_parse_cont_assign :: proc(p: ^SVParser2) -> ^SVContAssign {
 		pair := SVAssignPair{lhs = svp_parse_expr(p, 0)}
 		_ = svp_expect(p, .Assign)
 		pair.rhs = svp_parse_expr(p, 0)
-		append(&node.pairs, pair)
+		svp_add(p, &node.pairs, pair)
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .Semicolon)
@@ -1708,7 +1808,7 @@ svp_parse_alias :: proc(p: ^SVParser2) -> ^SVAlias {
 	_ = svp_expect_kw(p, .Alias)
 	node := svp_new(p, SVAlias)
 	for {
-		append(&node.names, svp_parse_expr(p, 0))
+		svp_add(p, &node.names, svp_parse_expr(p, 0))
 		if !svp_accept(p, .Assign) { break }
 	}
 	_ = svp_expect(p, .Semicolon)
@@ -1722,7 +1822,7 @@ svp_parse_defparam :: proc(p: ^SVParser2) -> ^SVDefparam {
 		pair := SVAssignPair{lhs = svp_parse_expr(p, 0)}
 		_ = svp_expect(p, .Assign)
 		pair.rhs = svp_parse_expr(p, 0)
-		append(&node.pairs, pair)
+		svp_add(p, &node.pairs, pair)
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .Semicolon)
@@ -1739,7 +1839,7 @@ svp_parse_param_overrides :: proc(p: ^SVParser2, inst: ^SVInstance) {
 	if !svp_accept(p, .Hash) { return }
 	if svp_at(p, .Number) {
 		// delay control, not a parameter list
-		_ = svp_advance(p)
+		svp_bump(p)
 		return
 	}
 	_ = svp_expect(p, .LParen)
@@ -1765,7 +1865,7 @@ svp_parse_param_overrides :: proc(p: ^SVParser2, inst: ^SVInstance) {
 		} else {
 			o.value = svp_expr(p, svp_parse_expr(p, 0))
 		}
-		append(&inst.param_overrides, o)
+		svp_add(p, &inst.param_overrides, o)
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .RParen)
@@ -1777,7 +1877,7 @@ svp_starts_type_token :: proc(p: ^SVParser2) -> bool {
 	if _, ok := svp_var_type(t.kw); ok { return !svp_at(p, .Tick, 1) }
 	if t.kw == .Enum || t.kw == .Struct || t.kw == .Union || t.kw == .Signed || t.kw == .Unsigned { return !svp_at(p, .Tick, 1) }
 	if svp_is_ident(t) {
-		if t.text in p.ast.type_names || t.text in p.ast.iface_names { return true }
+		if svp_text(p, t) in p.ast.type_names || svp_text(p, t) in p.ast.iface_names { return true }
 		if svp_at(p, .ColonColon, 1) {
 			// `pkg::type)` / `pkg::type [..]` is a type argument; anything else
 			// (`pkg::CONST - x`, `pkg::type'(x)`) is an expression.
@@ -1791,7 +1891,7 @@ svp_starts_type_token :: proc(p: ^SVParser2) -> bool {
 svp_parse_instantiation :: proc(p: ^SVParser2, cell: string, is_gate: bool, items: ^[dynamic]SVItem) {
 	// Optional gate strengths: (strong0, strong1)
 	if is_gate && svp_at(p, .LParen) && svp_is_strength_token(p) {
-		for !svp_at(p, .RParen) && !svp_at_eof(p) { _ = svp_advance(p) }
+		for !svp_at(p, .RParen) && !svp_at_eof(p) { svp_bump(p) }
 		_ = svp_expect(p, .RParen)
 	}
 	first := true
@@ -1802,12 +1902,12 @@ svp_parse_instantiation :: proc(p: ^SVParser2, cell: string, is_gate: bool, item
 		if svp_at(p, .Hash) { svp_parse_param_overrides(p, inst) }
 		if svp_at(p, .Hash) {
 			// gate delay triple / `#delay
-			_ = svp_advance(p)
+			svp_bump(p)
 			if svp_at(p, .LParen) {
-				for !svp_at(p, .RParen) && !svp_at_eof(p) { _ = svp_advance(p) }
+				for !svp_at(p, .RParen) && !svp_at_eof(p) { svp_bump(p) }
 				_ = svp_expect(p, .RParen)
 			} else {
-				_ = svp_advance(p)
+				svp_bump(p)
 			}
 		}
 		if svp_is_ident(svp_peek(p)) || svp_at(p, .EscapedIdent) {
@@ -1815,7 +1915,7 @@ svp_parse_instantiation :: proc(p: ^SVParser2, cell: string, is_gate: bool, item
 		} else if !is_gate {
 			svp_error(p, "expected an instance name")
 		}
-		for svp_at(p, .LBracket) { append(&inst.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &inst.unpacked_dims, svp_parse_range(p, true)) }
 		if svp_at(p, .LParen) { svp_parse_port_connections(p, inst) }
 		append(items, inst)
 		first = false
@@ -1872,7 +1972,7 @@ svp_parse_port_connections :: proc(p: ^SVParser2, inst: ^SVInstance) {
 		} else if !svp_at(p, .Comma) {
 			conn.value = svp_expr(p, svp_parse_expr(p, 0))
 		}
-		append(&inst.port_conns, conn)
+		svp_add(p, &inst.port_conns, conn, 4)
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .RParen)
@@ -1933,7 +2033,7 @@ svp_parse_gen_if :: proc(p: ^SVParser2) -> ^SVGenIf {
 
 svp_parse_gen_case :: proc(p: ^SVParser2) -> ^SVGenCase {
 	kind := svp_peek(p).kw
-	_ = svp_advance(p)
+	svp_bump(p)
 	node := svp_new(p, SVGenCase)
 	_ = svp_expect(p, .LParen)
 	node.subject = svp_parse_expr(p, 0)
@@ -1945,13 +2045,13 @@ svp_parse_gen_case :: proc(p: ^SVParser2) -> ^SVGenCase {
 			_ = svp_accept(p, .Colon)
 		} else {
 			for {
-				append(&item.exprs, svp_parse_expr(p, 0))
+				svp_add(p, &item.exprs, svp_parse_expr(p, 0))
 				if !svp_accept(p, .Comma) { break }
 			}
 			_ = svp_expect(p, .Colon)
 		}
 		item.body = svp_parse_gen_block(p)
-		append(&node.items, item)
+		svp_add(p, &node.items, item)
 	}
 	_ = svp_expect_kw(p, .Endcase)
 	_ = kind
@@ -1963,7 +2063,7 @@ svp_parse_gen_case :: proc(p: ^SVParser2) -> ^SVGenCase {
 // ---------------------------------------------------------------------------------------
 
 svp_parse_proc :: proc(p: ^SVParser2, kind: SVProcKind) -> ^SVProc {
-	_ = svp_advance(p)
+	svp_bump(p)
 	node := svp_new(p, SVProc)
 	node.kind = kind
 	if svp_at(p, .At) {
@@ -2026,7 +2126,7 @@ svp_parse_timing_ctl :: proc(p: ^SVParser2) -> SVTimingCtl {
 			if svp_accept_kw(p, .Posedge) { ev.edge = .POSEDGE } else if svp_accept_kw(p, .Negedge) { ev.edge = .NEGEDGE } else if svp_accept_kw(p, .Edge) { ev.edge = .EDGE }
 			ev.expr = svp_parse_expr(p, 0)
 			if svp_accept_kw(p, .Iff) { ev.iff = svp_expr(p, svp_parse_expr(p, 0)) }
-			append(&ctl.events, ev)
+			svp_add(p, &ctl.events, ev)
 			if svp_accept(p, .Comma) { continue }
 			if svp_accept_kw(p, .Or) { continue }
 			break
@@ -2037,7 +2137,7 @@ svp_parse_timing_ctl :: proc(p: ^SVParser2) -> SVTimingCtl {
 	ev: SVEvent
 	if svp_accept_kw(p, .Posedge) { ev.edge = .POSEDGE } else if svp_accept_kw(p, .Negedge) { ev.edge = .NEGEDGE }
 	ev.expr = svp_parse_expr(p, 0)
-	append(&ctl.events, ev)
+	svp_add(p, &ctl.events, ev)
 	return ctl
 }
 
@@ -2051,12 +2151,12 @@ svp_parse_statement_or_null :: proc(p: ^SVParser2) -> ^SVStmt {
 svp_parse_statement :: proc(p: ^SVParser2) -> SVStmt {
 	svp_skip_attributes(p)
 	if svp_at(p, .Semicolon) {
-		_ = svp_advance(p)
+		svp_bump(p)
 		return svp_set(p, SVBlock{})
 	}
 	// optional statement label
 	if svp_is_ident(svp_peek(p)) && svp_at(p, .Colon, 1) {
-		_ = svp_advance(p)
+		svp_bump(p)
 		_ = svp_expect(p, .Colon)
 		return svp_parse_statement(p)
 	}
@@ -2069,7 +2169,7 @@ svp_parse_statement :: proc(p: ^SVParser2) -> SVStmt {
 		q: SVQualifier = .UNIQUE
 		if t.kw == .Unique0 { q = .UNIQUE0 }
 		if t.kw == .Priority { q = .PRIORITY }
-		_ = svp_advance(p)
+		svp_bump(p)
 		if svp_kw_at(p, .If) { return svp_parse_if(p, q) }
 		if svp_kw_at(p, .Case) || svp_kw_at(p, .Casez) || svp_kw_at(p, .Casex) { return svp_parse_case(p, q) }
 		svp_error(p, "expected if or case after unique/priority")
@@ -2081,22 +2181,22 @@ svp_parse_statement :: proc(p: ^SVParser2) -> SVStmt {
 	case .Forever: return svp_parse_forever(p)
 	case .Foreach: return svp_parse_foreach(p)
 	case .Break:
-		_ = svp_advance(p)
+		svp_bump(p)
 		_ = svp_expect(p, .Semicolon)
 		return svp_set(p, SVJump{kind = .BREAK})
 	case .Continue:
-		_ = svp_advance(p)
+		svp_bump(p)
 		_ = svp_expect(p, .Semicolon)
 		return svp_set(p, SVJump{kind = .CONTINUE})
 	case .Return:
-		_ = svp_advance(p)
+		svp_bump(p)
 		j := svp_new(p, SVJump)
 		j.kind = .RETURN
 		if !svp_at(p, .Semicolon) { j.value = svp_expr(p, svp_parse_expr(p, 0)) }
 		_ = svp_expect(p, .Semicolon)
 		return j
 	case .Void:
-		_ = svp_advance(p)
+		svp_bump(p)
 		_ = svp_expect(p, .Tick)
 		_ = svp_expect(p, .LParen)
 		e := svp_parse_expr(p, 0)
@@ -2109,7 +2209,7 @@ svp_parse_statement :: proc(p: ^SVParser2) -> SVStmt {
 	case .Cover: return svp_parse_assertion(p, .COVER)
 	case .Expect: return svp_parse_assertion(p, .EXPECT)
 	case .Wait, .Fork, .Join, .JoinAny, .JoinNone, .Disable, .Force, .Release, .Deassign, .Randcase, .Randsequence:
-		svp_error(p, fmt.tprintf("unsupported procedural construct '%s'", t.text))
+		svp_error(p, fmt.tprintf("unsupported procedural construct '%s'", svp_text(p, t)))
 	case:
 	}
 
@@ -2120,7 +2220,7 @@ svp_parse_statement :: proc(p: ^SVParser2) -> SVStmt {
 		return svp_set(p, SVTimingStmt{timing = ctl, body = body})
 	}
 	if svp_at(p, .SystemIdent) {
-		name := svp_advance(p).text
+		name := svp_text(p, svp_advance(p))
 		call: SVCall
 		if svp_at(p, .LParen) {
 			e := svp_parse_call(p, name, true)
@@ -2133,7 +2233,7 @@ svp_parse_statement :: proc(p: ^SVParser2) -> SVStmt {
 		return svp_set(p, call)
 	}
 	if svp_is_ident(t) || t.kind == .EscapedIdent {
-		name := svp_advance(p).text
+		name := svp_text(p, svp_advance(p))
 		escaped := t.kind == .EscapedIdent
 		return svp_parse_assignment_or_call(p, name, escaped)
 	}
@@ -2150,7 +2250,7 @@ svp_parse_assignment_or_call :: proc(p: ^SVParser2, name: string, escaped: bool)
 	}
 	// scoped call / scoped name in statement position
 	if svp_at(p, .ColonColon) {
-		_ = svp_advance(p)
+		svp_bump(p)
 		member := svp_expect_ident(p)
 		qual := strings.concatenate({name, "::", member}, p.allocator)
 		if svp_at(p, .LParen) {
@@ -2167,7 +2267,7 @@ svp_parse_assignment_or_call :: proc(p: ^SVParser2, name: string, escaped: bool)
 		return e.(^SVCall)
 	}
 	if svp_at(p, .Semicolon) {
-		_ = svp_advance(p)
+		svp_bump(p)
 		return svp_set(p, SVCall{name = name})
 	}
 	return svp_parse_assignment_or_call_expr(p, name)
@@ -2179,7 +2279,7 @@ svp_parse_assignment_or_call_expr :: proc(p: ^SVParser2, prefix: SVExpr) -> SVSt
 		if c, ok := base.(^SVCall); ok { return c }
 		if _, ok := base.(^SVIncDec); ok { return base.(^SVIncDec) }
 		if ident, ok := base.(string); ok { return svp_set(p, SVCall{name = ident}) }
-		if scoped, ok := base.(SVScopedName); ok { return svp_set(p, SVCall{name = strings.concatenate({scoped.scope, "::", scoped.name}, p.allocator)}) }
+		if scoped, ok := base.(^SVScopedName); ok { return svp_set(p, SVCall{name = strings.concatenate({scoped.scope, "::", scoped.name}, p.allocator)}) }
 		svp_error(p, "only subroutine calls and ++/-- can stand alone as expressions")
 	}
 	op := SVAssignOp.EQ
@@ -2203,7 +2303,7 @@ svp_parse_assignment_or_call_expr :: proc(p: ^SVParser2, prefix: SVExpr) -> SVSt
 	case .AshrEq: op = .ASH_R_EQ
 	case: svp_error(p, "expected an assignment or a call")
 	}
-	_ = svp_advance(p)
+	svp_bump(p)
 	timing: ^SVTimingCtl
 	if svp_at(p, .Hash) || svp_at(p, .At) {
 		ctl := svp_parse_timing_ctl(p)
@@ -2227,7 +2327,7 @@ svp_parse_block :: proc(p: ^SVParser2) -> SVStmt {
 	for !svp_at_eof(p) {
 		svp_skip_attributes(p)
 		if svp_kw_at(p, .End) {
-			_ = svp_advance(p)
+			svp_bump(p)
 			svp_skip_end_label(p)
 			return block
 		}
@@ -2238,18 +2338,18 @@ svp_parse_block :: proc(p: ^SVParser2) -> SVStmt {
 			continue
 		}
 		if t.kw == .Typedef {
-			append(&block.decls, svp_parse_typedef(p))
+			svp_add(p, &block.decls, svp_parse_typedef(p))
 			continue
 		}
 		if t.kw == .Parameter || t.kw == .Localparam {
-			_ = svp_advance(p)
+			svp_bump(p)
 			decl := svp_parse_param_decl_after_keyword(p, t.kw == .Localparam, false)
 			_ = svp_expect(p, .Semicolon)
-			append(&block.decls, decl)
+			svp_add(p, &block.decls, decl)
 			continue
 		}
 		if svp_is_decl_kw(t.kw) || t.kind == .LBracket {
-			append(&block.decls, svp_parse_net_decl(p))
+			svp_add(p, &block.decls, svp_parse_net_decl(p))
 			continue
 		}
 		if svp_is_ident(t) && svp_at(p, .ColonColon, 1) && (svp_is_ident(svp_peek(p, 3)) || svp_at(p, .LBracket, 3)) {
@@ -2257,13 +2357,13 @@ svp_parse_block :: proc(p: ^SVParser2) -> SVStmt {
 			_ = svp_expect(p, .ColonColon)
 			member := svp_expect_ident(p)
 			data := svp_type_from_name(p, scope, member)
-			append(&block.decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
+			svp_add(p, &block.decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
 			continue
 		}
 		if svp_is_ident(t) && (svp_is_ident(svp_peek(p, 1)) || (svp_at(p, .LBracket, 1) && svp_ident_dims_then_ident(p))) {
 			name := svp_expect_ident(p)
 			data := svp_type_from_name(p, "", name)
-			append(&block.decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
+			svp_add(p, &block.decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
 			continue
 		}
 		append(&block.stmts, svp_parse_statement(p))
@@ -2289,7 +2389,7 @@ svp_parse_case :: proc(p: ^SVParser2, q: SVQualifier) -> SVStmt {
 	case .Casez: kind = .CASEZ
 	case .Casex: kind = .CASEX
 	}
-	_ = svp_advance(p)
+	svp_bump(p)
 	node := svp_new(p, SVCase)
 	node.kind = kind
 	node.qualifier = q
@@ -2306,20 +2406,20 @@ svp_parse_case :: proc(p: ^SVParser2, q: SVQualifier) -> SVStmt {
 			for {
 				if node.is_inside && svp_at(p, .LBracket) {
 					r: SVInsideRange
-					_ = svp_advance(p)
+					svp_bump(p)
 					r.lo = svp_parse_expr(p, 0)
 					if svp_accept(p, .Colon) { r.hi = svp_parse_expr(p, 0); r.has_hi = true }
 					_ = svp_expect(p, .RBracket)
-					append(&item.ranges, r)
+					svp_add(p, &item.ranges, r)
 				} else {
-					append(&item.exprs, svp_parse_expr(p, 0))
+					svp_add(p, &item.exprs, svp_parse_expr(p, 0))
 				}
 				if !svp_accept(p, .Comma) { break }
 			}
 			_ = svp_expect(p, .Colon)
 		}
 		item.body = svp_parse_statement_or_null(p)
-		append(&node.items, item)
+		svp_add(p, &node.items, item)
 	}
 	_ = svp_expect_kw(p, .Endcase)
 	return node
@@ -2336,15 +2436,15 @@ svp_parse_for :: proc(p: ^SVParser2) -> SVStmt {
 			decl.data = svp_parse_type(p, true)
 			for {
 				d := SVDeclarator{name = svp_expect_ident(p)}
-				for svp_at(p, .LBracket) { append(&d.unpacked_dims, svp_parse_range(p, true)) }
+				for svp_at(p, .LBracket) { svp_add(p, &d.unpacked_dims, svp_parse_range(p, true)) }
 				if svp_accept(p, .Assign) { d.init = svp_expr(p, svp_parse_expr(p, 0)) }
 				append(&decl.declarators, d)
 				if !svp_accept(p, .Comma) { break }
 			}
-			append(&node.var_decls, decl)
+			svp_add(p, &node.var_decls, decl)
 		} else {
 			for {
-				append(&node.init_assigns, svp_parse_for_assign(p))
+				svp_add(p, &node.init_assigns, svp_parse_for_assign(p))
 				if !svp_accept(p, .Comma) { break }
 			}
 		}
@@ -2354,7 +2454,7 @@ svp_parse_for :: proc(p: ^SVParser2) -> SVStmt {
 	_ = svp_expect(p, .Semicolon)
 	if !svp_at(p, .RParen) {
 		for {
-			append(&node.steps, svp_parse_stmt_no_semi(p))
+			svp_add(p, &node.steps, svp_parse_stmt_no_semi(p))
 			if !svp_accept(p, .Comma) { break }
 		}
 	}
@@ -2381,11 +2481,11 @@ svp_parse_stmt_no_semi :: proc(p: ^SVParser2) -> SVStmt {
 		return svp_parse_assignment_no_semi_expr(p, e)
 	}
 	if svp_is_ident(t) || t.kind == .EscapedIdent {
-		name := svp_advance(p).text
+		name := svp_text(p, svp_advance(p))
 		if svp_at(p, .LParen) { return svp_parse_call(p, name, false).(^SVCall) }
 		if svp_at(p, .Inc) || svp_at(p, .Dec) {
 			is_dec := svp_at(p, .Dec)
-			_ = svp_advance(p)
+			svp_bump(p)
 			return svp_set(p, SVIncDec{operand = name, is_dec = is_dec})
 		}
 		return svp_parse_assignment_no_semi(p, name)
@@ -2400,7 +2500,7 @@ svp_parse_assignment_no_semi :: proc(p: ^SVParser2, prefix: SVExpr) -> SVStmt {
 svp_parse_assignment_no_semi_expr :: proc(p: ^SVParser2, base: SVExpr) -> SVStmt {
 	if svp_at(p, .Inc) || svp_at(p, .Dec) {
 		is_dec := svp_at(p, .Dec)
-		_ = svp_advance(p)
+		svp_bump(p)
 		return svp_set(p, SVIncDec{operand = base, is_dec = is_dec})
 	}
 	node := svp_new(p, SVAssignStmt)
@@ -2422,7 +2522,7 @@ svp_parse_assignment_no_semi_expr :: proc(p: ^SVParser2, base: SVExpr) -> SVStmt
 	case .AshrEq: node.op = .ASH_R_EQ
 	case: svp_error(p, "expected an assignment")
 	}
-	_ = svp_advance(p)
+	svp_bump(p)
 	node.rhs = svp_parse_expr(p, 0)
 	return node
 }
@@ -2469,13 +2569,13 @@ svp_parse_foreach :: proc(p: ^SVParser2) -> SVStmt {
 	for svp_accept(p, .Dot) {
 		member := svp_expect_ident(p)
 		parts: [dynamic]SVSelectPart
-		append(&parts, SVSelectPart{member = member})
+		svp_add(p, &parts, SVSelectPart{member = member})
 		node.array = svp_set(p, SVSelect{base = node.array, parts = parts})
 	}
 	_ = svp_expect(p, .LBracket)
 	for !svp_at(p, .RBracket) {
-		if svp_at(p, .Comma) { append(&node.loop_vars, ""); _ = svp_advance(p); continue }
-		append(&node.loop_vars, svp_expect_ident(p))
+		if svp_at(p, .Comma) { svp_add(p, &node.loop_vars, ""); svp_bump(p); continue }
+		svp_add(p, &node.loop_vars, svp_expect_ident(p))
 		_ = svp_accept(p, .Comma)
 	}
 	_ = svp_expect(p, .RBracket)
@@ -2485,13 +2585,13 @@ svp_parse_foreach :: proc(p: ^SVParser2) -> SVStmt {
 }
 
 svp_parse_assertion :: proc(p: ^SVParser2, kind: SVAssertKind) -> ^SVAssert {
-	_ = svp_advance(p)
+	svp_bump(p)
 	node := svp_new(p, SVAssert)
 	node.kind = kind
 	if svp_accept_kw(p, .Final) {
 		// deferred assertion
 	} else if svp_accept(p, .Hash) {
-		_ = svp_advance(p) // #0
+		svp_bump(p) // #0
 	}
 	if svp_accept_kw(p, .Property) {
 		node.is_property = true
@@ -2502,11 +2602,11 @@ svp_parse_assertion :: proc(p: ^SVParser2, kind: SVAssertKind) -> ^SVAssert {
 				if svp_at(p, .LParen) { depth += 1 }
 				if svp_at(p, .RParen) {
 					depth -= 1
-					if depth == 0 { _ = svp_advance(p); break }
+					if depth == 0 { svp_bump(p); break }
 				}
 				if strings.builder_len(b) > 0 { strings.write_byte(&b, ' ') }
-				strings.write_string(&b, svp_peek(p).text)
-				_ = svp_advance(p)
+				strings.write_string(&b, svp_text(p, svp_peek(p)))
+				svp_bump(p)
 			}
 			node.property_text = strings.to_string(b)
 		}
@@ -2516,7 +2616,7 @@ svp_parse_assertion :: proc(p: ^SVParser2, kind: SVAssertKind) -> ^SVAssert {
 		return node
 	}
 	if svp_at(p, .LParen) {
-		_ = svp_advance(p)
+		svp_bump(p)
 		node.cond = svp_parse_expr(p, 0)
 		_ = svp_expect(p, .RParen)
 	} else {
@@ -2529,7 +2629,7 @@ svp_parse_assertion :: proc(p: ^SVParser2, kind: SVAssertKind) -> ^SVAssert {
 }
 
 svp_parse_subroutine :: proc(p: ^SVParser2, is_task: bool) -> ^SVSubroutine {
-	_ = svp_advance(p) // function/task
+	svp_bump(p) // function/task
 	sub := svp_new(p, SVSubroutine)
 	sub.is_task = is_task
 	if svp_accept_kw(p, .Automatic) { sub.is_automatic = true } else { _ = svp_accept_kw(p, .Static) }
@@ -2537,7 +2637,7 @@ svp_parse_subroutine :: proc(p: ^SVParser2, is_task: bool) -> ^SVSubroutine {
 	if !is_task {
 		t := svp_peek(p)
 		if t.kw == .Void {
-			_ = svp_advance(p)
+			svp_bump(p)
 			sub.return_data.var_type = .VOID
 		} else if svp_starts_return_type(p) {
 			sub.return_data = svp_parse_type(p, true)
@@ -2549,7 +2649,7 @@ svp_parse_subroutine :: proc(p: ^SVParser2, is_task: bool) -> ^SVSubroutine {
 	}
 	_ = svp_expect(p, .Semicolon)
 	svp_parse_subroutine_body(p, sub)
-	_ = svp_advance(p) // endfunction/endtask
+	svp_bump(p) // endfunction/endtask
 	svp_skip_end_label(p)
 	return sub
 }
@@ -2575,7 +2675,7 @@ svp_parse_tf_ports :: proc(p: ^SVParser2, ports: ^[dynamic]SVTFPort) {
 		port := SVTFPort{}
 		if d, ok := svp_port_dir(svp_peek(p).kw); ok {
 			port.dir = d
-			_ = svp_advance(p)
+			svp_bump(p)
 		} else if svp_accept_kw(p, .Ref) {
 			port.dir = .REF
 		}
@@ -2583,7 +2683,7 @@ svp_parse_tf_ports :: proc(p: ^SVParser2, ports: ^[dynamic]SVTFPort) {
 			port.data = svp_parse_type(p, true)
 		}
 		port.name = svp_expect_ident(p)
-		for svp_at(p, .LBracket) { append(&port.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p, true)) }
 		if svp_accept(p, .Assign) { port.default_value = svp_expr(p, svp_parse_expr(p, 0)) }
 		append(ports, port)
 		if !svp_accept(p, .Comma) { break }
@@ -2613,33 +2713,33 @@ svp_parse_subroutine_body :: proc(p: ^SVParser2, sub: ^SVSubroutine) {
 			continue
 		}
 		if t.kw == .Typedef {
-			append(&sub.body.decls, svp_parse_typedef(p))
+			svp_add(p, &sub.body.decls, svp_parse_typedef(p))
 			continue
 		}
 		if t.kw == .Parameter || t.kw == .Localparam {
-			_ = svp_advance(p)
+			svp_bump(p)
 			decl := svp_parse_param_decl_after_keyword(p, t.kw == .Localparam, false)
 			_ = svp_expect(p, .Semicolon)
-			append(&sub.body.decls, decl)
+			svp_add(p, &sub.body.decls, decl)
 			continue
 		}
 		if d, ok := svp_port_dir(t.kw); ok {
 			// Legacy task/function port declaration.
-			_ = svp_advance(p)
+			svp_bump(p)
 			data: SVDataType
 			if svp_starts_tf_type(p) { data = svp_parse_type(p, true) }
 			for {
 				port := SVTFPort{dir = d, data = data}
 				port.name = svp_expect_ident(p)
-				for svp_at(p, .LBracket) { append(&port.unpacked_dims, svp_parse_range(p, true)) }
-				append(&sub.ports, port)
+				for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p, true)) }
+				svp_add(p, &sub.ports, port)
 				if !svp_accept(p, .Comma) { break }
 			}
 			_ = svp_expect(p, .Semicolon)
 			continue
 		}
 		if svp_is_decl_kw(t.kw) || t.kind == .LBracket {
-			append(&sub.body.decls, svp_parse_net_decl(p))
+			svp_add(p, &sub.body.decls, svp_parse_net_decl(p))
 			continue
 		}
 		if svp_is_ident(t) && svp_at(p, .ColonColon, 1) && (svp_is_ident(svp_peek(p, 3)) || svp_at(p, .LBracket, 3)) {
@@ -2647,13 +2747,13 @@ svp_parse_subroutine_body :: proc(p: ^SVParser2, sub: ^SVSubroutine) {
 			_ = svp_expect(p, .ColonColon)
 			member := svp_expect_ident(p)
 			data := svp_type_from_name(p, scope, member)
-			append(&sub.body.decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
+			svp_add(p, &sub.body.decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
 			continue
 		}
 		if svp_is_ident(t) && (svp_is_ident(svp_peek(p, 1)) || (svp_at(p, .LBracket, 1) && svp_ident_dims_then_ident(p))) {
 			name := svp_expect_ident(p)
 			data := svp_type_from_name(p, "", name)
-			append(&sub.body.decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
+			svp_add(p, &sub.body.decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
 			continue
 		}
 		append(&sub.body.stmts, svp_parse_statement(p))
@@ -2673,7 +2773,7 @@ svp_parse_source_to_ast :: proc(data: []byte, filepath: string, ast: ^SystemVeri
 	}
 	pp := svpp_init(ast, allocator)
 	toks := svpp_preprocess(&pp, data, filepath)
-	svp_parse_tokens(ast, toks, filepath, allocator)
+	svp_parse_tokens(ast, toks, pp.owned_data[:], pp.source_line_base[:], filepath, allocator)
 }
 
 svp_parse_gen_block_after_begin :: proc(p: ^SVParser2, label: string) -> ^SVGenBlock {

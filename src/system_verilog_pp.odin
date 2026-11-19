@@ -31,8 +31,8 @@ SVPreprocessor :: struct {
 	sources:     [dynamic]SVPPFrame,
 	cond_stack:  [dynamic]SVCond,
 	tokens:      [dynamic]SVToken,
-	file_names:  [dynamic]string,
 	owned_data:  [dynamic][]byte,
+	source_line_base: [dynamic]u32, // line number of byte zero for each owned_data buffer
 	total_depth: int,
 }
 
@@ -44,26 +44,28 @@ svpp_active :: #force_inline proc(pp: ^SVPreprocessor) -> bool {
 	return len(pp.cond_stack) == 0 || pp.cond_stack[len(pp.cond_stack) - 1].active
 }
 
-svpp_add_file :: proc(pp: ^SVPreprocessor, data: []byte, path: string) -> u16 {
+svpp_add_file :: proc(pp: ^SVPreprocessor, data: []byte) -> u16 {
 	append(&pp.owned_data, data)
-	append(&pp.file_names, strings.clone(path, pp.allocator) or_else panic("OOM"))
-	return u16(len(pp.file_names) - 1)
+	append(&pp.source_line_base, 1)
+	return u16(len(pp.owned_data) - 1)
 }
 
 svpp_push_include :: proc(pp: ^SVPreprocessor, path: string) {
 	data, err := os.read_entire_file_from_path(path, pp.allocator)
 	ensure(err == nil, fmt.tprint("SystemVerilog include read error: ", err, " ", path))
-	file_id := svpp_add_file(pp, data, path)
+	file_id := svpp_add_file(pp, data)
 	append(&pp.sources, SVPPFrame{lex = svl_init(data, file_id), path = path})
 	// Includes can be nested arbitrarily through the same frame stack; cap it for safety.
 	pp.total_depth += 1
 	ensure(pp.total_depth < 512, "SystemVerilog include nesting too deep")
 }
 
-svpp_push_text :: proc(pp: ^SVPreprocessor, text: string, path: string, line: u32, file_id: u16) {
+svpp_push_text :: proc(pp: ^SVPreprocessor, text: string, path: string, line: u32) {
 	data := make([]byte, len(text), pp.allocator)
 	copy(data, text)
 	append(&pp.owned_data, data)
+	append(&pp.source_line_base, line)
+	file_id := u16(len(pp.owned_data) - 1)
 	frame := SVPPFrame{lex = svl_init(data, file_id), path = path}
 	frame.lex.line = line
 	append(&pp.sources, frame)
@@ -403,8 +405,9 @@ svpp_expand_macro :: proc(pp: ^SVPreprocessor, name: string, tok: SVToken) {
 	if def.is_function_like {
 		args = svpp_scan_macro_args(pp)
 	}
-	text := svpp_expand_text(pp, def, args, tok.line, pp.sources[len(pp.sources)-1].path)
-	svpp_push_text(pp, text, pp.sources[len(pp.sources) - 1].path, tok.line, pp.sources[len(pp.sources) - 1].lex.file_id)
+	line := pp.sources[len(pp.sources) - 1].lex.line
+	text := svpp_expand_text(pp, def, args, line, pp.sources[len(pp.sources)-1].path)
+	svpp_push_text(pp, text, pp.sources[len(pp.sources) - 1].path, line)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -438,7 +441,8 @@ svpp_resolve_include :: proc(pp: ^SVPreprocessor, include_path: string, current_
 }
 
 svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
-	name := tok.text
+	cur := svpp_cur_lexer(pp)
+	name := svl_token_text(cur, tok)
 	active := svpp_active(pp)
 
 	switch name {
@@ -521,11 +525,11 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 				strings.write_byte(&b, u8(c))
 			}
 			strings.write_byte(&b, '"')
-			svpp_push_text(pp, strings.to_string(b), path, tok.line, pp.sources[len(pp.sources) - 1].lex.file_id)
+			svpp_push_text(pp, strings.to_string(b), path, cur.line)
 			return
 		}
 		if name == "__LINE__" {
-			svpp_push_text(pp, fmt.aprintf("%d", tok.line, allocator = pp.allocator), pp.sources[len(pp.sources) - 1].path, tok.line, pp.sources[len(pp.sources) - 1].lex.file_id)
+			svpp_push_text(pp, fmt.aprintf("%d", cur.line, allocator = pp.allocator), pp.sources[len(pp.sources) - 1].path, cur.line)
 			return
 		}
 		if !active { return }
@@ -539,7 +543,16 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 
 // Tokenize a file (and everything it includes/expands) into one flat array.
 svpp_preprocess :: proc(pp: ^SVPreprocessor, data: []byte, filepath: string) -> []SVToken {
-	file_id := svpp_add_file(pp, data, filepath)
+	old_allocator := context.allocator
+	context.allocator = pp.allocator
+	defer context.allocator = old_allocator
+
+	// Large RTL files have roughly one token per ten source bytes. Reserving up
+	// front avoids the repeated zero-and-copy growth of the token array.
+	if len(pp.tokens) == 0 && len(data) >= 1 << 20 {
+		non_zero_reserve(&pp.tokens, len(data) / 10 + 64)
+	}
+	file_id := svpp_add_file(pp, data)
 	append(&pp.sources, SVPPFrame{lex = svl_init(data, file_id), path = filepath})
 	for {
 		if len(pp.sources) == 0 { break }
