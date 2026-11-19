@@ -153,11 +153,12 @@ svl_at_eof :: #force_inline proc(l: ^SVLexer) -> bool { return l.idx >= len(l.sr
 
 svl_is_space :: #force_inline proc(c: byte) -> bool { return c == ' ' || c == '\t' || c == '\v' || c == '\f' }
 svl_is_newline :: #force_inline proc(c: byte) -> bool { return c == '\n' || c == '\r' }
-svl_is_digit :: #force_inline proc(c: byte) -> bool { return c >= '0' && c <= '9' }
+svl_is_digit :: #force_inline proc "contextless" (c: byte) -> bool { return c >= '0' && c <= '9' }
 svl_is_ident_start :: #force_inline proc "contextless" (c: byte) -> bool { return c == '_' || (c | 0x20) >= 'a' && (c | 0x20) <= 'z' }
 svl_is_ident_char :: #force_inline proc "contextless" (c: byte) -> bool { return c == '_' || c == '$' || (c | 0x20) >= 'a' && (c | 0x20) <= 'z' || (c >= '0' && c <= '9') }
 
 svl_ident_char_lut: [256]bool
+svl_number_char_lut: [256]bool
 svl_simple_token_lut: [256]SVTokenKind
 
 SV_IDENT_LANES :: 16
@@ -177,6 +178,7 @@ svl_lex_lut_init :: proc "contextless" () {
 	for i in 0 ..< 256 {
 		c := u8(i)
 		svl_ident_char_lut[i] = svl_is_ident_char(c)
+		svl_number_char_lut[i] = svl_is_number_char(c)
 	}
 	svl_simple_token_lut[')'] = .RParen
 	svl_simple_token_lut[']'] = .RBracket
@@ -378,7 +380,7 @@ svl_scan_number :: #force_inline proc(l: ^SVLexer) -> string {
 		if i < n && svl_is_base_char(src[i]) {
 			i += 1
 			for i < n && (src[i] == ' ' || src[i] == '\t') { i += 1 }
-			for i < n && svl_is_number_char(src[i]) { i += 1 }
+			for i < n && svl_number_char_lut[src[i]] { i += 1 }
 			l.idx = i
 			return string(src[start:i])
 		}
@@ -417,14 +419,14 @@ svl_scan_number :: #force_inline proc(l: ^SVLexer) -> string {
 		if (src[i + 1] == 's' || src[i + 1] == 'S') && i + 2 < n && svl_is_base_char(src[i + 2]) {
 			i += 3 // ' s base
 			for i < n && (src[i] == ' ' || src[i] == '\t') { i += 1 }
-			for i < n && svl_is_number_char(src[i]) { i += 1 }
+			for i < n && svl_number_char_lut[src[i]] { i += 1 }
 			l.idx = i
 			return string(src[start:i])
 		}
 		if svl_is_base_char(src[i + 1]) {
 			i += 2 // ' base
 			for i < n && (src[i] == ' ' || src[i] == '\t') { i += 1 }
-			for i < n && svl_is_number_char(src[i]) { i += 1 }
+			for i < n && svl_number_char_lut[src[i]] { i += 1 }
 			l.idx = i
 			return string(src[start:i])
 		}
@@ -432,7 +434,7 @@ svl_scan_number :: #force_inline proc(l: ^SVLexer) -> string {
 
 	// Optional time unit suffix (s, ms, us, ns, ps, fs), no whitespace between.
 	unit_start := i
-	for i < n && svl_is_ident_char(src[i]) { i += 1 }
+	for i < n && svl_ident_char_lut[src[i]] { i += 1 }
 	unit := string(src[unit_start:i])
 	if len(unit) == 0 { l.idx = i; return string(src[start:i]) }
 	switch unit {
@@ -446,7 +448,7 @@ svl_scan_number :: #force_inline proc(l: ^SVLexer) -> string {
 
 	}}
 
-svl_is_number_char :: #force_inline proc(c: byte) -> bool {
+svl_is_number_char :: #force_inline proc "contextless" (c: byte) -> bool {
 	return svl_is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') ||
 	       c == 'x' || c == 'X' || c == 'z' || c == 'Z' || c == '?' || c == '_'
 }

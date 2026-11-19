@@ -1005,9 +1005,72 @@ sv_small_number_fits :: #force_inline proc(raw: string, base: SVNumberBase) -> b
 	return len(raw) <= 19
 }
 
+// Fast path for the dominant RTL literal shape: [width]'[s]base digits, with
+// no x/z/? digits and a width that fits the small-number representation. It
+// decodes the prefix and the value in one pass and skips the generic literal
+// machinery (real/exponent/unit/unbased checks and the second decode pass).
+svp_fast_based_number :: #force_inline proc(text: string) -> (SVSmallNumber, bool) {
+	n := len(text)
+	if n < 4 { return {}, false }
+	width: u32
+	i := 0
+	for i < n {
+		c := text[i]
+		if c == '_' { i += 1; continue }
+		d := u32(c - '0')
+		if d > 9 { break }
+		width = width * 10 + d
+		if width > 64 { return {}, false }
+		i += 1
+	}
+	if i == 0 || i >= n || text[i] != '\'' { return {}, false }
+	i += 1
+	signed := false
+	if i < n && (text[i] == 's' || text[i] == 'S') { signed = true; i += 1 }
+	if i >= n { return {}, false }
+	base: SVNumberBase
+	radix: u64
+	max_digits: int
+	switch text[i] {
+	case 'b', 'B': base = .BIN; radix = 2; max_digits = 64
+	case 'o', 'O': base = .OCT; radix = 8; max_digits = 21
+	case 'd', 'D': base = .DEC; radix = 10; max_digits = 19
+	case 'h', 'H': base = .HEX; radix = 16; max_digits = 16
+	case: return {}, false
+	}
+	i += 1
+	value: u64
+	digits := 0
+	for i < n {
+		c := text[i]
+		if c == '_' { i += 1; continue }
+		d: u64
+		switch c {
+		case '0' ..= '9': d = u64(c - '0')
+		case 'a' ..= 'f': d = u64(c - 'a' + 10)
+		case 'A' ..= 'F': d = u64(c - 'A' + 10)
+		case: return {}, false
+		}
+		if d >= radix { return {}, false }
+		value = value * radix + d
+		digits += 1
+		if digits > max_digits { return {}, false }
+		i += 1
+	}
+	if digits == 0 { return {}, false }
+	return SVSmallNumber{
+		value = value,
+		width = width,
+		base = base,
+		is_signed = signed || width == 0,
+		time_unit = .NONE,
+	}, true
+}
+
 svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
 	t := svp_advance(p)
 	text := svp_text(p, t)
+	if small, ok := svp_fast_based_number(text); ok { return small }
 	width: u32
 	base := SVNumberBase.DEC
 	signed := false
