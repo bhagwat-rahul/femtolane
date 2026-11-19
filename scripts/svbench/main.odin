@@ -167,6 +167,7 @@ time_mode :: proc(response_path: string) {
 	system_verilog_ast_init(&ast, allocator)
 	files: [dynamic]SVFile
 	defer delete(files)
+	defer for f in files { delete(f.data, context.allocator) }
 
 	for line in lines {
 		if len(line) == 0 || is_comment(line) { continue }
@@ -179,7 +180,7 @@ time_mode :: proc(response_path: string) {
 			// Timed mode treats the whole response as one compilation unit.
 		case strings.has_prefix(line, "FILE "):
 			path := line[len("FILE "):]
-			data, err := os.read_entire_file_from_path(path, allocator)
+			data, err := os.read_entire_file_from_path(path, context.allocator)
 			if err != nil {
 				fmt.eprintfln("read error %s", path)
 				os.exit(2)
@@ -249,11 +250,12 @@ lex_mode :: proc(response_path: string) {
 
 	files: [dynamic]SVFile
 	defer delete(files)
+	defer for f in files { delete(f.data, context.allocator) }
 	for line in lines {
 		if len(line) == 0 || is_comment(line) { continue }
 		if strings.has_prefix(line, "FILE ") {
 			path := line[len("FILE "):]
-			data, err := os.read_entire_file_from_path(path, allocator)
+			data, err := os.read_entire_file_from_path(path, context.allocator)
 			if err != nil {
 				fmt.eprintfln("read error %s", path)
 				os.exit(2)
