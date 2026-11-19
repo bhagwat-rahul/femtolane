@@ -33,6 +33,7 @@ SVPreprocessor :: struct {
 	tokens:      [dynamic]SVToken,
 	owned_data:  [dynamic][]byte,
 	source_line_base: [dynamic]u32, // line number of byte zero for each owned_data buffer
+	source_paths: [dynamic]string,
 	total_depth: int,
 }
 
@@ -44,17 +45,21 @@ svpp_active :: #force_inline proc(pp: ^SVPreprocessor) -> bool {
 	return len(pp.cond_stack) == 0 || pp.cond_stack[len(pp.cond_stack) - 1].active
 }
 
-svpp_add_file :: proc(pp: ^SVPreprocessor, data: []byte) -> u16 {
+svpp_add_file :: proc(pp: ^SVPreprocessor, data: []byte, path: string) -> u16 {
 	append(&pp.owned_data, data)
 	append(&pp.source_line_base, 1)
+	append(&pp.source_paths, path)
 	return u16(len(pp.owned_data) - 1)
 }
 
 svpp_push_include :: proc(pp: ^SVPreprocessor, path: string) {
 	data, err := os.read_entire_file_from_path(path, pp.allocator)
 	ensure(err == nil, fmt.tprint("SystemVerilog include read error: ", err, " ", path))
-	file_id := svpp_add_file(pp, data)
-	append(&pp.sources, SVPPFrame{lex = svl_init(data, file_id), path = path})
+	file_id := svpp_add_file(pp, data, path)
+	frame := SVPPFrame{lex = svl_init(data, file_id), path = path}
+	frame.lex.comment_sink = &pp.ast.comments
+	frame.lex.path = path
+	append(&pp.sources, frame)
 	// Includes can be nested arbitrarily through the same frame stack; cap it for safety.
 	pp.total_depth += 1
 	ensure(pp.total_depth < 512, "SystemVerilog include nesting too deep")
@@ -65,8 +70,11 @@ svpp_push_text :: proc(pp: ^SVPreprocessor, text: string, path: string, line: u3
 	copy(data, text)
 	append(&pp.owned_data, data)
 	append(&pp.source_line_base, line)
+	append(&pp.source_paths, path)
 	file_id := u16(len(pp.owned_data) - 1)
 	frame := SVPPFrame{lex = svl_init(data, file_id), path = path}
+	frame.lex.comment_sink = &pp.ast.comments
+	frame.lex.path = path
 	frame.lex.line = line
 	append(&pp.sources, frame)
 	pp.total_depth += 1
@@ -552,8 +560,11 @@ svpp_preprocess :: proc(pp: ^SVPreprocessor, data: []byte, filepath: string) -> 
 	if len(pp.tokens) == 0 && len(data) >= 1 << 20 {
 		non_zero_reserve(&pp.tokens, len(data) / 10 + 64)
 	}
-	file_id := svpp_add_file(pp, data)
-	append(&pp.sources, SVPPFrame{lex = svl_init(data, file_id), path = filepath})
+	file_id := svpp_add_file(pp, data, filepath)
+	frame := SVPPFrame{lex = svl_init(data, file_id), path = filepath}
+	frame.lex.comment_sink = &pp.ast.comments
+	frame.lex.path = filepath
+	append(&pp.sources, frame)
 	for {
 		if len(pp.sources) == 0 { break }
 		t := svpp_next_raw(pp)

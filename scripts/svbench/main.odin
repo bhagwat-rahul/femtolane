@@ -213,7 +213,7 @@ time_mode :: proc(response_path: string) {
 			t1 := time.tick_now()
 			tokens += len(toks)
 			after_pp := arena.offset
-			svp_parse_tokens(&ast, toks, pp.owned_data[:], pp.source_line_base[:], f.path, allocator)
+			svp_parse_tokens(&ast, toks, pp.owned_data[:], pp.source_line_base[:], pp.source_paths[:], f.path, allocator)
 			t2 := time.tick_now()
 			pp_time += time.tick_diff(t0, t1)
 			parse_time += time.tick_diff(t1, t2)
@@ -221,12 +221,14 @@ time_mode :: proc(response_path: string) {
 		}
 		total := pp_time + parse_time
 		fmt.eprintfln(
-			"ITER pp=%.3fs parse=%.3fs total=%.3fs tokens=%d ast_modules=%d arena=%.1fMB pp_alloc=%.1fMB parse_alloc=%.1fMB",
+			"ITER pp=%.3fs parse=%.3fs total=%.3fs tokens=%d ast_modules=%d comments=%d attributes=%d arena=%.1fMB pp_alloc=%.1fMB parse_alloc=%.1fMB",
 			time.duration_seconds(pp_time),
 			time.duration_seconds(parse_time),
 			time.duration_seconds(total),
 			tokens,
 			len(ast.modules),
+			len(ast.comments),
+			len(ast.attributes),
 			f64(arena.peak_used) / (1 << 20),
 			f64(pre_offset) / (1 << 20),
 			f64(arena.peak_used - pre_offset) / (1 << 20),

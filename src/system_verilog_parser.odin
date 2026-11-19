@@ -19,6 +19,7 @@ SVParser2 :: struct {
 	toks:      []SVToken,
 	sources:   [][]byte, // token offsets index these source buffers
 	source_line_base: []u32,
+	source_paths: []string,
 
 	i:         int,
 	ast:       ^SystemVerilogAST,
@@ -31,6 +32,13 @@ SVParser2 :: struct {
 	// allocator call per node and keeps sibling nodes close in memory.
 	node_buf:  []byte,
 	node_off:  int,
+
+	// Incremental line lookup for diagnostics and retained attributes. Tokens are
+	// visited in source order, so each source byte is scanned at most once.
+	line_file:  u16,
+	line_off:   u32,
+	line_value: u32,
+	line_valid: bool,
 }
 
 svp_peek :: #force_inline proc(p: ^SVParser2, n := 0) -> SVToken {
@@ -61,12 +69,18 @@ svp_text :: #force_inline proc(p: ^SVParser2, t: SVToken) -> string {
 }
 
 svp_token_line :: proc(p: ^SVParser2, t: SVToken) -> u32 {
-	#no_bounds_check src := p.sources[t.file]
-	line := p.source_line_base[t.file]
-	#no_bounds_check for i in 0 ..< int(t.off) {
-		if src[i] == '\n' { line += 1 }
+	if !p.line_valid || p.line_file != t.file || t.off < p.line_off {
+		p.line_file = t.file
+		p.line_off = 0
+		p.line_value = p.source_line_base[t.file]
+		p.line_valid = true
 	}
-	return line
+	#no_bounds_check src := p.sources[t.file]
+	#no_bounds_check for p.line_off < t.off {
+		if src[p.line_off] == '\n' { p.line_value += 1 }
+		p.line_off += 1
+	}
+	return p.line_value
 }
 
 svp_bump :: #force_inline proc(p: ^SVParser2) {
@@ -158,11 +172,39 @@ svp_add :: #force_inline proc(p: ^SVParser2, list: ^[dynamic]$T, value: T, initi
 	append(list, value)
 }
 
+svp_attribute_text :: proc(p: ^SVParser2, start_i, end_i: int) -> string {
+	if end_i <= start_i { return "" }
+	start := p.toks[start_i]
+	last := p.toks[end_i - 1]
+	if start.file == last.file {
+		#no_bounds_check return string(p.sources[start.file][start.off:last.off + last.len])
+	}
+	b := strings.builder_make(p.allocator)
+	for i in start_i ..< end_i {
+		strings.write_string(&b, svp_text(p, p.toks[i]))
+	}
+	return strings.to_string(b)
+}
+
 svp_skip_attributes :: proc(p: ^SVParser2) {
 	for svp_at(p, .AttrStart) {
+		start_i := p.i
+		start_tok := svp_peek(p)
 		p.i += 1
 		for !svp_at_eof(p) && !svp_at(p, .AttrEnd) { p.i += 1 }
 		_ = svp_accept(p, .AttrEnd)
+		text := svp_attribute_text(p, start_i, p.i)
+		path := p.filepath
+		if int(start_tok.file) < len(p.source_paths) { path = p.source_paths[start_tok.file] }
+		line := svp_token_line(p, start_tok)
+		owner_line := line
+		if !svp_at_eof(p) { owner_line = svp_token_line(p, svp_peek(p)) }
+		append(&p.ast.attributes, SVAttribute{
+			text = text,
+			path = path,
+			line = line,
+			owner_line = owner_line,
+		})
 	}
 }
 
@@ -1066,8 +1108,8 @@ svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
 // Entry point (temporary name; the public API switches to this once it covers the suite)
 // ---------------------------------------------------------------------------------------
 
-svp_parse_tokens :: proc(ast: ^SystemVerilogAST, toks: []SVToken, sources: [][]byte, source_line_base: []u32, filepath: string, allocator: mem.Allocator) {
-	p := SVParser2{toks = toks, sources = sources, source_line_base = source_line_base, ast = ast, allocator = allocator, filepath = filepath}
+svp_parse_tokens :: proc(ast: ^SystemVerilogAST, toks: []SVToken, sources: [][]byte, source_line_base: []u32, source_paths: []string, filepath: string, allocator: mem.Allocator) {
+	p := SVParser2{toks = toks, sources = sources, source_line_base = source_line_base, source_paths = source_paths, ast = ast, allocator = allocator, filepath = filepath}
 	old := context.allocator
 	context.allocator = allocator
 	defer context.allocator = old
@@ -2773,7 +2815,7 @@ svp_parse_source_to_ast :: proc(data: []byte, filepath: string, ast: ^SystemVeri
 	}
 	pp := svpp_init(ast, allocator)
 	toks := svpp_preprocess(&pp, data, filepath)
-	svp_parse_tokens(ast, toks, pp.owned_data[:], pp.source_line_base[:], filepath, allocator)
+	svp_parse_tokens(ast, toks, pp.owned_data[:], pp.source_line_base[:], pp.source_paths[:], filepath, allocator)
 }
 
 svp_parse_gen_block_after_begin :: proc(p: ^SVParser2, label: string) -> ^SVGenBlock {

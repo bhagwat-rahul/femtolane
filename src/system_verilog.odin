@@ -12,7 +12,9 @@ There is no token buffer in the parser and no grammar file: the preprocessor
 produces a flat token array once, and every parser function indexes it. The AST
 is arena-friendly: nodes are allocated with the caller's allocator and never
 freed individually; identifiers and literals are zero-copy slices of the source
-(or of arena-owned macro expansion text).
+(or of arena-owned macro expansion text). Comments and attributes are kept in
+side arrays with their source path and line, so nodes without trivia pay no
+per-node storage cost.
 
 Scope is the ASIC-synthesizable RTL subset plus the pragmatic leniency needed by
 real vendor RTL (trailing commas, attributes, escaped identifiers, empty
@@ -39,6 +41,24 @@ SVDefine :: struct {
 	is_function_like: bool,
 }
 
+// Source trivia retained for debuggers, waveform viewers, and physical-design
+// annotation passes. Text points into the same arena-owned source bytes as the
+// rest of the AST; comments and attributes are rare, so keeping them in side
+// arrays avoids adding a pointer to every AST node.
+SVComment :: struct {
+	text:     string, // includes the // or /* */ delimiters
+	path:     string,
+	line:     u32,
+	is_block: bool,
+}
+
+SVAttribute :: struct {
+	text:       string, // raw (* ... *) text
+	path:       string,
+	line:       u32, // line containing the attribute
+	owner_line: u32, // line of the construct that follows it
+}
+
 SystemVerilogAST :: struct {
 	modules:           [dynamic]^SVModule,
 	module_hash_map:   map[string]^SVModule, // name -> module, also used for duplicate detection
@@ -53,6 +73,8 @@ SystemVerilogAST :: struct {
 	defines:           map[string]SVDefine, // `define table (conditional compilation + expansion)
 	include_dirs:      [dynamic]string, // extra `include paths, after the includer's dir
 	file_dirs:         [dynamic]string, // parsed file dirs (fallback for flattened trees)
+	comments:          [dynamic]SVComment,
+	attributes:        [dynamic]SVAttribute,
 }
 
 SVImport :: struct {

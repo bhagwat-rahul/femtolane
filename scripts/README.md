@@ -57,11 +57,19 @@ Timed mode reads all sources once, then reports:
 - `pp=` preprocessing/lexing time
 - `parse=` AST construction time
 - `tokens=` preprocessed token count
+- `comments=` / `attributes=` retained source trivia counts
 - `arena=` total arena bytes used
 - `pp_alloc=` bytes used by the token/source stream
 - `parse_alloc=` bytes used by AST nodes and arrays
 
 Lex mode reports raw lexer tokens and time only.
+
+The parsed AST also retains source trivia:
+
+- `ast.comments` — raw `//` and `/* ... */` text with path, line, and block flag
+- `ast.attributes` — raw `(* ... *)` text with path, line, and the owner construct line
+
+Both are side arrays, so nodes without trivia pay no per-node field or allocation.
 
 Use `scripts/run_chunks.py` to avoid one bad file aborting a large corpus run:
 

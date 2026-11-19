@@ -1888,3 +1888,44 @@ test_sv_practical_leniency :: proc(t: ^testing.T) {
 	dim_a := sv_find_port(t, dimports, "a")
 	testing.expect_value(t, len(dim_a.unpacked_dims), 1)
 }
+
+@(test)
+test_sv_comments_and_attributes :: proc(t: ^testing.T) {
+	ctx: SVTestContext
+	sv_test_begin(&ctx)
+	defer virtual.arena_destroy(&ctx.arena)
+
+	source := sv_src(
+		"// top comment",
+		"/* block",
+		"   comment */",
+		"(* keep /* inner */ = \"true\" *) module trivia (",
+		"  (* mark_debug = \"true\" *) input logic a,",
+		"  output logic b",
+		");",
+		"  // declaration comment",
+		"  (* dont_touch = \"yes\" *) wire w;",
+		"  assign b = a; // trailing comment",
+		"endmodule",
+	)
+	sv_test_parse(&ctx, source, "sv_trivia.sv")
+
+	module := sv_module(t, &ctx, "trivia")
+	testing.expect_value(t, len(module.ports), 2)
+
+	testing.expect_value(t, len(ctx.ast.comments), 4)
+	testing.expect_value(t, ctx.ast.comments[0].text, "// top comment")
+	testing.expect(t, ctx.ast.comments[1].is_block, "second comment should be a block comment")
+	testing.expect(t, strings.contains(ctx.ast.comments[1].text, "block"), "block comment text")
+	testing.expect(t, strings.contains(ctx.ast.comments[3].text, "trailing"), "trailing comment text")
+	testing.expect_value(t, ctx.ast.comments[0].path, "sv_trivia.sv")
+	testing.expect(t, ctx.ast.comments[0].line > 0, "comment line number")
+
+	testing.expect_value(t, len(ctx.ast.attributes), 3)
+	testing.expect_value(t, ctx.ast.attributes[0].text, "(* keep /* inner */ = \"true\" *)")
+	testing.expect(t, strings.contains(ctx.ast.attributes[1].text, "mark_debug"), "port attribute text")
+	testing.expect(t, strings.contains(ctx.ast.attributes[1].text, "mark_debug"), "port attribute text")
+	testing.expect(t, strings.contains(ctx.ast.attributes[2].text, "dont_touch"), "declaration attribute text")
+	testing.expect_value(t, ctx.ast.attributes[0].path, "sv_trivia.sv")
+	testing.expect(t, ctx.ast.attributes[0].owner_line >= ctx.ast.attributes[0].line, "attribute owner line")
+}
