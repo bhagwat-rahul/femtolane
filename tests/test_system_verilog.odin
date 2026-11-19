@@ -872,7 +872,7 @@ test_sv_generate :: proc(t: ^testing.T) {
 		"        wire w_odd;",
 		"      end",
 		"    end",
-		"    case (N)",
+		"    casez (N)",
 		"      2, 4: begin : c_even wire c0; end",
 		"      default: begin : c_default wire c1; end",
 		"    endcase",
@@ -912,6 +912,7 @@ test_sv_generate :: proc(t: ^testing.T) {
 
 		#partial switch case_item in region_item.items[1] {
 		case ^main.SVGenCase:
+			testing.expect_value(t, case_item.kind, main.SVCaseKind.CASEZ)
 			testing.expect_value(t, len(case_item.items), 2)
 			testing.expect_value(t, len(case_item.items[0].exprs), 2)
 			testing.expect_value(t, case_item.items[1].is_default, true)
@@ -1332,6 +1333,10 @@ test_sv_interfaces :: proc(t: ^testing.T) {
 		"package types_pkg;",
 		"  typedef logic [7:0] data_t;",
 		"endpackage",
+		"interface legacy_if (a, b);",
+		"  input a;",
+		"  output b;",
+		"endinterface",
 		"interface bus_if import types_pkg::*; #(parameter W = 8) (input logic clk);",
 		"  logic [W-1:0] data;",
 		"  logic valid;",
@@ -1360,6 +1365,14 @@ test_sv_interfaces :: proc(t: ^testing.T) {
 		testing.expect_value(t, iface.modports[0].name, "master")
 		testing.expect_value(t, len(iface.modports[0].ports), 3)
 		testing.expect_value(t, iface.modports[0].ports[0].dir, main.SVPortDir.OUTPUT)
+	}
+
+	legacy := ctx.ast.interface_hash_map["legacy_if"]
+	testing.expect(t, legacy != nil, "legacy interface not found")
+	if legacy != nil {
+		testing.expect_value(t, len(legacy.ports), 2)
+		testing.expect_value(t, legacy.ports[0].dir, main.SVPortDir.INPUT)
+		testing.expect_value(t, legacy.ports[1].dir, main.SVPortDir.OUTPUT)
 	}
 
 	uses := sv_module(t, &ctx, "uses")
@@ -1404,6 +1417,8 @@ test_sv_macros_and_directives :: proc(t: ^testing.T) {
 		"`define LINE_NO `__LINE__",
 		"`define FILE_NO `__FILE__",
 		"`define WITH_DEFAULT(a, b = 4) ((a) + (b))",
+		"`define __LINE__X 99",
+		"`define PREFIXED `__LINE__X",
 		"`define MULTI(a) \\",
 		"  ((a) + \\",
 		"   1)",
@@ -1432,6 +1447,7 @@ test_sv_macros_and_directives :: proc(t: ^testing.T) {
 		"  localparam S = `GREET(world);",
 		"  localparam J = `JOIN(foo, bar);",
 		"  localparam L = `LINE_NO;",
+		"  localparam P = `PREFIXED;",
 		"  localparam F = `FILE_NO;",
 		"  localparam MODE = `MODE;",
 		"  localparam M2 = `MULTI(3);",
@@ -1464,6 +1480,9 @@ test_sv_macros_and_directives :: proc(t: ^testing.T) {
 
 	line := sv_param_expr(t, module, "L")
 	testing.expect(t, sv_number(t, line^).value > 0, "`__LINE__ should be numeric")
+
+	prefixed := sv_param_expr(t, module, "P")
+	testing.expect_value(t, sv_number(t, prefixed^).value, u64(99))
 
 	file := sv_param_expr(t, module, "F")
 	_, file_is_string := file^.(main.SVStringLit)
@@ -1906,6 +1925,10 @@ test_sv_comments_and_attributes :: proc(t: ^testing.T) {
 		"  // declaration comment",
 		"  (* dont_touch = \"yes\" *) wire w;",
 		"  assign b = a; // trailing comment",
+		"  always @(*) begin",
+		"    // after atstar",
+		"    b = a;",
+		"  end",
 		"endmodule",
 	)
 	sv_test_parse(&ctx, source, "sv_trivia.sv")
@@ -1913,17 +1936,18 @@ test_sv_comments_and_attributes :: proc(t: ^testing.T) {
 	module := sv_module(t, &ctx, "trivia")
 	testing.expect_value(t, len(module.ports), 2)
 
-	testing.expect_value(t, len(ctx.ast.comments), 4)
+	testing.expect_value(t, len(ctx.ast.comments), 6)
 	testing.expect_value(t, ctx.ast.comments[0].text, "// top comment")
 	testing.expect(t, ctx.ast.comments[1].is_block, "second comment should be a block comment")
 	testing.expect(t, strings.contains(ctx.ast.comments[1].text, "block"), "block comment text")
-	testing.expect(t, strings.contains(ctx.ast.comments[3].text, "trailing"), "trailing comment text")
+	testing.expect(t, strings.contains(ctx.ast.comments[2].text, "inner"), "attribute body comment text")
+	testing.expect(t, strings.contains(ctx.ast.comments[4].text, "trailing"), "trailing comment text")
+	testing.expect(t, strings.contains(ctx.ast.comments[5].text, "atstar"), "comment after @(*) text")
 	testing.expect_value(t, ctx.ast.comments[0].path, "sv_trivia.sv")
 	testing.expect(t, ctx.ast.comments[0].line > 0, "comment line number")
 
 	testing.expect_value(t, len(ctx.ast.attributes), 3)
 	testing.expect_value(t, ctx.ast.attributes[0].text, "(* keep /* inner */ = \"true\" *)")
-	testing.expect(t, strings.contains(ctx.ast.attributes[1].text, "mark_debug"), "port attribute text")
 	testing.expect(t, strings.contains(ctx.ast.attributes[1].text, "mark_debug"), "port attribute text")
 	testing.expect(t, strings.contains(ctx.ast.attributes[2].text, "dont_touch"), "declaration attribute text")
 	testing.expect_value(t, ctx.ast.attributes[0].path, "sv_trivia.sv")

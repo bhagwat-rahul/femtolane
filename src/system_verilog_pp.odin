@@ -31,9 +31,7 @@ SVPreprocessor :: struct {
 	sources:     [dynamic]SVPPFrame,
 	cond_stack:  [dynamic]SVCond,
 	tokens:      [dynamic]SVToken,
-	owned_data:  [dynamic][]byte,
-	source_line_base: [dynamic]u32, // line number of byte zero for each owned_data buffer
-	source_paths: [dynamic]string,
+	source_data: [dynamic]SVSource,
 	total_depth: int,
 }
 
@@ -46,10 +44,8 @@ svpp_active :: #force_inline proc(pp: ^SVPreprocessor) -> bool {
 }
 
 svpp_add_file :: proc(pp: ^SVPreprocessor, data: []byte, path: string) -> u16 {
-	append(&pp.owned_data, data)
-	append(&pp.source_line_base, 1)
-	append(&pp.source_paths, path)
-	return u16(len(pp.owned_data) - 1)
+	append(&pp.source_data, SVSource{data = data, line_base = 1, path = path})
+	return u16(len(pp.source_data) - 1)
 }
 
 svpp_push_include :: proc(pp: ^SVPreprocessor, path: string) {
@@ -66,12 +62,11 @@ svpp_push_include :: proc(pp: ^SVPreprocessor, path: string) {
 }
 
 svpp_push_text :: proc(pp: ^SVPreprocessor, text: string, path: string, line: u32) {
-	data := make([]byte, len(text), pp.allocator)
-	copy(data, text)
-	append(&pp.owned_data, data)
-	append(&pp.source_line_base, line)
-	append(&pp.source_paths, path)
-	file_id := u16(len(pp.owned_data) - 1)
+	// All callers hand us arena-owned text (builder output, fmt output, or a stored
+	// macro body), so retain a byte view instead of copying it again.
+	data := transmute([]byte)text
+	append(&pp.source_data, SVSource{data = data, line_base = line, path = path})
+	file_id := u16(len(pp.source_data) - 1)
 	frame := SVPPFrame{lex = svl_init(data, file_id), path = path}
 	frame.lex.comment_sink = &pp.ast.comments
 	frame.lex.path = path
@@ -240,6 +235,7 @@ svpp_scan_define :: proc(pp: ^SVPreprocessor) {
 		svl_advance(l)
 	}
 	def.body = strings.to_string(b)
+	def.body_owned = true
 	pp.ast.defines[macro] = def
 	svl_skip_to_line_end(l)
 }
@@ -305,8 +301,13 @@ svpp_scan_macro_args :: proc(pp: ^SVPreprocessor) -> [dynamic]string {
 
 // Substitute formal parameters and handle ``, `", and `\`" inside a replacement list.
 svpp_expand_text :: proc(pp: ^SVPreprocessor, def: SVDefine, args: [dynamic]string, line: u32, path: string) -> string {
-	b := strings.builder_make(pp.allocator)
 	body := def.body
+	// The overwhelmingly common object-like macro with a literal body needs no
+	// rewriting. Returning the stored body also lets svpp_push_text avoid a copy.
+	if !def.is_function_like && strings.index_byte(body, '`') < 0 {
+		return body if def.body_owned else strings.clone(body, pp.allocator) or_else panic("OOM")
+	}
+	b := strings.builder_make(pp.allocator)
 	i := 0
 	in_macro_string := false
 	for i < len(body) {
@@ -329,19 +330,23 @@ svpp_expand_text :: proc(pp: ^SVPreprocessor, def: SVDefine, args: [dynamic]stri
 			}
 			// Inline the built-in file/line macros. This preserves implicit token pasting
 			// such as `__foo`__LINE__`.
-			if strings.has_prefix(body[i + 1:], "__LINE__") {
+			line_end := i + 1 + len("__LINE__")
+			if strings.has_prefix(body[i + 1:], "__LINE__") &&
+			   (line_end >= len(body) || !svl_is_ident_char(body[line_end])) {
 				strings.write_string(&b, fmt.aprintf("%d", line, allocator = pp.allocator))
-				i += 1 + len("__LINE__")
+				i = line_end
 				continue
 			}
-			if strings.has_prefix(body[i + 1:], "__FILE__") {
+			file_end := i + 1 + len("__FILE__")
+			if strings.has_prefix(body[i + 1:], "__FILE__") &&
+			   (file_end >= len(body) || !svl_is_ident_char(body[file_end])) {
 				strings.write_byte(&b, '"')
 				for c in path {
 					if c == '\\' || c == '"' { strings.write_byte(&b, '\\') }
 					strings.write_byte(&b, u8(c))
 				}
 				strings.write_byte(&b, '"')
-				i += 1 + len("__FILE__")
+				i = file_end
 				continue
 			}
 			strings.write_byte(&b, '`')

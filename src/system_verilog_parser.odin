@@ -17,15 +17,15 @@ import "core:strings"
 
 SVParser2 :: struct {
 	toks:      []SVToken,
-	sources:   [][]byte, // token offsets index these source buffers
-	source_line_base: []u32,
-	source_paths: []string,
+	sources:   []SVSource, // token offsets index these source buffers
 
 	i:         int,
 	ast:       ^SystemVerilogAST,
 	allocator: mem.Allocator,
 	module:    ^SVModule,
 	iface:     ^SVInterface,
+	port_map:  map[string]^SVPort,
+	port_map_ready: bool,
 	filepath:  string,
 
 	// AST nodes are bump-allocated from large chunks. This avoids one arena
@@ -65,17 +65,17 @@ svp_advance :: #force_inline proc(p: ^SVParser2) -> SVToken {
 }
 
 svp_text :: #force_inline proc(p: ^SVParser2, t: SVToken) -> string {
-	#no_bounds_check return string(p.sources[t.file][t.off:t.off + t.len])
+	#no_bounds_check return string(p.sources[t.file].data[t.off:t.off + t.len])
 }
 
 svp_token_line :: proc(p: ^SVParser2, t: SVToken) -> u32 {
 	if !p.line_valid || p.line_file != t.file || t.off < p.line_off {
 		p.line_file = t.file
 		p.line_off = 0
-		p.line_value = p.source_line_base[t.file]
+		p.line_value = p.sources[t.file].line_base
 		p.line_valid = true
 	}
-	#no_bounds_check src := p.sources[t.file]
+	#no_bounds_check src := p.sources[t.file].data
 	#no_bounds_check for p.line_off < t.off {
 		if src[p.line_off] == '\n' { p.line_value += 1 }
 		p.line_off += 1
@@ -177,7 +177,7 @@ svp_attribute_text :: proc(p: ^SVParser2, start_i, end_i: int) -> string {
 	start := p.toks[start_i]
 	last := p.toks[end_i - 1]
 	if start.file == last.file {
-		#no_bounds_check return string(p.sources[start.file][start.off:last.off + last.len])
+		#no_bounds_check return string(p.sources[start.file].data[start.off:last.off + last.len])
 	}
 	b := strings.builder_make(p.allocator)
 	for i in start_i ..< end_i {
@@ -194,11 +194,13 @@ svp_skip_attributes :: proc(p: ^SVParser2) {
 		for !svp_at_eof(p) && !svp_at(p, .AttrEnd) { p.i += 1 }
 		_ = svp_accept(p, .AttrEnd)
 		text := svp_attribute_text(p, start_i, p.i)
-		path := p.filepath
-		if int(start_tok.file) < len(p.source_paths) { path = p.source_paths[start_tok.file] }
+		path := p.sources[start_tok.file].path
 		line := svp_token_line(p, start_tok)
 		owner_line := line
-		if !svp_at_eof(p) { owner_line = svp_token_line(p, svp_peek(p)) }
+		if !svp_at_eof(p) {
+			next := svp_peek(p)
+			if next.file == start_tok.file { owner_line = svp_token_line(p, next) }
+		}
 		append(&p.ast.attributes, SVAttribute{
 			text = text,
 			path = path,
@@ -333,7 +335,7 @@ svp_is_gate_kw :: proc(kw: SVKeyword) -> bool {
 // Types, ranges, declarators
 // ---------------------------------------------------------------------------------------
 
-svp_parse_range :: proc(p: ^SVParser2, unpacked: bool) -> SVRange {
+svp_parse_range :: proc(p: ^SVParser2) -> SVRange {
 	_ = svp_expect(p, .LBracket)
 	r: SVRange
 	if svp_at(p, .RBracket) {
@@ -368,7 +370,7 @@ svp_parse_type_signing_dims :: proc(p: ^SVParser2, data: SVDataType) -> SVDataTy
 		d.is_signed = false
 	}
 	for svp_at(p, .LBracket) {
-		svp_add(p, &d.packed_dims, svp_parse_range(p, false))
+		svp_add(p, &d.packed_dims, svp_parse_range(p))
 	}
 	return d
 }
@@ -441,7 +443,7 @@ svp_parse_type_spec :: proc(p: ^SVParser2, kind: SVTypeSpecKind) -> ^SVTypeSpec 
 		member := SVStructMember{data = data}
 		for {
 			decl := SVDeclarator{name = svp_expect_ident(p)}
-			for svp_at(p, .LBracket) { svp_add(p, &decl.unpacked_dims, svp_parse_range(p, true)) }
+			for svp_at(p, .LBracket) { svp_add(p, &decl.unpacked_dims, svp_parse_range(p)) }
 			if svp_accept(p, .Assign) { decl.init = svp_expr(p, svp_parse_expr(p, 0)) }
 			svp_add(p, &member.declarators, decl)
 			if !svp_accept(p, .Comma) { break }
@@ -457,7 +459,7 @@ svp_parse_declarators :: proc(p: ^SVParser2) -> [dynamic]SVDeclarator {
 	decls: [dynamic]SVDeclarator
 	for {
 		decl := SVDeclarator{name = svp_expect_ident(p)}
-		for svp_at(p, .LBracket) { svp_add(p, &decl.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &decl.unpacked_dims, svp_parse_range(p)) }
 		if svp_accept(p, .Assign) { decl.init = svp_expr(p, svp_parse_expr(p, 0)) }
 		svp_add(p, &decls, decl)
 		if !svp_accept(p, .Comma) { break }
@@ -470,7 +472,7 @@ svp_parse_typedef :: proc(p: ^SVParser2) -> ^SVTypeDecl {
 	decl := svp_new(p, SVTypeDecl)
 	decl.data = svp_parse_type(p, false)
 	decl.name = svp_expect_ident(p)
-	for svp_at(p, .LBracket) { svp_add(p, &decl.unpacked_dims, svp_parse_range(p, true)) }
+	for svp_at(p, .LBracket) { svp_add(p, &decl.unpacked_dims, svp_parse_range(p)) }
 	_ = svp_expect(p, .Semicolon)
 	p.ast.type_names[decl.name] = true
 	return decl
@@ -521,14 +523,15 @@ svp_parse_net_decl :: proc(p: ^SVParser2) -> ^SVNetDecl {
 	return svp_parse_net_decl_after_keyword(p, net_type, data)
 }
 
-svp_parse_param_assignments :: proc(p: ^SVParser2, decl: ^SVParamDecl, in_port_list: bool) {
+svp_parse_param_assignments :: proc(p: ^SVParser2, decl: ^SVParamDecl, in_port_list: bool, stop_at_group := false) {
 	for {
 		a := SVParamAssign{name = svp_expect_ident(p)}
-		for svp_at(p, .LBracket) { svp_add(p, &a.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &a.unpacked_dims, svp_parse_range(p)) }
 		if svp_accept(p, .Assign) { a.value = svp_expr(p, svp_parse_expr(p, 0)) }
 		svp_add(p, &decl.assignments, a)
 		if !svp_accept(p, .Comma) { break }
 		if in_port_list && svp_at(p, .RParen) { break }
+		if stop_at_group && in_port_list && svp_param_comma_starts_group(p) { p.i -= 1; break }
 	}
 }
 
@@ -547,6 +550,7 @@ svp_parse_type_param_decl :: proc(p: ^SVParser2, is_local: bool, in_port_list: b
 		svp_add(p, &decl.assignments, a)
 		if !svp_accept(p, .Comma) { break }
 		if in_port_list && svp_at(p, .RParen) { break }
+		if in_port_list && svp_param_comma_starts_group(p) { p.i -= 1; break }
 	}
 	return decl
 }
@@ -716,10 +720,11 @@ svp_parse_postfix :: proc(p: ^SVParser2, prefix: SVExpr) -> SVExpr {
 	if name, is_ident := base.(string); is_ident {
 		if svp_accept(p, .ColonColon) {
 			member := svp_expect_ident(p)
-			base = svp_set(p, SVScopedName{scope = name, name = member})
 			if svp_at(p, .LParen) {
 				qual := strings.concatenate({name, "::", member}, p.allocator)
 				base = svp_parse_call(p, qual, false)
+			} else {
+				base = svp_set(p, SVScopedName{scope = name, name = member})
 			}
 		} else if svp_at(p, .LParen) {
 			base = svp_parse_call(p, name, false)
@@ -827,20 +832,20 @@ svp_parse_primary :: proc(p: ^SVParser2) -> SVExpr {
 		name := svp_text(p, svp_advance(p))
 		if svp_accept(p, .ColonColon) {
 			member := svp_expect_ident(p)
-			scoped := svp_set(p, SVScopedName{scope = name, name = member})
-			qual := strings.concatenate({name, "::", member}, p.allocator)
 			if svp_at(p, .LParen) {
+				qual := strings.concatenate({name, "::", member}, p.allocator)
 				return svp_parse_call(p, qual, false)
 			}
 			if svp_at(p, .Tick) && svp_at(p, .LParen, 1) {
 				svp_bump(p)
+				qual := strings.concatenate({name, "::", member}, p.allocator)
 				return svp_parse_cast(p, qual, nil)
 			}
 			if svp_at(p, .Tick) && svp_at(p, .LBrace, 1) {
 				svp_bump(p)
 				return svp_parse_aggregate(p, name, member)
 			}
-			return scoped
+			return svp_set(p, SVScopedName{scope = name, name = member})
 		}
 		if svp_at(p, .LParen) { return svp_parse_call(p, name, false) }
 		if svp_at(p, .Tick) && svp_at(p, .LParen, 1) {
@@ -1108,8 +1113,8 @@ svp_parse_number :: proc(p: ^SVParser2) -> SVExpr {
 // Entry point (temporary name; the public API switches to this once it covers the suite)
 // ---------------------------------------------------------------------------------------
 
-svp_parse_tokens :: proc(ast: ^SystemVerilogAST, toks: []SVToken, sources: [][]byte, source_line_base: []u32, source_paths: []string, filepath: string, allocator: mem.Allocator) {
-	p := SVParser2{toks = toks, sources = sources, source_line_base = source_line_base, source_paths = source_paths, ast = ast, allocator = allocator, filepath = filepath}
+svp_parse_tokens :: proc(ast: ^SystemVerilogAST, toks: []SVToken, sources: []SVSource, filepath: string, allocator: mem.Allocator) {
+	p := SVParser2{toks = toks, sources = sources, ast = ast, allocator = allocator, filepath = filepath}
 	old := context.allocator
 	context.allocator = allocator
 	defer context.allocator = old
@@ -1221,6 +1226,8 @@ svp_port_list_is_ansi :: proc(p: ^SVParser2) -> bool {
 
 svp_parse_module :: proc(p: ^SVParser2) -> ^SVModule {
 	svp_bump(p) // module/macromodule
+	clear(&p.port_map)
+	p.port_map_ready = false
 	module := svp_new(p, SVModule)
 	module.name = svp_expect_ident(p)
 	module.source_path = p.filepath
@@ -1245,6 +1252,8 @@ svp_parse_module :: proc(p: ^SVParser2) -> ^SVModule {
 
 svp_parse_interface :: proc(p: ^SVParser2) -> ^SVInterface {
 	_ = svp_expect_kw(p, .Interface)
+	clear(&p.port_map)
+	p.port_map_ready = false
 	iface := svp_new(p, SVInterface)
 	iface.name = svp_expect_ident(p)
 	for svp_kw_at(p, .Import) { svp_parse_import_list(p, &iface.imports) }
@@ -1324,20 +1333,12 @@ svp_param_comma_starts_group :: proc(p: ^SVParser2) -> bool {
 svp_parse_param_group :: proc(p: ^SVParser2, in_port_list: bool) -> ^SVParamDecl {
 	is_local := false
 	if svp_accept_kw(p, .Localparam) { is_local = true } else { _ = svp_accept_kw(p, .Parameter) }
-	if svp_accept_kw(p, .Type) { return svp_parse_type_param_decl2(p, is_local, in_port_list) }
+	if svp_accept_kw(p, .Type) { return svp_parse_type_param_decl(p, is_local, in_port_list) }
 
 	decl := svp_new(p, SVParamDecl)
 	decl.is_local = is_local
 	decl.data = svp_parse_type_for_param(p)
-	for {
-		a := SVParamAssign{name = svp_expect_ident(p)}
-		for svp_at(p, .LBracket) { svp_add(p, &a.unpacked_dims, svp_parse_range(p, true)) }
-		if svp_accept(p, .Assign) { a.value = svp_expr(p, svp_parse_expr(p, 0)) }
-		svp_add(p, &decl.assignments, a)
-		if !svp_accept(p, .Comma) { break }
-		if in_port_list && svp_at(p, .RParen) { break }
-		if in_port_list && svp_param_comma_starts_group(p) { p.i -= 1; break }
-	}
+	svp_parse_param_assignments(p, decl, in_port_list, true)
 	return decl
 }
 
@@ -1345,7 +1346,7 @@ svp_parse_type_for_param :: proc(p: ^SVParser2) -> SVDataType {
 	t := svp_peek(p)
 	if t.kind == .LBracket {
 		data: SVDataType
-		for svp_at(p, .LBracket) { append(&data.packed_dims, svp_parse_range(p, false)) }
+		for svp_at(p, .LBracket) { svp_add(p, &data.packed_dims, svp_parse_range(p)) }
 		return data
 	}
 	if _, ok := svp_var_type(t.kw); ok { return svp_parse_type(p, true) }
@@ -1377,26 +1378,6 @@ svp_parse_type_for_param :: proc(p: ^SVParser2) -> SVDataType {
 	return {}
 }
 
-svp_parse_type_param_decl2 :: proc(p: ^SVParser2, is_local: bool, in_port_list: bool) -> ^SVParamDecl {
-	decl := svp_new(p, SVParamDecl)
-	decl.is_local = is_local
-	decl.is_type = true
-	for {
-		a := SVParamAssign{name = svp_expect_ident(p)}
-		p.ast.type_names[a.name] = true
-		if svp_accept(p, .Assign) {
-			v := svp_new(p, SVDataType)
-			v^ = svp_parse_type(p, true)
-			a.type_value = v
-		}
-		svp_add(p, &decl.assignments, a)
-		if !svp_accept(p, .Comma) { break }
-		if in_port_list && svp_at(p, .RParen) { break }
-		if in_port_list && svp_param_comma_starts_group(p) { p.i -= 1; break }
-	}
-	return decl
-}
-
 svp_parse_module_ports :: proc(p: ^SVParser2, module: ^SVModule) {
 	_ = svp_expect(p, .LParen)
 	svp_skip_attributes(p)
@@ -1415,31 +1396,41 @@ svp_parse_module_ports :: proc(p: ^SVParser2, module: ^SVModule) {
 		module.is_ansi = true
 		svp_parse_ansi_ports(p, &module.ports)
 	} else {
-		for {
-			port := svp_new(p, SVPort)
-			if svp_accept(p, .Dot) {
-				port.name = svp_expect_ident(p)
-				_ = svp_expect(p, .LParen)
-				if !svp_at(p, .RParen) { port.expr = svp_expr(p, svp_parse_expr(p, 0)) }
-				_ = svp_expect(p, .RParen)
-			} else if svp_at(p, .LBrace) {
-				port.expr = svp_expr(p, svp_parse_concat(p))
-			} else {
-				port.name = svp_expect_ident(p)
-				for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p, true)) }
-			}
-			append(&module.ports, port)
-			if !svp_accept(p, .Comma) { break }
-			if svp_at(p, .RParen) { break }
-		}
+		svp_parse_nonansi_ports(p, &module.ports)
 	}
 	_ = svp_expect(p, .RParen)
 }
 
+svp_parse_nonansi_ports :: proc(p: ^SVParser2, ports: ^[dynamic]^SVPort) {
+	for {
+		svp_skip_attributes(p)
+		port := svp_new(p, SVPort)
+		if svp_accept(p, .Dot) {
+			port.name = svp_expect_ident(p)
+			_ = svp_expect(p, .LParen)
+			if !svp_at(p, .RParen) { port.expr = svp_expr(p, svp_parse_expr(p, 0)) }
+			_ = svp_expect(p, .RParen)
+		} else if svp_at(p, .LBrace) {
+			port.expr = svp_expr(p, svp_parse_concat(p))
+		} else {
+			port.name = svp_expect_ident(p)
+			for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p)) }
+		}
+		svp_add(p, ports, port, 4)
+		if !svp_accept(p, .Comma) { break }
+		if svp_at(p, .RParen) { break }
+	}
+}
+
 svp_parse_interface_ports :: proc(p: ^SVParser2, iface: ^SVInterface) {
 	_ = svp_expect(p, .LParen)
+	svp_skip_attributes(p)
 	if svp_at(p, .RParen) { svp_bump(p); return }
-	svp_parse_ansi_ports(p, &iface.ports)
+	if svp_port_list_is_ansi(p) {
+		svp_parse_ansi_ports(p, &iface.ports)
+	} else {
+		svp_parse_nonansi_ports(p, &iface.ports)
+	}
 	_ = svp_expect(p, .RParen)
 }
 
@@ -1529,7 +1520,7 @@ svp_parse_ansi_ports :: proc(p: ^SVParser2, ports: ^[dynamic]^SVPort) {
 			port.name = svp_expect_ident(p)
 		}
 
-		for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p)) }
 		if svp_accept(p, .Assign) { port.default_value = svp_expr(p, svp_parse_expr(p, 0)) }
 		append(ports, port)
 		if given_dir { prev_dir = port.dir }
@@ -1569,13 +1560,20 @@ svp_parse_port_declaration :: proc(p: ^SVParser2, dir: SVPortDir) -> ^SVPortDecl
 	decl.data = data
 	decl.declarators = svp_parse_declarators(p)
 	_ = svp_expect(p, .Semicolon)
-	if p.module != nil {
+	target_ports: ^[dynamic]^SVPort
+	if p.module != nil { target_ports = &p.module.ports } else if p.iface != nil { target_ports = &p.iface.ports }
+	if target_ports != nil && !p.port_map_ready {
+		for port in target_ports^ { p.port_map[port.name] = port }
+		p.port_map_ready = true
+	}
+	if target_ports != nil {
 		for d in decl.declarators {
-			port := svp_find_module_port(p.module, d.name)
+			port := p.port_map[d.name]
 			if port == nil {
 				port = svp_new(p, SVPort)
 				port.name = d.name
-				append(&p.module.ports, port)
+				p.port_map[d.name] = port
+				svp_add(p, target_ports, port, 4)
 			}
 			port.dir = dir
 			port.net_type = net_type
@@ -1587,11 +1585,6 @@ svp_parse_port_declaration :: proc(p: ^SVParser2, dir: SVPortDir) -> ^SVPortDecl
 		}
 	}
 	return svp_set(p, SVPortDecl{dir = dir, decl = decl})
-}
-
-svp_find_module_port :: proc(module: ^SVModule, name: string) -> ^SVPort {
-	for port in module.ports { if port.name == name { return port } }
-	return nil
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1689,7 +1682,7 @@ svp_parse_module_item :: proc(p: ^SVParser2, items: ^[dynamic]SVItem) {
 		svp_bump(p)
 		gv := svp_new(p, SVGenvarDecl)
 		for {
-			append(&gv.names, svp_expect_ident(p))
+			svp_add(p, &gv.names, svp_expect_ident(p))
 			if !svp_accept(p, .Comma) { break }
 		}
 		_ = svp_expect(p, .Semicolon)
@@ -1873,7 +1866,7 @@ svp_parse_defparam :: proc(p: ^SVParser2) -> ^SVDefparam {
 
 svp_type_from_name :: proc(p: ^SVParser2, scope, name: string) -> SVDataType {
 	data := SVDataType{type_scope = scope, type_name = name}
-	for svp_at(p, .LBracket) { append(&data.packed_dims, svp_parse_range(p, false)) }
+	for svp_at(p, .LBracket) { svp_add(p, &data.packed_dims, svp_parse_range(p)) }
 	return data
 }
 
@@ -1936,7 +1929,6 @@ svp_parse_instantiation :: proc(p: ^SVParser2, cell: string, is_gate: bool, item
 		for !svp_at(p, .RParen) && !svp_at_eof(p) { svp_bump(p) }
 		_ = svp_expect(p, .RParen)
 	}
-	first := true
 	for {
 		inst := svp_new(p, SVInstance)
 		inst.cell_name = cell
@@ -1957,10 +1949,9 @@ svp_parse_instantiation :: proc(p: ^SVParser2, cell: string, is_gate: bool, item
 		} else if !is_gate {
 			svp_error(p, "expected an instance name")
 		}
-		for svp_at(p, .LBracket) { svp_add(p, &inst.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &inst.unpacked_dims, svp_parse_range(p)) }
 		if svp_at(p, .LParen) { svp_parse_port_connections(p, inst) }
 		append(items, inst)
-		first = false
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .Semicolon)
@@ -2074,9 +2065,14 @@ svp_parse_gen_if :: proc(p: ^SVParser2) -> ^SVGenIf {
 }
 
 svp_parse_gen_case :: proc(p: ^SVParser2) -> ^SVGenCase {
-	kind := svp_peek(p).kw
+	kind := SVCaseKind.CASE
+	#partial switch svp_peek(p).kw {
+	case .Casez: kind = .CASEZ
+	case .Casex: kind = .CASEX
+	}
 	svp_bump(p)
 	node := svp_new(p, SVGenCase)
+	node.kind = kind
 	_ = svp_expect(p, .LParen)
 	node.subject = svp_parse_expr(p, 0)
 	_ = svp_expect(p, .RParen)
@@ -2096,7 +2092,6 @@ svp_parse_gen_case :: proc(p: ^SVParser2) -> ^SVGenCase {
 		svp_add(p, &node.items, item)
 	}
 	_ = svp_expect_kw(p, .Endcase)
-	_ = kind
 	return node
 }
 
@@ -2478,9 +2473,9 @@ svp_parse_for :: proc(p: ^SVParser2) -> SVStmt {
 			decl.data = svp_parse_type(p, true)
 			for {
 				d := SVDeclarator{name = svp_expect_ident(p)}
-				for svp_at(p, .LBracket) { svp_add(p, &d.unpacked_dims, svp_parse_range(p, true)) }
+				for svp_at(p, .LBracket) { svp_add(p, &d.unpacked_dims, svp_parse_range(p)) }
 				if svp_accept(p, .Assign) { d.init = svp_expr(p, svp_parse_expr(p, 0)) }
-				append(&decl.declarators, d)
+				svp_add(p, &decl.declarators, d)
 				if !svp_accept(p, .Comma) { break }
 			}
 			svp_add(p, &node.var_decls, decl)
@@ -2725,9 +2720,9 @@ svp_parse_tf_ports :: proc(p: ^SVParser2, ports: ^[dynamic]SVTFPort) {
 			port.data = svp_parse_type(p, true)
 		}
 		port.name = svp_expect_ident(p)
-		for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p, true)) }
+		for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p)) }
 		if svp_accept(p, .Assign) { port.default_value = svp_expr(p, svp_parse_expr(p, 0)) }
-		append(ports, port)
+		svp_add(p, ports, port)
 		if !svp_accept(p, .Comma) { break }
 	}
 	_ = svp_expect(p, .RParen)
@@ -2773,7 +2768,7 @@ svp_parse_subroutine_body :: proc(p: ^SVParser2, sub: ^SVSubroutine) {
 			for {
 				port := SVTFPort{dir = d, data = data}
 				port.name = svp_expect_ident(p)
-				for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p, true)) }
+				for svp_at(p, .LBracket) { svp_add(p, &port.unpacked_dims, svp_parse_range(p)) }
 				svp_add(p, &sub.ports, port)
 				if !svp_accept(p, .Comma) { break }
 			}
@@ -2815,7 +2810,7 @@ svp_parse_source_to_ast :: proc(data: []byte, filepath: string, ast: ^SystemVeri
 	}
 	pp := svpp_init(ast, allocator)
 	toks := svpp_preprocess(&pp, data, filepath)
-	svp_parse_tokens(ast, toks, pp.owned_data[:], pp.source_line_base[:], pp.source_paths[:], filepath, allocator)
+	svp_parse_tokens(ast, toks, pp.source_data[:], filepath, allocator)
 }
 
 svp_parse_gen_block_after_begin :: proc(p: ^SVParser2, label: string) -> ^SVGenBlock {

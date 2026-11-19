@@ -39,6 +39,7 @@ SVDefine :: struct {
 	params:           [dynamic]string,
 	param_defaults:   [dynamic]string, // parallel to params; "" when no default
 	is_function_like: bool,
+	body_owned:       bool, // body points into the preprocessor arena
 }
 
 // Source trivia retained for debuggers, waveform viewers, and physical-design
@@ -57,6 +58,14 @@ SVAttribute :: struct {
 	path:       string,
 	line:       u32, // line containing the attribute
 	owner_line: u32, // line of the construct that follows it
+}
+
+// One source buffer owned by the preprocessor: the original file, an include, or
+// macro-expanded text. Token file ids index an array of these.
+SVSource :: struct {
+	data:      []byte,
+	line_base: u32,
+	path:      string,
 }
 
 SystemVerilogAST :: struct {
@@ -383,6 +392,7 @@ SVGenCaseItem :: struct {
 }
 
 SVGenCase :: struct {
+	kind:    SVCaseKind,
 	subject: SVExpr,
 	items:   [dynamic]SVGenCaseItem,
 }
@@ -792,17 +802,6 @@ sv_number_base_of :: #force_inline proc(c: byte) -> SVNumberBase {
 	case 'd', 'D': return .DEC
 	case: return .HEX
 	}
-}
-
-sv_parse_size_text :: proc(text: string) -> u32 {
-	size: u32
-	for i in 0 ..< len(text) {
-		c := text[i]
-		if c == '_' { continue }
-		if !sv_is_decimal_digit(c) { break }
-		size = size * 10 + u32(c - '0')
-	}
-	return size
 }
 
 sv_decode_number :: proc(digits: string, base: SVNumberBase) -> (value: u64, has_x_z: bool) {

@@ -213,7 +213,7 @@ time_mode :: proc(response_path: string) {
 			t1 := time.tick_now()
 			tokens += len(toks)
 			after_pp := arena.offset
-			svp_parse_tokens(&ast, toks, pp.owned_data[:], pp.source_line_base[:], pp.source_paths[:], f.path, allocator)
+			svp_parse_tokens(&ast, toks, pp.source_data[:], f.path, allocator)
 			t2 := time.tick_now()
 			pp_time += time.tick_diff(t0, t1)
 			parse_time += time.tick_diff(t1, t2)

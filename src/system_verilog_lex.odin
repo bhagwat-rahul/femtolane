@@ -125,7 +125,6 @@ SVLexer :: struct {
 	file_id:      u16,
 	comment_sink: ^[dynamic]SVComment,
 	path:         string,
-	in_attribute: bool,
 }
 
 svl_init :: #force_inline proc(src: []byte, file_id: u16) -> SVLexer {
@@ -181,7 +180,7 @@ svl_lex_lut_init :: proc "contextless" () {
 svl_is_base_char :: #force_inline proc(c: byte) -> bool { return c == 'b' || c == 'B' || c == 'o' || c == 'O' || c == 'd' || c == 'D' || c == 'h' || c == 'H' }
 
 svl_record_comment :: #force_inline proc(l: ^SVLexer, start, end: int, line: u32, is_block: bool) {
-	if l.comment_sink == nil || l.in_attribute { return }
+	if l.comment_sink == nil { return }
 	append(l.comment_sink, SVComment{
 		text = string(l.src[start:end]),
 		path = l.path,
@@ -477,11 +476,7 @@ svl_next :: proc(l: ^SVLexer) -> SVToken {
 	// Operators and punctuation.
 	switch c {
 	case '(':
-		if svl_peek(l, 1) == '*' {
-			t := svl_op2(l, start, .AttrStart)
-			l.in_attribute = true
-			return t
-		}
+		if svl_peek(l, 1) == '*' { return svl_op2(l, start, .AttrStart) }
 		return svl_op1(l, start, .LParen)
 	case ')': return svl_op1(l, start, .RParen)
 	case '[': return svl_op1(l, start, .LBracket)
@@ -532,11 +527,7 @@ svl_next :: proc(l: ^SVLexer) -> SVToken {
 		}
 		return svl_op1(l, start, .Minus)
 	case '*':
-		if svl_peek(l, 1) == ')' {
-			t := svl_op2(l, start, .AttrEnd)
-			l.in_attribute = false
-			return t
-		}
+		if svl_peek(l, 1) == ')' { return svl_op2(l, start, .AttrEnd) }
 		if svl_peek(l, 1) == '*' { return svl_op2(l, start, .Pow) }
 		if svl_peek(l, 1) == '>' { return svl_op2(l, start, .StarGt) }
 		if svl_peek(l, 1) == '=' { return svl_op2(l, start, .StarEq) }
