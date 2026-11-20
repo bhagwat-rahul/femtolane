@@ -220,6 +220,7 @@ SVTypeDecl :: struct {
 	name:          string,
 	data:          SVDataType,
 	unpacked_dims: [dynamic]SVRange,
+	is_forward:    bool,
 }
 
 // [msb:lsb] packed/unpacked range, or [size] unpacked size (is_size = true)

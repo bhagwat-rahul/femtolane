@@ -1964,3 +1964,45 @@ test_sv_comments_and_attributes :: proc(t: ^testing.T) {
 	testing.expect_value(t, ctx.ast.attributes[0].path, "sv_trivia.sv")
 	testing.expect(t, ctx.ast.attributes[0].owner_line >= ctx.ast.attributes[0].line, "attribute owner line")
 }
+
+@(test)
+test_sv_parser_asic_subset_syntax :: proc(t: ^testing.T) {
+	ctx: SVTestContext
+	sv_test_begin(&ctx)
+	defer virtual.arena_destroy(&ctx.arena)
+
+	source := sv_src(
+		"typedef enum fwd_e;",
+		"typedef struct fwd_s;",
+		"typedef union fwd_u;",
+		"typedef fwd_t;",
+		"typedef enum { FWD_A, FWD_B } fwd_e;",
+		"typedef struct packed unsigned { bit [3:0] lo; bit [3:0] hi; } fwd_s;",
+		"typedef union { logic a; logic b; } fwd_u;",
+		"typedef int fwd_t;",
+		"module top(input clk, output reg [7:0] q);",
+		"  tri1 scalared [7:0] bus;",
+		"  tri vectored [7:0] data;",
+		"  initial begin",
+		"    q = 8'd0;",
+		"    q <<<= 1;",
+		"    q >>>= 1;",
+		"  end",
+		"endmodule",
+	)
+	sv_test_parse(&ctx, source)
+	testing.expect_value(t, len(ctx.ast.modules), 1)
+	testing.expect(t, ctx.ast.type_names["fwd_s"], "forward struct typedef")
+	testing.expect(t, ctx.ast.type_names["fwd_u"], "forward union typedef")
+	testing.expect(t, ctx.ast.type_names["fwd_e"], "forward enum typedef")
+	testing.expect(t, ctx.ast.type_names["fwd_t"], "bare forward typedef")
+
+	forward_count := 0
+	for item in ctx.ast.items {
+		#partial switch v in item {
+		case ^main.SVTypeDecl:
+			if v.is_forward { forward_count += 1 }
+		}
+	}
+	testing.expect_value(t, forward_count, 4)
+}

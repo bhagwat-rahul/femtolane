@@ -481,6 +481,11 @@ svt_op3 :: #force_inline proc(l: ^SVTokenizer, start: int, kind: SVTokenKind) ->
 	return SVToken{off = u32(start), len = 3, file = l.file_id, kind = kind}
 }
 
+svt_op4 :: #force_inline proc(l: ^SVTokenizer, start: int, kind: SVTokenKind) -> SVToken {
+	svt_advance(l, 4)
+	return SVToken{off = u32(start), len = 4, file = l.file_id, kind = kind}
+}
+
 svt_next :: #force_inline proc(l: ^SVTokenizer) -> SVToken {
 	svt_skip_trivia(l)
 	start := l.idx
@@ -626,7 +631,10 @@ svt_next :: #force_inline proc(l: ^SVTokenizer) -> SVToken {
 	case '<':
 		switch svt_peek(l, 1) {
 		case '<':
-			if svt_peek(l, 2) == '<' { return svt_op3(l, start, .Ashl) }
+			if svt_peek(l, 2) == '<' {
+				if svt_peek(l, 3) == '=' { return svt_op4(l, start, .AshlEq) }
+				return svt_op3(l, start, .Ashl)
+			}
 			if svt_peek(l, 2) == '=' { return svt_op3(l, start, .ShlEq) }
 			return svt_op2(l, start, .Shl)
 		case '=': return svt_op2(l, start, .Le)
@@ -635,7 +643,10 @@ svt_next :: #force_inline proc(l: ^SVTokenizer) -> SVToken {
 	case '>':
 		switch svt_peek(l, 1) {
 		case '>':
-			if svt_peek(l, 2) == '>' { return svt_op3(l, start, .Ashr) }
+			if svt_peek(l, 2) == '>' {
+				if svt_peek(l, 3) == '=' { return svt_op4(l, start, .AshrEq) }
+				return svt_op3(l, start, .Ashr)
+			}
 			if svt_peek(l, 2) == '=' { return svt_op3(l, start, .ShrEq) }
 			return svt_op2(l, start, .Shr)
 		case '=': return svt_op2(l, start, .Ge)

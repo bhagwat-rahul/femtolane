@@ -450,7 +450,8 @@ svp_parse_type_spec :: proc(p: ^SVParser2, kind: SVTypeSpecKind) -> ^SVTypeSpec 
 	}
 	if svp_accept_kw(p, .Packed) {
 		spec.is_packed = true
-		_ = svp_accept_kw(p, .Signed)
+		// IEEE 1800-2023 7.2.1: packed structs/unions may be signed or unsigned.
+		if !svp_accept_kw(p, .Signed) { _ = svp_accept_kw(p, .Unsigned) }
 	}
 	_ = svp_expect(p, .LBrace)
 	for !svp_at(p, .RBrace) {
@@ -491,6 +492,32 @@ svp_parse_declarators :: proc(p: ^SVParser2) -> [dynamic]SVDeclarator {
 
 svp_parse_typedef :: proc(p: ^SVParser2) -> ^SVTypeDecl {
 	_ = svp_expect_kw(p, .Typedef)
+
+	// Forward typedef forms, IEEE 1800-2023 6.18:
+	//   typedef [enum|struct|union|class|interface class] type_identifier ;
+	//   typedef type_identifier ;
+	t := svp_peek(p)
+	if t.kw == .Enum || t.kw == .Struct || t.kw == .Union || t.kw == .Class {
+		if svp_is_ident(svp_peek(p, 1)) && svp_at(p, .Semicolon, 2) {
+			name := svp_text(p, svp_peek(p, 1))
+			p.i += 3
+			p.ast.type_names[name] = true
+			return svp_set(p, SVTypeDecl{name = name, is_forward = true})
+		}
+	}
+	if t.kw == .Interface && svp_kw_at(p, .Class, 1) && svp_is_ident(svp_peek(p, 2)) && svp_at(p, .Semicolon, 3) {
+		name := svp_text(p, svp_peek(p, 2))
+		p.i += 4
+		p.ast.type_names[name] = true
+		return svp_set(p, SVTypeDecl{name = name, is_forward = true})
+	}
+	if svp_is_ident(t) && svp_at(p, .Semicolon, 1) {
+		name := svp_text(p, t)
+		p.i += 2
+		p.ast.type_names[name] = true
+		return svp_set(p, SVTypeDecl{name = name, is_forward = true})
+	}
+
 	data := svp_parse_type(p, false)
 	name := svp_expect_ident(p)
 	dims: [dynamic]SVRange
@@ -515,6 +542,12 @@ svp_parse_net_decl_after_keyword :: proc(p: ^SVParser2, net_type: SVNetType, dat
 
 svp_parse_net_data_type :: proc(p: ^SVParser2) -> SVDataType {
 	t := svp_peek(p)
+	// IEEE 1800-2023 6.9.2: vectored/scalared are optional advisory keywords
+	// on vector net declarations.
+	for t.kw == .Scalared || t.kw == .Vectored {
+		svp_bump(p)
+		t = svp_peek(p)
+	}
 	if t.kind == .LBracket { return svp_parse_type(p, true) }
 	if _, ok := svp_var_type(t.kw); ok { return svp_parse_type(p, true) }
 	#partial switch t.kw {
@@ -1648,6 +1681,7 @@ svp_parse_ansi_ports :: proc(p: ^SVParser2, ports: ^[dynamic]^SVPort) {
 		} else {
 			port.net_type = prev_net
 		}
+		for svp_kw_at(p, .Scalared) || svp_kw_at(p, .Vectored) { svp_bump(p) }
 
 		if svp_at(p, .Dot) {
 			svp_bump(p)
