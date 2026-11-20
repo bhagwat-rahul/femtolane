@@ -1,11 +1,11 @@
 /*
 Regression tests for the SystemVerilog frontend in src/system_verilog.odin.
 
-The parser is single pass and builds a typed AST; these tests pin down the AST shape for
-every construct in the ASIC synthesizable subset (IEEE 1800-2023 grammar, Annex A), plus
-the inline preprocessing (macros, conditionals, includes). Each test uses an in-memory
-source string (no external files) except the `include tests, which use a temporary
-directory under tests/.
+The parser is single pass and builds a flat, ID-based AST; these tests pin down the AST
+shape through the `sv_*` view helpers for every construct in the ASIC synthesizable
+subset (IEEE 1800-2023 grammar, Annex A), plus the inline preprocessing (macros,
+conditionals, includes). Each test uses an in-memory source string (no external files)
+except the `include tests, which use a temporary directory under tests/.
 */
 
 package tests
@@ -44,137 +44,168 @@ sv_src :: proc(lines: ..string) -> string {
 }
 
 // Convenience: parse one source string and return the only module in it.
-sv_single_module :: proc(t: ^testing.T, ctx: ^SVTestContext, source: string) -> ^main.SVModule {
+sv_single_module :: proc(t: ^testing.T, ctx: ^SVTestContext, source: string) -> main.SVModule {
 	sv_test_parse(ctx, source)
 	testing.expectf(t, len(ctx.ast.modules) == 1, "expected 1 module, got %d", len(ctx.ast.modules))
-	if len(ctx.ast.modules) != 1 { return nil }
+	if len(ctx.ast.modules) != 1 { return {} }
 	return ctx.ast.modules[0]
 }
 
-sv_module :: proc(t: ^testing.T, ctx: ^SVTestContext, name: string) -> ^main.SVModule {
-	module := ctx.ast.module_hash_map[name]
-	testing.expectf(t, module != nil, "module %q not found", name)
-	return module
+sv_module :: proc(t: ^testing.T, ctx: ^SVTestContext, name: string) -> main.SVModule {
+	index, found := ctx.ast.module_hash_map[name]
+	testing.expectf(t, found, "module %q not found", name)
+	if !found { return {} }
+	return main.sv_module(&ctx.ast, index)
 }
 
-sv_find_port :: proc(t: ^testing.T, module: ^main.SVModule, name: string) -> ^main.SVPort {
-	for port in module.ports {
-		if port.name == name { return port }
+sv_kind :: proc(ctx: ^SVTestContext, id: u32) -> main.SVNodeKind {
+	return main.sv_node(&ctx.ast, id).kind
+}
+
+sv_items :: proc(ctx: ^SVTestContext, module: main.SVModule) -> []u32 {
+	return main.sv_module_items(&ctx.ast, module)
+}
+
+sv_ports :: proc(ctx: ^SVTestContext, module: main.SVModule) -> []u32 {
+	return main.sv_module_ports(&ctx.ast, module)
+}
+
+sv_params :: proc(ctx: ^SVTestContext, module: main.SVModule) -> []u32 {
+	return main.sv_module_params(&ctx.ast, module)
+}
+
+sv_find_port_id :: proc(t: ^testing.T, ctx: ^SVTestContext, module: main.SVModule, name: string) -> u32 {
+	for id in sv_ports(ctx, module) {
+		port := main.sv_port(&ctx.ast, id)
+		if port.name == name { return id }
 	}
 	testing.expectf(t, false, "port %q not found in %s", name, module.name)
-	return nil
+	return main.SV_NONE
 }
 
-sv_assign_rhs :: proc(t: ^testing.T, module: ^main.SVModule, lhs: string) -> (rhs: main.SVExpr, found: bool) {
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVContAssign:
-			for pair in v.pairs {
-				if name, is_name := pair.lhs.(string); is_name && name == lhs {
-					return pair.rhs, true
-				}
+sv_find_port :: proc(t: ^testing.T, ctx: ^SVTestContext, module: main.SVModule, name: string) -> main.SVPortView {
+	return main.sv_port(&ctx.ast, sv_find_port_id(t, ctx, module, name))
+}
+
+sv_port_data :: proc(ctx: ^SVTestContext, port: main.SVPortView) -> main.SVDataTypeView {
+	return main.sv_data_type(&ctx.ast, port.data)
+}
+
+sv_assign_rhs :: proc(t: ^testing.T, ctx: ^SVTestContext, module: main.SVModule, lhs: string) -> (rhs: u32, found: bool) {
+	for item in sv_items(ctx, module) {
+		if sv_kind(ctx, item) != .Item_ContAssign { continue }
+		for pair_id in main.sv_children(&ctx.ast, main.sv_node(&ctx.ast, item).span) {
+			pair := main.sv_assign_pair(&ctx.ast, pair_id)
+			if name, is_name := main.sv_expr_ident(&ctx.ast, pair.lhs); is_name && name == lhs {
+				return pair.rhs, true
 			}
 		}
 	}
 	testing.expectf(t, false, "continuous assign to %q not found", lhs)
+	return main.SV_NONE, false
+}
+
+SVBin :: struct {
+	lhs, rhs: u32,
+}
+
+sv_binary :: proc(t: ^testing.T, ctx: ^SVTestContext, expr: u32, op: main.SVBinOp) -> (result: SVBin, ok: bool) {
+	actual, lhs, rhs, good := main.sv_expr_binary(&ctx.ast, expr)
+	testing.expect(t, good, "expected a binary expression")
+	if !good { return {}, false }
+	testing.expect_value(t, actual, op)
+	return SVBin{lhs = lhs, rhs = rhs}, true
+}
+
+sv_ternary :: proc(t: ^testing.T, ctx: ^SVTestContext, expr: u32) -> (then_expr, else_expr: u32, ok: bool) {
+	_, then_expr, else_expr, ok = main.sv_expr_ternary(&ctx.ast, expr)
+	testing.expect(t, ok, "expected a ternary expression")
 	return
 }
 
-sv_binary :: proc(t: ^testing.T, expr: main.SVExpr, op: main.SVBinOp) -> ^main.SVBinary {
-	node, ok := expr.(^main.SVBinary)
-	testing.expect(t, ok, "expected a binary expression")
-	if !ok { return nil }
-	testing.expect_value(t, node.op, op)
-	return node
-}
-
-sv_ternary :: proc(t: ^testing.T, expr: main.SVExpr) -> ^main.SVTernary {
-	node, ok := expr.(^main.SVTernary)
-	testing.expect(t, ok, "expected a ternary expression")
-	return ok ? node : nil
-}
-
-sv_select :: proc(t: ^testing.T, expr: main.SVExpr) -> ^main.SVSelect {
-	node, ok := expr.(^main.SVSelect)
+sv_select :: proc(t: ^testing.T, ctx: ^SVTestContext, expr: u32) -> (base: u32, parts: []u32, ok: bool) {
+	base, parts, ok = main.sv_expr_select(&ctx.ast, expr)
 	testing.expect(t, ok, "expected a select expression")
-	return ok ? node : nil
+	return
 }
 
-sv_number :: proc(t: ^testing.T, expr: main.SVExpr) -> main.SVNumber {
-	if number, ok := expr.(^main.SVNumber); ok {
-		return number^
-	}
-	if small, ok := expr.(main.SVSmallNumber); ok {
-		return main.SVNumber{
-			width = small.width,
-			base = small.base,
-			is_signed = small.is_signed,
-			value = small.value,
-			time_unit = small.time_unit,
-		}
-	}
-	testing.expect(t, false, "expected a numeric literal")
-	return {}
+sv_number :: proc(t: ^testing.T, ctx: ^SVTestContext, expr: u32) -> main.SVNumber {
+	number, ok := main.sv_number(&ctx.ast, expr)
+	testing.expect(t, ok, "expected a numeric literal")
+	return number
 }
 
-sv_find_decl :: proc(t: ^testing.T, module: ^main.SVModule, name: string) -> ^main.SVNetDecl {
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVNetDecl:
-			for d in v.declarators {
-				if d.name == name { return v }
-			}
+sv_find_decl :: proc(t: ^testing.T, ctx: ^SVTestContext, module: main.SVModule, name: string) -> (id: u32, view: main.SVNetDeclView) {
+	for item in sv_items(ctx, module) {
+		if sv_kind(ctx, item) != .Item_NetDecl { continue }
+		decl, ok := main.sv_item_net_decl(&ctx.ast, item)
+		if !ok { continue }
+		for declarator_id in decl.declarators {
+			if main.sv_declarator(&ctx.ast, declarator_id).name == name { return item, decl }
 		}
 	}
 	testing.expectf(t, false, "declaration %q not found", name)
-	return nil
+	return main.SV_NONE, {}
 }
 
-sv_find_typedef :: proc(t: ^testing.T, module: ^main.SVModule, name: string) -> ^main.SVTypeDecl {
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVTypeDecl:
-			if v.name == name { return v }
-		}
+sv_find_typedef :: proc(t: ^testing.T, ctx: ^SVTestContext, module: main.SVModule, name: string) -> (id: u32, view: main.SVTypeDeclView) {
+	for item in sv_items(ctx, module) {
+		if sv_kind(ctx, item) != .Item_TypeDecl { continue }
+		decl, ok := main.sv_item_type_decl(&ctx.ast, item)
+		if ok && decl.name == name { return item, decl }
 	}
 	testing.expectf(t, false, "typedef %q not found", name)
-	return nil
+	return main.SV_NONE, {}
 }
 
-sv_param_expr :: proc(t: ^testing.T, module: ^main.SVModule, name: string) -> ^main.SVExpr {
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVParamDecl:
-			for assignment in v.assignments {
-				if assignment.name == name && assignment.value != nil { return assignment.value }
-			}
+sv_param_expr :: proc(t: ^testing.T, ctx: ^SVTestContext, module: main.SVModule, name: string) -> (value: u32, found: bool) {
+	for item in sv_items(ctx, module) {
+		if sv_kind(ctx, item) != .Item_ParamDecl { continue }
+		decl, ok := main.sv_item_param_decl(&ctx.ast, item)
+		if !ok { continue }
+		for assignment_id in decl.assignments {
+			assignment := main.sv_param_assign(&ctx.ast, assignment_id)
+			if assignment.name == name && assignment.value != main.SV_NONE { return assignment.value, true }
+		}
+	}
+	for item in sv_params(ctx, module) {
+		decl, ok := main.sv_item_param_decl(&ctx.ast, item)
+		if !ok { continue }
+		for assignment_id in decl.assignments {
+			assignment := main.sv_param_assign(&ctx.ast, assignment_id)
+			if assignment.name == name && assignment.value != main.SV_NONE { return assignment.value, true }
 		}
 	}
 	testing.expectf(t, false, "param %q not found", name)
-	return nil
+	return main.SV_NONE, false
 }
 
-sv_param_number :: proc(t: ^testing.T, module: ^main.SVModule, name: string) -> main.SVNumber {
-	value := sv_param_expr(t, module, name)
-	if value == nil { return {} }
-	return sv_number(t, value^)
+sv_param_number :: proc(t: ^testing.T, ctx: ^SVTestContext, module: main.SVModule, name: string) -> main.SVNumber {
+	value, found := sv_param_expr(t, ctx, module, name)
+	if !found { return {} }
+	return sv_number(t, ctx, value)
 }
 
-sv_proc :: proc(t: ^testing.T, module: ^main.SVModule, kind: main.SVProcKind) -> ^main.SVProc {
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVProc:
-			if v.kind == kind { return v }
-		}
+sv_proc :: proc(t: ^testing.T, ctx: ^SVTestContext, module: main.SVModule, kind: main.SVProcKind) -> (id: u32, view: main.SVProcView) {
+	for item in sv_items(ctx, module) {
+		if sv_kind(ctx, item) != .Item_Proc { continue }
+		proc_view, ok := main.sv_item_proc(&ctx.ast, item)
+		if ok && proc_view.kind == kind { return item, proc_view }
 	}
 	testing.expectf(t, false, "process kind %v not found in %s", kind, module.name)
-	return nil
+	return main.SV_NONE, {}
 }
 
-sv_block :: proc(t: ^testing.T, stmt: main.SVStmt) -> ^main.SVBlock {
-	block, ok := stmt.(^main.SVBlock)
+sv_block :: proc(t: ^testing.T, ctx: ^SVTestContext, stmt: u32) -> (view: main.SVBlockView, ok: bool) {
+	view, ok = main.sv_stmt_block(&ctx.ast, stmt)
 	testing.expect(t, ok, "expected a begin/end block")
-	return ok ? block : nil
+	return
+}
+
+sv_if :: proc(t: ^testing.T, ctx: ^SVTestContext, stmt: u32) -> (view: main.SVIfView, ok: bool) {
+	view, ok = main.sv_stmt_if(&ctx.ast, stmt)
+	testing.expect(t, ok, "expected an if statement")
+	return
 }
 
 // ---------------------------------------------------------------------------------------
@@ -210,64 +241,64 @@ test_sv_numbers :: proc(t: ^testing.T) {
 	)
 	module := sv_single_module(t, &ctx, source)
 
-	hex := sv_param_number(t, module, "HEX")
+	hex := sv_param_number(t, &ctx, module, "HEX")
 	testing.expect_value(t, hex.width, u32(8))
 	testing.expect_value(t, hex.base, main.SVNumberBase.HEX)
 	testing.expect_value(t, hex.value, u64(0xFF))
 	testing.expect_value(t, hex.is_signed, false)
 
-	bin := sv_param_number(t, module, "BIN")
+	bin := sv_param_number(t, &ctx, module, "BIN")
 	testing.expect_value(t, bin.base, main.SVNumberBase.BIN)
 	testing.expect_value(t, bin.value, u64(10))
 
-	oct := sv_param_number(t, module, "OCT")
+	oct := sv_param_number(t, &ctx, module, "OCT")
 	testing.expect_value(t, oct.base, main.SVNumberBase.OCT)
 	testing.expect_value(t, oct.value, u64(7))
 
-	uhex := sv_param_number(t, module, "UHEX")
+	uhex := sv_param_number(t, &ctx, module, "UHEX")
 	testing.expect_value(t, uhex.width, u32(0))
 	testing.expect_value(t, uhex.base, main.SVNumberBase.HEX)
 	testing.expect(t, uhex.has_x_z, "x digit should set has_x_z")
 
-	udec := sv_param_number(t, module, "UDEC")
+	udec := sv_param_number(t, &ctx, module, "UDEC")
 	testing.expect_value(t, udec.is_signed, true)
 	testing.expect_value(t, udec.value, u64(10))
 
-	zero := sv_param_number(t, module, "ZERO")
+	zero := sv_param_number(t, &ctx, module, "ZERO")
 	testing.expect_value(t, zero.is_unbased, true)
 	testing.expect_value(t, zero.value, u64(0))
 
-	one := sv_param_number(t, module, "ONE")
+	one := sv_param_number(t, &ctx, module, "ONE")
 	testing.expect_value(t, one.is_unbased, true)
 	testing.expect_value(t, one.value, u64(1))
 
-	xbit := sv_param_number(t, module, "XBIT")
+	xbit := sv_param_number(t, &ctx, module, "XBIT")
 	testing.expect(t, xbit.has_x_z, "unbased 'x should set has_x_z")
 
-	dec := sv_param_number(t, module, "DEC")
+	dec := sv_param_number(t, &ctx, module, "DEC")
 	testing.expect_value(t, dec.value, u64(12345))
 
-	real := sv_param_number(t, module, "REAL")
+	real := sv_param_number(t, &ctx, module, "REAL")
 	testing.expect_value(t, real.is_real, true)
 	testing.expect(t, real.real_value == f64(3.5), "real literal value")
 
-	exp := sv_param_number(t, module, "EXP")
+	exp := sv_param_number(t, &ctx, module, "EXP")
 	testing.expect_value(t, exp.is_real, true)
 	testing.expect(t, exp.real_value == f64(1000.0), "exponent literal value")
 
-	tim := sv_param_number(t, module, "TIME")
+	tim := sv_param_number(t, &ctx, module, "TIME")
 	testing.expect_value(t, tim.time_unit, main.SVTimeUnit.PS)
 	testing.expect_value(t, tim.value, u64(300))
 
-	space := sv_param_number(t, module, "SPACE")
+	space := sv_param_number(t, &ctx, module, "SPACE")
 	testing.expect_value(t, space.value, u64(0))
 
-	tq := sv_param_expr(t, module, "TQ")
-	if tq != nil {
-		triple, is_triple := tq^.(main.SVStringLit)
+	tq, found := sv_param_expr(t, &ctx, module, "TQ")
+	if found {
+		triple, is_triple := main.sv_expr_string(&ctx.ast, tq)
 		testing.expect(t, is_triple, "expected a triple-quoted string literal")
 		if is_triple {
-			testing.expect(t, strings.contains(string(triple), "\"world\""), "triple-quoted string content")
+			testing.expect(t, strings.contains(triple, "\"world\""), "triple-quoted string content")
 		}
 	}
 }
@@ -314,63 +345,71 @@ test_sv_modules_and_ports :: proc(t: ^testing.T) {
 
 	ansi := sv_module(t, &ctx, "ansi")
 	testing.expect_value(t, ansi.is_ansi, true)
-	testing.expect_value(t, len(ansi.params), 4)
-	testing.expect_value(t, ansi.params[3].is_type, true)
-	testing.expect_value(t, ansi.params[3].assignments[0].name, "T")
-	default_type := ansi.params[3].assignments[0].type_value
-	testing.expect(t, default_type != nil, "type parameter default missing")
-	if default_type != nil {
+	ansi_params := sv_params(&ctx, ansi)
+	testing.expect_value(t, len(ansi_params), 4)
+	last_param, _ := main.sv_item_param_decl(&ctx.ast, ansi_params[3])
+	testing.expect_value(t, last_param.is_type, true)
+	last_assign := main.sv_param_assign(&ctx.ast, last_param.assignments[0])
+	testing.expect_value(t, last_assign.name, "T")
+	testing.expect(t, last_assign.type_value != main.SV_NONE, "type parameter default missing")
+	if last_assign.type_value != main.SV_NONE {
+		default_type := main.sv_data_type(&ctx.ast, last_assign.type_value)
 		testing.expect_value(t, default_type.var_type, main.SVVarType.LOGIC)
 		testing.expect_value(t, len(default_type.packed_dims), 1)
 	}
 
-	testing.expect_value(t, len(ansi.ports), 8)
-	clk := sv_find_port(t, ansi, "clk")
+	testing.expect_value(t, len(sv_ports(&ctx, ansi)), 8)
+	clk := sv_find_port(t, &ctx, ansi, "clk")
 	testing.expect_value(t, clk.dir, main.SVPortDir.INPUT)
 	testing.expect_value(t, clk.net_type, main.SVNetType.WIRE)
 
-	a := sv_find_port(t, ansi, "a")
+	a := sv_find_port(t, &ctx, ansi, "a")
 	testing.expect_value(t, a.dir, main.SVPortDir.INPUT)
-	testing.expect_value(t, len(a.data.packed_dims), 1)
+	testing.expect_value(t, len(sv_port_data(&ctx, a).packed_dims), 1)
 
-	b := sv_find_port(t, ansi, "b")
-	testing.expect_value(t, len(b.data.packed_dims), 1) // inherited from `a`
+	b := sv_find_port(t, &ctx, ansi, "b")
+	testing.expect_value(t, len(sv_port_data(&ctx, b).packed_dims), 1) // inherited from `a`
 
-	q := sv_find_port(t, ansi, "q")
+	q := sv_find_port(t, &ctx, ansi, "q")
 	testing.expect_value(t, q.dir, main.SVPortDir.OUTPUT)
-	testing.expect_value(t, q.data.var_type, main.SVVarType.REG)
+	testing.expect_value(t, sv_port_data(&ctx, q).var_type, main.SVVarType.REG)
 
-	v := sv_find_port(t, ansi, "v")
-	testing.expect_value(t, v.data.var_type, main.SVVarType.LOGIC)
-	testing.expect(t, v.default_value != nil, "ANSI port default missing")
+	v := sv_find_port(t, &ctx, ansi, "v")
+	testing.expect_value(t, sv_port_data(&ctx, v).var_type, main.SVVarType.LOGIC)
+	testing.expect(t, v.default_value != main.SV_NONE, "ANSI port default missing")
 
-	io := sv_find_port(t, ansi, "io")
+	io := sv_find_port(t, &ctx, ansi, "io")
 	testing.expect_value(t, io.dir, main.SVPortDir.INOUT)
 
-	mem := sv_find_port(t, ansi, "mem")
+	mem := sv_find_port(t, &ctx, ansi, "mem")
 	testing.expect_value(t, len(mem.unpacked_dims), 1)
-	testing.expect_value(t, mem.unpacked_dims[0].is_size, false) // [0:3] range
+	testing.expect_value(t, main.sv_range(&ctx.ast, mem.unpacked_dims[0]).is_size, false) // [0:3] range
 
-	bus := sv_find_port(t, ansi, "bus")
+	bus := sv_find_port(t, &ctx, ansi, "bus")
 	testing.expect_value(t, bus.iface_name, "my_if")
 	testing.expect_value(t, bus.modport, "slave")
 
 	nonansi := sv_module(t, &ctx, "nonansi")
 	testing.expect_value(t, nonansi.is_ansi, false)
-	nonansi_q := sv_find_port(t, nonansi, "q")
+	nonansi_q := sv_find_port(t, &ctx, nonansi, "q")
 	testing.expect_value(t, nonansi_q.dir, main.SVPortDir.OUTPUT)
 
 	wild := sv_module(t, &ctx, "wild")
 	testing.expect_value(t, wild.wildcard_ports, true)
-	testing.expect_value(t, len(wild.ports), 2)
+	testing.expect_value(t, len(sv_ports(&ctx, wild)), 2)
 
 	typed := sv_module(t, &ctx, "typed_params")
-	testing.expect_value(t, len(typed.params), 3) // `int N, M` groups two assignments
-	testing.expect_value(t, len(typed.params[0].assignments), 2)
-	testing.expect_value(t, typed.params[1].is_type, true)
-	testing.expect_value(t, typed.params[2].data.type_name, "T")
-	testing.expect_value(t, typed.params[2].assignments[0].name, "x")
-	testing.expect(t, typed.params[2].assignments[0].value != nil, "typed value parameter default missing")
+	typed_params := sv_params(&ctx, typed)
+	testing.expect_value(t, len(typed_params), 3) // `int N, M` groups two assignments
+	first, _ := main.sv_item_param_decl(&ctx.ast, typed_params[0])
+	testing.expect_value(t, len(first.assignments), 2)
+	second, _ := main.sv_item_param_decl(&ctx.ast, typed_params[1])
+	testing.expect_value(t, second.is_type, true)
+	third, _ := main.sv_item_param_decl(&ctx.ast, typed_params[2])
+	testing.expect_value(t, main.sv_data_type(&ctx.ast, third.data).type_name, "T")
+	third_assign := main.sv_param_assign(&ctx.ast, third.assignments[0])
+	testing.expect_value(t, third_assign.name, "x")
+	testing.expect(t, third_assign.value != main.SV_NONE, "typed value parameter default missing")
 }
 
 // ---------------------------------------------------------------------------------------
@@ -418,69 +457,83 @@ test_sv_declarations_and_types :: proc(t: ^testing.T) {
 	module := sv_single_module(t, &ctx, source)
 	testing.expect_value(t, len(ctx.ast.type_names), 5) // byte_t, state_t, s_t, u_t, word_t
 
-	w1 := sv_find_decl(t, module, "w1")
+	_, w1 := sv_find_decl(t, &ctx, module, "w1")
 	testing.expect_value(t, w1.net_type, main.SVNetType.WIRE)
-	testing.expect_value(t, w1.data.is_signed, true)
-	testing.expect_value(t, len(w1.data.packed_dims), 1)
-	testing.expect(t, w1.declarators[0].init != nil, "net initialization missing")
-	testing.expect(t, w1.declarators[1].init != nil, "second declarator init missing")
+	w1_data := main.sv_data_type(&ctx.ast, w1.data)
+	testing.expect_value(t, w1_data.is_signed, true)
+	testing.expect_value(t, len(w1_data.packed_dims), 1)
+	w1_d0 := main.sv_declarator(&ctx.ast, w1.declarators[0])
+	w1_d1 := main.sv_declarator(&ctx.ast, w1.declarators[1])
+	testing.expect(t, w1_d0.init != main.SV_NONE, "net initialization missing")
+	testing.expect(t, w1_d1.init != main.SV_NONE, "second declarator init missing")
 
-	packed2d := sv_find_decl(t, module, "packed2d")
-	testing.expect_value(t, len(packed2d.data.packed_dims), 2)
+	_, packed2d := sv_find_decl(t, &ctx, module, "packed2d")
+	testing.expect_value(t, len(main.sv_data_type(&ctx.ast, packed2d.data).packed_dims), 2)
 
-	imp := sv_find_decl(t, module, "imp0")
-	testing.expect_value(t, imp.data.is_signed, true)
+	_, imp := sv_find_decl(t, &ctx, module, "imp0")
+	testing.expect_value(t, main.sv_data_type(&ctx.ast, imp.data).is_signed, true)
 
-	arr := sv_find_decl(t, module, "arr0")
-	testing.expect_value(t, len(arr.declarators[0].unpacked_dims), 1)
+	_, arr := sv_find_decl(t, &ctx, module, "arr0")
+	testing.expect_value(t, len(main.sv_declarator(&ctx.ast, arr.declarators[0]).unpacked_dims), 1)
 
-	byte_t := sv_find_typedef(t, module, "byte_t")
-	testing.expect_value(t, byte_t.data.var_type, main.SVVarType.LOGIC)
-	testing.expect_value(t, len(byte_t.data.packed_dims), 1)
+	_, byte_t := sv_find_typedef(t, &ctx, module, "byte_t")
+	byte_t_data := main.sv_data_type(&ctx.ast, byte_t.data)
+	testing.expect_value(t, byte_t_data.var_type, main.SVVarType.LOGIC)
+	testing.expect_value(t, len(byte_t_data.packed_dims), 1)
 
-	state_t := sv_find_typedef(t, module, "state_t")
-	testing.expect(t, state_t.data.spec != nil, "enum spec missing")
-	if state_t.data.spec != nil {
-		testing.expect_value(t, state_t.data.spec.kind, main.SVTypeSpecKind.ENUM)
-		testing.expect_value(t, len(state_t.data.spec.enum_names), 3)
-		testing.expect_value(t, state_t.data.spec.enum_names[0].name, "IDLE")
-		testing.expect(t, state_t.data.spec.enum_names[1].value != nil, "enum value missing")
+	_, state_t := sv_find_typedef(t, &ctx, module, "state_t")
+	state_data := main.sv_data_type(&ctx.ast, state_t.data)
+	testing.expect(t, state_data.spec != main.SV_NONE, "enum spec missing")
+	if state_data.spec != main.SV_NONE {
+		spec := main.sv_type_spec(&ctx.ast, state_data.spec)
+		testing.expect_value(t, spec.kind, main.SVTypeSpecKind.ENUM)
+		testing.expect_value(t, len(spec.enum_names), 3)
+		testing.expect_value(t, main.sv_enum_name(&ctx.ast, spec.enum_names[0]).name, "IDLE")
+		testing.expect(t, main.sv_enum_name(&ctx.ast, spec.enum_names[1]).value != main.SV_NONE, "enum value missing")
 	}
 
-	s_t := sv_find_typedef(t, module, "s_t")
-	testing.expect(t, s_t.data.spec != nil, "struct spec missing")
-	if s_t.data.spec != nil {
-		testing.expect_value(t, s_t.data.spec.kind, main.SVTypeSpecKind.STRUCT)
-		testing.expect_value(t, s_t.data.spec.is_packed, true)
-		testing.expect_value(t, len(s_t.data.spec.members), 2)
-		testing.expect_value(t, s_t.data.spec.members[1].declarators[0].name, "b")
+	_, s_t := sv_find_typedef(t, &ctx, module, "s_t")
+	s_data := main.sv_data_type(&ctx.ast, s_t.data)
+	testing.expect(t, s_data.spec != main.SV_NONE, "struct spec missing")
+	if s_data.spec != main.SV_NONE {
+		spec := main.sv_type_spec(&ctx.ast, s_data.spec)
+		testing.expect_value(t, spec.kind, main.SVTypeSpecKind.STRUCT)
+		testing.expect_value(t, spec.is_packed, true)
+		testing.expect_value(t, len(spec.members), 2)
+		member := main.sv_struct_member(&ctx.ast, spec.members[1])
+		testing.expect_value(t, main.sv_declarator(&ctx.ast, member.declarators[0]).name, "b")
 	}
 
-	u_t := sv_find_typedef(t, module, "u_t")
-	testing.expect(t, u_t.data.spec != nil, "union spec missing")
-	if u_t.data.spec != nil {
-		testing.expect_value(t, u_t.data.spec.kind, main.SVTypeSpecKind.UNION)
+	_, u_t := sv_find_typedef(t, &ctx, module, "u_t")
+	u_data := main.sv_data_type(&ctx.ast, u_t.data)
+	testing.expect(t, u_data.spec != main.SV_NONE, "union spec missing")
+	if u_data.spec != main.SV_NONE {
+		testing.expect_value(t, main.sv_type_spec(&ctx.ast, u_data.spec).kind, main.SVTypeSpecKind.UNION)
 	}
 
-	word_t := sv_find_typedef(t, module, "word_t")
+	_, word_t := sv_find_typedef(t, &ctx, module, "word_t")
 	testing.expect_value(t, len(word_t.unpacked_dims), 1)
-	testing.expect_value(t, word_t.data.type_name, "byte_t")
+	testing.expect_value(t, main.sv_data_type(&ctx.ast, word_t.data).type_name, "byte_t")
 
-	x0 := sv_find_decl(t, module, "x0")
-	testing.expect_value(t, x0.data.type_name, "byte_t")
+	_, x0 := sv_find_decl(t, &ctx, module, "x0")
+	testing.expect_value(t, main.sv_data_type(&ctx.ast, x0.data).type_name, "byte_t")
 
-	o0 := sv_find_decl(t, module, "o0")
-	testing.expect_value(t, o0.data.type_scope, "pkg")
-	testing.expect_value(t, o0.data.type_name, "other_t")
+	_, o0 := sv_find_decl(t, &ctx, module, "o0")
+	o0_data := main.sv_data_type(&ctx.ast, o0.data)
+	testing.expect_value(t, o0_data.type_scope, "pkg")
+	testing.expect_value(t, o0_data.type_name, "other_t")
 
-	e0 := sv_find_decl(t, module, "e0")
-	testing.expect(t, e0.data.spec != nil, "inline enum declaration missing")
+	_, e0 := sv_find_decl(t, &ctx, module, "e0")
+	testing.expect(t, main.sv_data_type(&ctx.ast, e0.data).spec != main.SV_NONE, "inline enum declaration missing")
 
-	s3 := sv_find_decl(t, module, "s3")
-	testing.expect(t, s3.data.spec != nil, "inline struct declaration missing")
-	if s3.data.spec != nil {
-		testing.expect_value(t, s3.data.spec.members[0].data.type_name, "ext_t")
-		testing.expect_value(t, s3.data.spec.members[0].declarators[0].name, "e")
+	_, s3 := sv_find_decl(t, &ctx, module, "s3")
+	s3_data := main.sv_data_type(&ctx.ast, s3.data)
+	testing.expect(t, s3_data.spec != main.SV_NONE, "inline struct declaration missing")
+	if s3_data.spec != main.SV_NONE {
+		spec := main.sv_type_spec(&ctx.ast, s3_data.spec)
+		member := main.sv_struct_member(&ctx.ast, spec.members[0])
+		testing.expect_value(t, main.sv_data_type(&ctx.ast, member.data).type_name, "ext_t")
+		testing.expect_value(t, main.sv_declarator(&ctx.ast, member.declarators[0]).name, "e")
 	}
 }
 
@@ -520,126 +573,124 @@ test_sv_expressions :: proc(t: ^testing.T) {
 	)
 	module := sv_single_module(t, &ctx, source)
 
-	p0, _ := sv_assign_rhs(t, module, "p0")
-	add := sv_binary(t, p0, .ADD)
-	if add != nil {
-		mul := sv_binary(t, add.rhs, .MUL)
-		testing.expect(t, mul != nil, "multiplication should bind tighter than addition")
+	p0, _ := sv_assign_rhs(t, &ctx, module, "p0")
+	add, add_ok := sv_binary(t, &ctx, p0, .ADD)
+	if add_ok {
+		_, mul_ok := sv_binary(t, &ctx, add.rhs, .MUL)
+		testing.expect(t, mul_ok, "multiplication should bind tighter than addition")
 	}
 
-	p1, _ := sv_assign_rhs(t, module, "p1")
-	mul := sv_binary(t, p1, .MUL)
-	if mul != nil {
-		sv_binary(t, mul.lhs, .ADD)
+	p1, _ := sv_assign_rhs(t, &ctx, module, "p1")
+	mul, mul_ok := sv_binary(t, &ctx, p1, .MUL)
+	if mul_ok {
+		_, _ = sv_binary(t, &ctx, mul.lhs, .ADD)
 	}
 
-	p2, _ := sv_assign_rhs(t, module, "p2")
-	or_node := sv_binary(t, p2, .BIT_OR)
-	if or_node != nil {
-		xor_node := sv_binary(t, or_node.rhs, .BIT_XOR)
-		if xor_node != nil {
-			sv_binary(t, xor_node.lhs, .BIT_AND)
+	p2, _ := sv_assign_rhs(t, &ctx, module, "p2")
+	or_node, or_ok := sv_binary(t, &ctx, p2, .BIT_OR)
+	if or_ok {
+		xor_node, xor_ok := sv_binary(t, &ctx, or_node.rhs, .BIT_XOR)
+		if xor_ok {
+			_, _ = sv_binary(t, &ctx, xor_node.lhs, .BIT_AND)
 		}
 	}
 
-	p3, _ := sv_assign_rhs(t, module, "p3")
-	log_and := sv_binary(t, p3, .LOG_AND)
-	if log_and != nil {
-		sv_binary(t, log_and.lhs, .EQ)
-		sv_binary(t, log_and.rhs, .NE)
+	p3, _ := sv_assign_rhs(t, &ctx, module, "p3")
+	log_and, and_ok := sv_binary(t, &ctx, p3, .LOG_AND)
+	if and_ok {
+		_, _ = sv_binary(t, &ctx, log_and.lhs, .EQ)
+		_, _ = sv_binary(t, &ctx, log_and.rhs, .NE)
 	}
 
-	p4, _ := sv_assign_rhs(t, module, "p4")
-	bit_or := sv_binary(t, p4, .BIT_OR)
-	if bit_or != nil {
-		left := sv_binary(t, bit_or.lhs, .BIT_AND)
-		if left != nil {
-			unary, ok := left.lhs.(^main.SVUnary)
-			testing.expect(t, ok && unary.op == .BIT_NOT, "expected ~a")
+	p4, _ := sv_assign_rhs(t, &ctx, module, "p4")
+	bit_or, bit_or_ok := sv_binary(t, &ctx, p4, .BIT_OR)
+	if bit_or_ok {
+		left, left_ok := sv_binary(t, &ctx, bit_or.lhs, .BIT_AND)
+		if left_ok {
+			op, _, unary_ok := main.sv_expr_unary(&ctx.ast, left.lhs)
+			testing.expect(t, unary_ok && op == .BIT_NOT, "expected ~a")
 		}
-		right, ok := bit_or.rhs.(^main.SVUnary)
-		testing.expect(t, ok && right.op == .RED_XOR, "expected ^c")
+		op, _, unary_ok := main.sv_expr_unary(&ctx.ast, bit_or.rhs)
+		testing.expect(t, unary_ok && op == .RED_XOR, "expected ^c")
 	}
 
-	p5, _ := sv_assign_rhs(t, module, "p5")
-	shl := sv_binary(t, p5, .SHL)
-	if shl != nil {
-		sv_binary(t, shl.rhs, .ADD) // a << (2 + 1)
+	p5, _ := sv_assign_rhs(t, &ctx, module, "p5")
+	shl, shl_ok := sv_binary(t, &ctx, p5, .SHL)
+	if shl_ok {
+		_, _ = sv_binary(t, &ctx, shl.rhs, .ADD) // a << (2 + 1)
 	}
 
-	p6, _ := sv_assign_rhs(t, module, "p6")
-	pow := sv_binary(t, p6, .POW)
-	if pow != nil {
-		_, is_unary := pow.lhs.(^main.SVUnary)
+	p6, _ := sv_assign_rhs(t, &ctx, module, "p6")
+	pow, pow_ok := sv_binary(t, &ctx, p6, .POW)
+	if pow_ok {
+		_, _, is_unary := main.sv_expr_unary(&ctx.ast, pow.lhs)
 		testing.expect(t, is_unary, "unary minus binds tighter than **")
 	}
 
-	p7, _ := sv_assign_rhs(t, module, "p7")
-	ternary := sv_ternary(t, p7)
-	if ternary != nil {
-		nested, is_ternary := ternary.rhs.(^main.SVTernary)
+	p7, _ := sv_assign_rhs(t, &ctx, module, "p7")
+	_, ternary_rhs, ternary_ok := sv_ternary(t, &ctx, p7)
+	if ternary_ok {
+		_, _, _, is_ternary := main.sv_expr_ternary(&ctx.ast, ternary_rhs)
 		testing.expect(t, is_ternary, "ternary should be right associative")
-		_ = nested
 	}
 
-	cast0, _ := sv_assign_rhs(t, module, "cast0")
-	cast_node, is_cast := cast0.(^main.SVCast)
+	cast0, _ := sv_assign_rhs(t, &ctx, module, "cast0")
+	cast_node, is_cast := main.sv_expr_cast(&ctx.ast, cast0)
 	testing.expect(t, is_cast, "expected a cast")
 	if is_cast {
 		testing.expect_value(t, cast_node.kind, main.SVCastKind.SIGNING)
 		testing.expect_value(t, cast_node.target, "signed")
 	}
 
-	cast1, _ := sv_assign_rhs(t, module, "cast1")
-	size_cast, is_size := cast1.(^main.SVCast)
+	cast1, _ := sv_assign_rhs(t, &ctx, module, "cast1")
+	size_cast, is_size := main.sv_expr_cast(&ctx.ast, cast1)
 	testing.expect(t, is_size, "expected a size cast")
 	if is_size {
 		testing.expect_value(t, size_cast.kind, main.SVCastKind.SIZE)
 	}
 
-	cast4, _ := sv_assign_rhs(t, module, "cast4")
-	scoped_cast, is_scoped := cast4.(^main.SVCast)
+	cast4, _ := sv_assign_rhs(t, &ctx, module, "cast4")
+	scoped_cast, is_scoped := main.sv_expr_cast(&ctx.ast, cast4)
 	testing.expect(t, is_scoped, "expected a scoped type cast")
 	if is_scoped {
 		testing.expect_value(t, scoped_cast.target, "pkg::t")
 	}
 
-	cast5, _ := sv_assign_rhs(t, module, "cast5")
-	call_cast, is_call_cast := cast5.(^main.SVCast)
+	cast5, _ := sv_assign_rhs(t, &ctx, module, "cast5")
+	call_cast, is_call_cast := main.sv_expr_cast(&ctx.ast, cast5)
 	testing.expect(t, is_call_cast, "expected a constant call cast")
 	if is_call_cast {
-		_, size_is_call := call_cast.size^.(^main.SVCall)
-		testing.expect(t, size_is_call, "size cast target should be the $clog2 call")
+		testing.expectf(t, sv_kind(&ctx, call_cast.size) == main.SVNodeKind.Expr_Call, "size cast target should be the $clog2 call")
 	}
 
-	sys0, _ := sv_assign_rhs(t, module, "sys0")
-	sys_call, is_sys := sys0.(^main.SVCall)
-	testing.expect(t, is_sys && sys_call.is_system && sys_call.name == "$unsigned", "system call missing")
+	sys0, _ := sv_assign_rhs(t, &ctx, module, "sys0")
+	sys_name, sys_is_system, _, sys_is_call := main.sv_expr_call(&ctx.ast, sys0)
+	testing.expect(t, sys_is_call && sys_is_system && sys_name == "$unsigned", "system call missing")
 
-	scoped_expr, _ := sv_assign_rhs(t, module, "scoped")
-	scoped_name, is_name := scoped_expr.(^main.SVScopedName)
+	scoped_expr, _ := sv_assign_rhs(t, &ctx, module, "scoped")
+	scope, scoped_name, is_name := main.sv_expr_scoped_name(&ctx.ast, scoped_expr)
 	testing.expect(t, is_name, "expected a scoped name")
 	if is_name {
-		testing.expect_value(t, scoped_name.scope, "pkg")
-		testing.expect_value(t, scoped_name.name, "CONST")
+		testing.expect_value(t, scope, "pkg")
+		testing.expect_value(t, scoped_name, "CONST")
 	}
 
-	call_expr, _ := sv_assign_rhs(t, module, "call")
-	call, is_call := call_expr.(^main.SVCall)
+	call_expr, _ := sv_assign_rhs(t, &ctx, module, "call")
+	call_name, _, call_args, is_call := main.sv_expr_call(&ctx.ast, call_expr)
 	testing.expect(t, is_call, "expected a scoped function call")
 	if is_call {
-		testing.expect_value(t, call.name, "pkg::func")
-		testing.expect_value(t, len(call.args), 2)
-		testing.expect_value(t, call.args[1].name, "x")
+		testing.expect_value(t, call_name, "pkg::func")
+		testing.expect_value(t, len(call_args), 2)
+		testing.expect_value(t, main.sv_call_arg(&ctx.ast, call_args[1]).name, "x")
 	}
 
-	inc0, _ := sv_assign_rhs(t, module, "inc0")
-	post_inc, is_post := inc0.(^main.SVIncDec)
-	testing.expect(t, is_post && !post_inc.is_prefix && !post_inc.is_dec, "postfix ++ missing")
+	inc0, _ := sv_assign_rhs(t, &ctx, module, "inc0")
+	_, post_dec, post_prefix, is_post := main.sv_expr_incdec(&ctx.ast, inc0)
+	testing.expect(t, is_post && !post_prefix && !post_dec, "postfix ++ missing")
 
-	inc1, _ := sv_assign_rhs(t, module, "inc1")
-	pre_inc, is_pre := inc1.(^main.SVIncDec)
-	testing.expect(t, is_pre && pre_inc.is_prefix, "prefix ++ missing")
+	inc1, _ := sv_assign_rhs(t, &ctx, module, "inc1")
+	_, pre_dec, pre_prefix, is_pre := main.sv_expr_incdec(&ctx.ast, inc1)
+	testing.expect(t, is_pre && pre_prefix, "prefix ++ missing")
 }
 
 // ---------------------------------------------------------------------------------------
@@ -675,103 +726,104 @@ test_sv_selects_concat_patterns :: proc(t: ^testing.T) {
 	)
 	module := sv_single_module(t, &ctx, source)
 
-	bit, _ := sv_assign_rhs(t, module, "s_bit")
-	bit_sel := sv_select(t, bit)
-	if bit_sel != nil {
-		testing.expect_value(t, len(bit_sel.parts), 1)
-		testing.expect_value(t, bit_sel.parts[0].kind, main.SVSelectKind.BIT)
+	bit, _ := sv_assign_rhs(t, &ctx, module, "s_bit")
+	_, bit_parts, bit_ok := sv_select(t, &ctx, bit)
+	if bit_ok {
+		testing.expect_value(t, len(bit_parts), 1)
+		testing.expect_value(t, main.sv_select_part(&ctx.ast, bit_parts[0]).kind, main.SVSelectKind.BIT)
 	}
 
-	part, _ := sv_assign_rhs(t, module, "s_part")
-	part_sel := sv_select(t, part)
-	if part_sel != nil {
-		testing.expect_value(t, part_sel.parts[0].kind, main.SVSelectKind.PART)
-		testing.expect_value(t, part_sel.parts[0].has_second, true)
+	part, _ := sv_assign_rhs(t, &ctx, module, "s_part")
+	_, part_parts, part_ok := sv_select(t, &ctx, part)
+	if part_ok {
+		part_view := main.sv_select_part(&ctx.ast, part_parts[0])
+		testing.expect_value(t, part_view.kind, main.SVSelectKind.PART)
+		testing.expect_value(t, part_view.has_second, true)
 	}
 
-	plus, _ := sv_assign_rhs(t, module, "s_plus")
-	plus_sel := sv_select(t, plus)
-	if plus_sel != nil {
-		testing.expect_value(t, plus_sel.parts[0].kind, main.SVSelectKind.INDEXED_PLUS)
+	plus, _ := sv_assign_rhs(t, &ctx, module, "s_plus")
+	_, plus_parts, plus_ok := sv_select(t, &ctx, plus)
+	if plus_ok {
+		testing.expect_value(t, main.sv_select_part(&ctx.ast, plus_parts[0]).kind, main.SVSelectKind.INDEXED_PLUS)
 	}
 
-	minus, _ := sv_assign_rhs(t, module, "s_minus")
-	minus_sel := sv_select(t, minus)
-	if minus_sel != nil {
-		testing.expect_value(t, minus_sel.parts[0].kind, main.SVSelectKind.INDEXED_MINUS)
+	minus, _ := sv_assign_rhs(t, &ctx, module, "s_minus")
+	_, minus_parts, minus_ok := sv_select(t, &ctx, minus)
+	if minus_ok {
+		testing.expect_value(t, main.sv_select_part(&ctx.ast, minus_parts[0]).kind, main.SVSelectKind.INDEXED_MINUS)
 	}
 
-	chain, _ := sv_assign_rhs(t, module, "s_chain")
-	chain_sel := sv_select(t, chain)
-	if chain_sel != nil {
-		testing.expect_value(t, len(chain_sel.parts), 2)
+	chain, _ := sv_assign_rhs(t, &ctx, module, "s_chain")
+	_, chain_parts, chain_ok := sv_select(t, &ctx, chain)
+	if chain_ok {
+		testing.expect_value(t, len(chain_parts), 2)
 	}
 
-	plain, _ := sv_assign_rhs(t, module, "c_plain")
-	concat, ok := plain.(^main.SVConcat)
-	testing.expect(t, ok, "expected concatenation")
-	if ok {
-		testing.expect_value(t, len(concat.parts), 3)
-		testing.expect(t, concat.count == nil, "plain concat must not have a count")
+	plain, _ := sv_assign_rhs(t, &ctx, module, "c_plain")
+	plain_parts, plain_count, is_concat := main.sv_expr_concat(&ctx.ast, plain)
+	testing.expect(t, is_concat, "expected concatenation")
+	if is_concat {
+		testing.expect_value(t, len(plain_parts), 3)
+		testing.expect(t, plain_count == main.SV_NONE, "plain concat must not have a count")
 	}
 
-	rep, _ := sv_assign_rhs(t, module, "c_rep")
-	replicated, is_rep := rep.(^main.SVConcat)
+	rep, _ := sv_assign_rhs(t, &ctx, module, "c_rep")
+	rep_parts, rep_count, is_rep := main.sv_expr_concat(&ctx.ast, rep)
 	testing.expect(t, is_rep, "expected replication")
 	if is_rep {
-		testing.expect(t, replicated.count != nil, "replication count missing")
-		testing.expect_value(t, len(replicated.parts), 2)
+		testing.expect(t, rep_count != main.SV_NONE, "replication count missing")
+		testing.expect_value(t, len(rep_parts), 2)
 	}
 
-	left, _ := sv_assign_rhs(t, module, "c_left")
-	stream_left, is_stream := left.(^main.SVStream)
+	left, _ := sv_assign_rhs(t, &ctx, module, "c_left")
+	left_dir, _, _, is_stream := main.sv_expr_stream(&ctx.ast, left)
 	testing.expect(t, is_stream, "expected streaming concatenation")
 	if is_stream {
-		testing.expect_value(t, stream_left.dir, main.SVStreamDir.LEFT)
+		testing.expect_value(t, left_dir, main.SVStreamDir.LEFT)
 	}
 
-	right, _ := sv_assign_rhs(t, module, "c_right")
-	stream_right, is_stream_right := right.(^main.SVStream)
+	right, _ := sv_assign_rhs(t, &ctx, module, "c_right")
+	right_dir, right_slice, _, is_stream_right := main.sv_expr_stream(&ctx.ast, right)
 	testing.expect(t, is_stream_right, "expected streaming concatenation")
 	if is_stream_right {
-		testing.expect_value(t, stream_right.dir, main.SVStreamDir.RIGHT)
-		testing.expect(t, stream_right.slice != nil, "stream slice size missing")
+		testing.expect_value(t, right_dir, main.SVStreamDir.RIGHT)
+		testing.expect(t, right_slice != main.SV_NONE, "stream slice size missing")
 	}
 
-	inside_expr, _ := sv_assign_rhs(t, module, "in_expr")
-	inside, is_inside := inside_expr.(^main.SVInside)
+	inside_expr, _ := sv_assign_rhs(t, &ctx, module, "in_expr")
+	_, inside_ranges, is_inside := main.sv_expr_inside(&ctx.ast, inside_expr)
 	testing.expect(t, is_inside, "expected inside expression")
 	if is_inside {
-		testing.expect_value(t, len(inside.ranges), 3)
-		testing.expect_value(t, inside.ranges[1].has_hi, true)
+		testing.expect_value(t, len(inside_ranges), 3)
+		testing.expect_value(t, main.sv_inside_range(&ctx.ast, inside_ranges[1]).has_hi, true)
 	}
 
-	ap_pos, _ := sv_assign_rhs(t, module, "ap_pos")
-	pos_pattern, is_pattern := ap_pos.(^main.SVAggregate)
+	ap_pos, _ := sv_assign_rhs(t, &ctx, module, "ap_pos")
+	pos_pattern, is_pattern := main.sv_expr_aggregate(&ctx.ast, ap_pos)
 	testing.expect(t, is_pattern, "expected assignment pattern")
 	if is_pattern {
 		testing.expect_value(t, len(pos_pattern.entries), 3)
 	}
 
-	ap_key, _ := sv_assign_rhs(t, module, "ap_key")
-	key_pattern, is_key_pattern := ap_key.(^main.SVAggregate)
+	ap_key, _ := sv_assign_rhs(t, &ctx, module, "ap_key")
+	key_pattern, is_key_pattern := main.sv_expr_aggregate(&ctx.ast, ap_key)
 	testing.expect(t, is_key_pattern, "expected keyed assignment pattern")
 	if is_key_pattern {
 		testing.expect_value(t, len(key_pattern.entries), 3)
-		testing.expect_value(t, key_pattern.entries[0].key, "default")
-		testing.expect_value(t, key_pattern.entries[1].key, "foo")
-		testing.expect_value(t, key_pattern.entries[2].key, "bar")
+		testing.expect_value(t, main.sv_aggregate_entry(&ctx.ast, key_pattern.entries[0]).key, "default")
+		testing.expect_value(t, main.sv_aggregate_entry(&ctx.ast, key_pattern.entries[1]).key, "foo")
+		testing.expect_value(t, main.sv_aggregate_entry(&ctx.ast, key_pattern.entries[2]).key, "bar")
 	}
 
-	ap_rep, _ := sv_assign_rhs(t, module, "ap_rep")
-	rep_pattern, is_rep_pattern := ap_rep.(^main.SVAggregate)
+	ap_rep, _ := sv_assign_rhs(t, &ctx, module, "ap_rep")
+	rep_pattern, is_rep_pattern := main.sv_expr_aggregate(&ctx.ast, ap_rep)
 	testing.expect(t, is_rep_pattern, "expected replicated assignment pattern")
 	if is_rep_pattern {
-		testing.expect(t, rep_pattern.count != nil, "pattern replication count missing")
+		testing.expect(t, rep_pattern.count != main.SV_NONE, "pattern replication count missing")
 	}
 
-	ap_typed, _ := sv_assign_rhs(t, module, "ap_typed")
-	typed_pattern, is_typed_pattern := ap_typed.(^main.SVAggregate)
+	ap_typed, _ := sv_assign_rhs(t, &ctx, module, "ap_typed")
+	typed_pattern, is_typed_pattern := main.sv_expr_aggregate(&ctx.ast, ap_typed)
 	testing.expect(t, is_typed_pattern, "expected typed assignment pattern")
 	if is_typed_pattern {
 		testing.expect_value(t, typed_pattern.type_name, "my_t")
@@ -807,57 +859,58 @@ test_sv_instances :: proc(t: ^testing.T) {
 	)
 	module := sv_single_module(t, &ctx, source)
 
-	instances := make([dynamic]^main.SVInstance, context.temp_allocator)
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVInstance: append(&instances, v)
-		}
+	instances := make([dynamic]u32, context.temp_allocator)
+	for item in sv_items(&ctx, module) {
+		if sv_kind(&ctx, item) == .Item_Instance { append(&instances, item) }
 	}
 	testing.expect_value(t, len(instances), 9)
 
-	u0 := instances[0]
+	u0, _ := main.sv_item_instance(&ctx.ast, instances[0])
 	testing.expect_value(t, u0.cell_name, "sub")
 	testing.expect_value(t, u0.name, "u0")
 	testing.expect_value(t, u0.is_gate, false)
 	testing.expect_value(t, len(u0.param_overrides), 3)
-	testing.expect_value(t, u0.param_overrides[0].name, "W")
-	testing.expect(t, u0.param_overrides[0].type_value == nil, "W is a value parameter")
-	testing.expect(t, u0.param_overrides[2].type_value != nil, "T should be a type argument")
+	first_override := main.sv_param_override(&ctx.ast, u0.param_overrides[0])
+	testing.expect_value(t, first_override.name, "W")
+	testing.expect(t, first_override.type_value == main.SV_NONE, "W is a value parameter")
+	testing.expect(t, main.sv_param_override(&ctx.ast, u0.param_overrides[2]).type_value != main.SV_NONE, "T should be a type argument")
 	testing.expect_value(t, len(u0.port_conns), 3)
-	testing.expect_value(t, u0.port_conns[0].name, "a")
-	testing.expect(t, u0.port_conns[0].value != nil, "port value missing")
-	testing.expect_value(t, u0.port_conns[1].name, "b")
-	testing.expect(t, u0.port_conns[1].value == nil, "empty connection should have no value")
+	conn0 := main.sv_port_conn(&ctx.ast, u0.port_conns[0])
+	testing.expect_value(t, conn0.name, "a")
+	testing.expect(t, conn0.value != main.SV_NONE, "port value missing")
+	conn1 := main.sv_port_conn(&ctx.ast, u0.port_conns[1])
+	testing.expect_value(t, conn1.name, "b")
+	testing.expect(t, conn1.value == main.SV_NONE, "empty connection should have no value")
 
-	u1 := instances[1]
+	u1, _ := main.sv_item_instance(&ctx.ast, instances[1])
 	testing.expect_value(t, len(u1.param_overrides), 2)
-	testing.expect_value(t, u1.param_overrides[0].name, "") // ordered
-	testing.expect(t, u1.param_overrides[1].type_value != nil, "ordered type argument missing")
+	testing.expect_value(t, main.sv_param_override(&ctx.ast, u1.param_overrides[0]).name, "") // ordered
+	testing.expect(t, main.sv_param_override(&ctx.ast, u1.param_overrides[1]).type_value != main.SV_NONE, "ordered type argument missing")
 	testing.expect_value(t, len(u1.port_conns), 3)
-	testing.expect_value(t, u1.port_conns[0].name, "") // ordered
+	testing.expect_value(t, main.sv_port_conn(&ctx.ast, u1.port_conns[0]).name, "") // ordered
 
-	u2 := instances[2]
+	u2, _ := main.sv_item_instance(&ctx.ast, instances[2])
 	testing.expect_value(t, len(u2.unpacked_dims), 1)
 
-	u3 := instances[3]
-	u4 := instances[4]
+	u3, _ := main.sv_item_instance(&ctx.ast, instances[3])
+	u4, _ := main.sv_item_instance(&ctx.ast, instances[4])
 	testing.expect_value(t, u4.name, "u4")
 	testing.expect_value(t, len(u4.port_conns), 1)
 
-	u5 := instances[5]
+	u5, _ := main.sv_item_instance(&ctx.ast, instances[5])
 	testing.expect_value(t, u5.wildcard_ports, true)
 	testing.expect_value(t, len(u5.port_conns), 0)
 
-	u6 := instances[6]
+	u6, _ := main.sv_item_instance(&ctx.ast, instances[6])
 	testing.expect_value(t, u6.wildcard_ports, true)
 	testing.expect_value(t, len(u6.port_conns), 2)
-	testing.expect_value(t, u6.port_conns[0].name, "y")
+	testing.expect_value(t, main.sv_port_conn(&ctx.ast, u6.port_conns[0]).name, "y")
 
-	g0 := instances[7]
+	g0, _ := main.sv_item_instance(&ctx.ast, instances[7])
 	testing.expect_value(t, g0.is_gate, true)
 	testing.expect_value(t, g0.name, "g0")
 
-	g1 := instances[8]
+	g1, _ := main.sv_item_instance(&ctx.ast, instances[8])
 	testing.expect_value(t, g1.is_gate, true)
 }
 
@@ -894,25 +947,38 @@ test_sv_generate :: proc(t: ^testing.T) {
 	)
 	module := sv_single_module(t, &ctx, source)
 
-	#partial switch region_item in module.items[1] { // module.items[0] is `genvar i`
-	case ^main.SVGenRegion:
-		testing.expect_value(t, len(region_item.items), 2)
+	items := sv_items(&ctx, module)
+	region_item := items[1] // items[0] is `genvar i`
+	testing.expect_value(t, sv_kind(&ctx, region_item), main.SVNodeKind.Item_GenRegion)
+	if sv_kind(&ctx, region_item) == .Item_GenRegion {
+		region, _ := main.sv_item_gen_region(&ctx.ast, region_item)
+		testing.expect_value(t, len(region.items), 2)
 
-		#partial switch loop_item in region_item.items[0] {
-		case ^main.SVGenLoop:
+		loop_item_id := region.items[0]
+		testing.expect_value(t, sv_kind(&ctx, loop_item_id), main.SVNodeKind.Item_GenLoop)
+		if sv_kind(&ctx, loop_item_id) == .Item_GenLoop {
+			loop_item, _ := main.sv_item_gen_loop(&ctx.ast, loop_item_id)
 			testing.expect_value(t, loop_item.var, "i")
-			testing.expect(t, loop_item.body != nil, "generate loop body missing")
-			if loop_item.body != nil {
-				testing.expect_value(t, loop_item.body.label, "outer")
-				testing.expect_value(t, len(loop_item.body.items), 1)
-				#partial switch if_item in loop_item.body.items[0] {
-				case ^main.SVGenIf:
-					testing.expect(t, if_item.then_blk != nil && if_item.then_blk.label == "even", "then label")
-					testing.expect(t, if_item.else_blk != nil && if_item.else_blk.label == "odd", "else label")
-					if if_item.then_blk != nil && len(if_item.then_blk.items) == 2 {
-						#partial switch inner_item in if_item.then_blk.items[1] {
-						case ^main.SVGenRegion:
-							testing.expect_value(t, inner_item.label, "inner")
+			testing.expect(t, loop_item.body != main.SV_NONE, "generate loop body missing")
+			if loop_item.body != main.SV_NONE {
+				body, body_ok := main.sv_gen_block(&ctx.ast, loop_item.body)
+				testing.expect(t, body_ok, "generate loop body should be a block")
+				testing.expect_value(t, body.label, "outer")
+				testing.expect_value(t, len(body.items), 1)
+				if_item_id := body.items[0]
+				testing.expect_value(t, sv_kind(&ctx, if_item_id), main.SVNodeKind.Item_GenIf)
+				if sv_kind(&ctx, if_item_id) == .Item_GenIf {
+					if_item, _ := main.sv_item_gen_if(&ctx.ast, if_item_id)
+					then_blk, _ := main.sv_gen_block(&ctx.ast, if_item.then_blk)
+					else_blk, _ := main.sv_gen_block(&ctx.ast, if_item.else_blk)
+					testing.expect(t, if_item.then_blk != main.SV_NONE && then_blk.label == "even", "then label")
+					testing.expect(t, if_item.else_blk != main.SV_NONE && else_blk.label == "odd", "else label")
+					if if_item.then_blk != main.SV_NONE && len(then_blk.items) == 2 {
+						inner_item := then_blk.items[1]
+						testing.expect_value(t, sv_kind(&ctx, inner_item), main.SVNodeKind.Item_GenRegion)
+						if sv_kind(&ctx, inner_item) == .Item_GenRegion {
+							inner, _ := main.sv_item_gen_region(&ctx.ast, inner_item)
+							testing.expect_value(t, inner.label, "inner")
 						}
 					} else {
 						testing.expectf(t, false, "expected a nested begin block inside the generate if")
@@ -921,32 +987,40 @@ test_sv_generate :: proc(t: ^testing.T) {
 			}
 		}
 
-		#partial switch case_item in region_item.items[1] {
-		case ^main.SVGenCase:
+		case_item_id := region.items[1]
+		testing.expect_value(t, sv_kind(&ctx, case_item_id), main.SVNodeKind.Item_GenCase)
+		if sv_kind(&ctx, case_item_id) == .Item_GenCase {
+			case_item, _ := main.sv_item_gen_case(&ctx.ast, case_item_id)
 			testing.expect_value(t, case_item.kind, main.SVCaseKind.CASEZ)
 			testing.expect_value(t, len(case_item.items), 2)
-			testing.expect_value(t, len(case_item.items[0].exprs), 2)
-			testing.expect_value(t, case_item.items[1].is_default, true)
-			testing.expect(t, case_item.items[0].body != nil && case_item.items[0].body.label == "c_even", "case block label")
+			first := main.sv_gen_case_item(&ctx.ast, case_item.items[0])
+			second := main.sv_gen_case_item(&ctx.ast, case_item.items[1])
+			testing.expect_value(t, len(first.exprs), 2)
+			testing.expect_value(t, second.is_default, true)
+			case_body, _ := main.sv_gen_block(&ctx.ast, first.body)
+			testing.expect(t, first.body != main.SV_NONE && case_body.label == "c_even", "case block label")
 		}
-	case:
-		testing.expectf(t, false, "expected a generate region, got %v", region_item)
+	} else {
+		testing.expectf(t, false, "expected a generate region")
 	}
 
-	#partial switch implicit_item in module.items[2] {
-	case ^main.SVGenLoop:
+	implicit_item_id := items[2]
+	testing.expect_value(t, sv_kind(&ctx, implicit_item_id), main.SVNodeKind.Item_GenLoop)
+	if sv_kind(&ctx, implicit_item_id) == .Item_GenLoop {
+		implicit_item, _ := main.sv_item_gen_loop(&ctx.ast, implicit_item_id)
 		testing.expect_value(t, implicit_item.var, "j")
-		testing.expect(t, implicit_item.body != nil && implicit_item.body.label == "implicit_loop", "implicit loop label")
-	case:
-		testing.expectf(t, false, "expected an implicit generate loop, got %v", implicit_item)
+		body, _ := main.sv_gen_block(&ctx.ast, implicit_item.body)
+		testing.expect(t, implicit_item.body != main.SV_NONE && body.label == "implicit_loop", "implicit loop label")
 	}
 
-	#partial switch top_if_item in module.items[3] {
-	case ^main.SVGenIf:
-		testing.expect(t, top_if_item.then_blk != nil && top_if_item.then_blk.label == "top_if", "top if label")
-		testing.expect(t, top_if_item.else_blk != nil && top_if_item.else_blk.label == "top_else", "top else label")
-	case:
-		testing.expectf(t, false, "expected a top-level generate if, got %v", top_if_item)
+	top_if_item_id := items[3]
+	testing.expect_value(t, sv_kind(&ctx, top_if_item_id), main.SVNodeKind.Item_GenIf)
+	if sv_kind(&ctx, top_if_item_id) == .Item_GenIf {
+		top_if_item, _ := main.sv_item_gen_if(&ctx.ast, top_if_item_id)
+		then_blk, _ := main.sv_gen_block(&ctx.ast, top_if_item.then_blk)
+		else_blk, _ := main.sv_gen_block(&ctx.ast, top_if_item.else_blk)
+		testing.expect(t, top_if_item.then_blk != main.SV_NONE && then_blk.label == "top_if", "top if label")
+		testing.expect(t, top_if_item.else_blk != main.SV_NONE && else_blk.label == "top_else", "top else label")
 	}
 }
 
@@ -1028,52 +1102,62 @@ test_sv_procedural :: proc(t: ^testing.T) {
 	)
 	module := sv_single_module(t, &ctx, source)
 
-	seq := sv_proc(t, module, .ALWAYS_FF)
-	testing.expect(t, seq != nil, "always_ff missing")
-	if seq != nil {
+	seq_id, seq := sv_proc(t, &ctx, module, .ALWAYS_FF)
+	testing.expect(t, seq_id != main.SV_NONE, "always_ff missing")
+	if seq_id != main.SV_NONE {
 		testing.expect_value(t, len(seq.events), 2)
-		testing.expect_value(t, seq.events[0].edge, main.SVEdgeKind.POSEDGE)
-		testing.expect_value(t, seq.events[1].edge, main.SVEdgeKind.NEGEDGE)
-		block := sv_block(t, seq.body)
-		if block != nil {
+		testing.expect_value(t, main.sv_event(&ctx.ast, seq.events[0]).edge, main.SVEdgeKind.POSEDGE)
+		testing.expect_value(t, main.sv_event(&ctx.ast, seq.events[1]).edge, main.SVEdgeKind.NEGEDGE)
+		block, block_ok := sv_block(t, &ctx, seq.body)
+		if block_ok {
 			testing.expect_value(t, block.label, "seq")
 			testing.expect_value(t, len(block.stmts), 1)
-			if_stmt, is_if := block.stmts[0].(^main.SVIf)
+			if_stmt_id := block.stmts[0]
+			testing.expect_value(t, sv_kind(&ctx, if_stmt_id), main.SVNodeKind.Stmt_If)
+			if_stmt, is_if := main.sv_stmt_if(&ctx.ast, if_stmt_id)
 			testing.expect(t, is_if, "expected if statement")
 			if is_if {
-				testing.expect(t, if_stmt.then_body != nil, "if then body")
-				testing.expect(t, if_stmt.else_body != nil, "if else body")
-				else_if, else_is_if := if_stmt.else_body^.(^main.SVIf)
-				testing.expect(t, else_is_if, "expected else-if")
-				if else_is_if {
-					assign, is_assign := else_if.then_body^.(^main.SVAssignStmt)
+				testing.expect(t, if_stmt.then_body != main.SV_NONE, "if then body")
+				testing.expect(t, if_stmt.else_body != main.SV_NONE, "if else body")
+				testing.expect_value(t, sv_kind(&ctx, if_stmt.else_body), main.SVNodeKind.Stmt_If)
+				if sv_kind(&ctx, if_stmt.else_body) == .Stmt_If {
+					else_if, _ := main.sv_stmt_if(&ctx.ast, if_stmt.else_body)
+					assign, is_assign := main.sv_stmt_assign(&ctx.ast, else_if.then_body)
 					testing.expect(t, is_assign && assign.nonblocking, "nonblocking assignment missing")
 				}
 			}
 		}
 	}
 
-	comb := sv_proc(t, module, .ALWAYS_COMB)
-	testing.expect(t, comb != nil, "always_comb missing")
-	if comb != nil {
-		block := sv_block(t, comb.body)
-		if block != nil {
-			case_stmt, is_case := block.stmts[0].(^main.SVCase)
+	comb_id, comb := sv_proc(t, &ctx, module, .ALWAYS_COMB)
+	testing.expect(t, comb_id != main.SV_NONE, "always_comb missing")
+	if comb_id != main.SV_NONE {
+		block, block_ok := sv_block(t, &ctx, comb.body)
+		if block_ok {
+			case_stmt_id := block.stmts[0]
+			testing.expect_value(t, sv_kind(&ctx, case_stmt_id), main.SVNodeKind.Stmt_Case)
+			case_stmt, is_case := main.sv_stmt_case(&ctx.ast, case_stmt_id)
 			testing.expect(t, is_case, "expected case statement")
 			if is_case {
 				testing.expect_value(t, case_stmt.kind, main.SVCaseKind.CASE)
 				testing.expect_value(t, case_stmt.qualifier, main.SVQualifier.UNIQUE)
 				testing.expect_value(t, len(case_stmt.items), 3)
-				testing.expect_value(t, len(case_stmt.items[1].exprs), 2)
-				testing.expect_value(t, case_stmt.items[2].is_default, true)
+				second_item := main.sv_case_item(&ctx.ast, case_stmt.items[1])
+				third_item := main.sv_case_item(&ctx.ast, case_stmt.items[2])
+				testing.expect_value(t, len(second_item.exprs), 2)
+				testing.expect_value(t, third_item.is_default, true)
 			}
 		}
 	}
 
-	always := sv_proc(t, module, .ALWAYS)
-	testing.expect(t, always != nil, "always missing")
-	if always != nil {
-		testing.expect(t, always.any_event || (len(always.events) > 0 && always.events[0].edge == main.SVEdgeKind.POSEDGE), "always sensitivity")
+	always_id, always := sv_proc(t, &ctx, module, .ALWAYS)
+	testing.expect(t, always_id != main.SV_NONE, "always missing")
+	if always_id != main.SV_NONE {
+		testing.expect(
+			t,
+			always.any_event || (len(always.events) > 0 && main.sv_event(&ctx.ast, always.events[0]).edge == main.SVEdgeKind.POSEDGE),
+			"always sensitivity",
+		)
 	}
 
 	// find the second `always` (the one with @(*), then casez, then the big block)
@@ -1095,70 +1179,74 @@ test_sv_procedural :: proc(t: ^testing.T) {
 	found_break := false
 	found_continue := false
 
-	for item in module.items {
-		proc_node, is_proc := item.(^main.SVProc)
+	for item in sv_items(&ctx, module) {
+		if sv_kind(&ctx, item) != .Item_Proc { continue }
+		proc_node, is_proc := main.sv_item_proc(&ctx.ast, item)
 		if !is_proc || proc_node.kind != .ALWAYS { continue }
-		block, is_block := proc_node.body.(^main.SVBlock)
+		block, is_block := main.sv_stmt_block(&ctx.ast, proc_node.body)
 		if !is_block { continue }
 		for stmt in block.stmts {
-			#partial switch s in stmt {
-			case ^main.SVCase:
+			#partial switch sv_kind(&ctx, stmt) {
+			case .Stmt_Case:
+				s, _ := main.sv_stmt_case(&ctx.ast, stmt)
 				if s.kind == .CASEZ {
 					found_casez = true
 					testing.expect_value(t, s.qualifier, main.SVQualifier.PRIORITY)
 				}
 				if s.is_inside {
 					found_inside_case = true
-					testing.expect_value(t, len(s.items[0].ranges), 1)
+					item0 := main.sv_case_item(&ctx.ast, s.items[0])
+					testing.expect_value(t, len(item0.exprs), 1)
 				}
-			case ^main.SVFor:
+			case .Stmt_For:
+				s, _ := main.sv_stmt_for(&ctx.ast, stmt)
 				found_for = true
 				testing.expect_value(t, len(s.var_decls), 1)
 				testing.expect_value(t, len(s.steps), 2)
-				if s.body != nil {
-					#partial switch body_block in s.body^ {
-					case ^main.SVBlock:
-						for inner in body_block.stmts {
-							#partial switch js in inner {
-							case ^main.SVIf:
-								if js.then_body != nil {
-									#partial switch jump in js.then_body^ {
-									case ^main.SVJump:
-										if jump.kind == .CONTINUE { found_continue = true }
-										if jump.kind == .BREAK { found_break = true }
-									}
-								}
-							}
-						}
+				body_block, body_ok := main.sv_stmt_block(&ctx.ast, s.body)
+				if body_ok {
+					for inner in body_block.stmts {
+						if sv_kind(&ctx, inner) != .Stmt_If { continue }
+						js, _ := main.sv_stmt_if(&ctx.ast, inner)
+						if js.then_body == main.SV_NONE { continue }
+						if sv_kind(&ctx, js.then_body) != .Stmt_Jump { continue }
+						jump, _ := main.sv_stmt_jump(&ctx.ast, js.then_body)
+						if jump.kind == .CONTINUE { found_continue = true }
+						if jump.kind == .BREAK { found_break = true }
 					}
 				}
-			case ^main.SVWhile:
+			case .Stmt_While:
+				s, _ := main.sv_stmt_while(&ctx.ast, stmt)
 				if s.do_while { found_do_while = true } else { found_while = true }
-			case ^main.SVRepeat:
-				found_repeat = true
-			case ^main.SVForeach:
+			case .Stmt_Repeat: found_repeat = true
+			case .Stmt_Foreach:
+				s, _ := main.sv_stmt_foreach(&ctx.ast, stmt)
 				found_foreach = true
 				testing.expect_value(t, len(s.loop_vars), 1)
 				testing.expect_value(t, s.loop_vars[0], "idx")
-			case ^main.SVTimingStmt:
-				if s.timing.is_delay { found_delay_stmt = true } else { found_event_stmt = true }
-			case ^main.SVAssignStmt:
+			case .Stmt_Timing:
+				timing_id := main.sv_node(&ctx.ast, stmt).a
+				timing := main.sv_timing_ctl(&ctx.ast, timing_id)
+				if timing.is_delay { found_delay_stmt = true } else { found_event_stmt = true }
+			case .Stmt_Assign:
+				s, _ := main.sv_stmt_assign(&ctx.ast, stmt)
 				if s.op == .ADD_EQ { found_compound_add = true }
 				if s.op == .SHL_EQ { found_compound_shl = true }
-			case ^main.SVCall:
-				testing.expect_value(t, s.name, "f")
+			case .Expr_Call:
+				name, _, _, _ := main.sv_expr_call(&ctx.ast, stmt)
+				testing.expect_value(t, name, "f")
 				found_void_call = true
-			case ^main.SVAssert:
+			case .Stmt_Assert:
+				s, _ := main.sv_stmt_assert(&ctx.ast, stmt)
 				if s.kind == .ASSERT { found_assert = true }
 				if s.kind == .ASSUME { found_assume = true }
 				if s.kind == .COVER { found_cover = true }
-			case ^main.SVIf:
-				if s.then_body != nil {
-					#partial switch js in s.then_body^ {
-					case ^main.SVJump:
-						if js.kind == .CONTINUE { found_continue = true }
-						if js.kind == .BREAK { found_break = true }
-					}
+			case .Stmt_If:
+				s, _ := main.sv_stmt_if(&ctx.ast, stmt)
+				if s.then_body != main.SV_NONE && sv_kind(&ctx, s.then_body) == .Stmt_Jump {
+					js, _ := main.sv_stmt_jump(&ctx.ast, s.then_body)
+					if js.kind == .CONTINUE { found_continue = true }
+					if js.kind == .BREAK { found_break = true }
 				}
 			}
 		}
@@ -1182,50 +1270,50 @@ test_sv_procedural :: proc(t: ^testing.T) {
 	testing.expect(t, found_break, "break statement missing")
 	testing.expect(t, found_continue, "continue statement missing")
 
-	initial := sv_proc(t, module, .INITIAL)
-	testing.expect(t, initial != nil, "initial missing")
-	if initial != nil {
-		block := sv_block(t, initial.body)
-		if block != nil {
+	initial_id, initial := sv_proc(t, &ctx, module, .INITIAL)
+	testing.expect(t, initial_id != main.SV_NONE, "initial missing")
+	if initial_id != main.SV_NONE {
+		block, block_ok := sv_block(t, &ctx, initial.body)
+		if block_ok {
 			testing.expect_value(t, block.label, "init_block")
 			testing.expect_value(t, len(block.imports), 1)
-			testing.expect_value(t, block.imports[0].package_name, "pkg")
+			testing.expect_value(t, main.sv_import(&ctx.ast, block.imports[0]).package_name, "pkg")
 			testing.expect_value(t, len(block.decls), 1)
 			testing.expect_value(t, len(block.stmts), 6)
-			_, is_forever := block.stmts[0].(^main.SVForever)
-			testing.expect(t, is_forever, "forever statement missing")
-			bare_call, is_bare_call := block.stmts[1].(^main.SVCall)
-			testing.expect(t, is_bare_call && bare_call.name == "empty_statement", "parenthesis-less task call missing")
-			scoped_call, is_scoped_call := block.stmts[2].(^main.SVCall)
-			testing.expect(t, is_scoped_call && scoped_call.name == "pkg::do_thing", "scoped task call missing")
-			scoped_arg_call, is_scoped_arg_call := block.stmts[3].(^main.SVCall)
-			testing.expect(t, is_scoped_arg_call && scoped_arg_call.name == "pkg::check", "scoped call with arguments missing")
-			method_call, is_method_call := block.stmts[4].(^main.SVCall)
-			testing.expect(t, is_method_call && method_call.name == "dummy.push_back", "method call missing")
-			method_assign, is_method_assign := block.stmts[5].(^main.SVAssignStmt)
+			testing.expect_value(t, sv_kind(&ctx, block.stmts[0]), main.SVNodeKind.Stmt_Forever)
+			bare_call_name, _, _, bare_is_call := main.sv_expr_call(&ctx.ast, block.stmts[1])
+			testing.expect(t, bare_is_call && bare_call_name == "empty_statement", "parenthesis-less task call missing")
+			scoped_call_name, _, _, scoped_is_call := main.sv_expr_call(&ctx.ast, block.stmts[2])
+			testing.expect(t, scoped_is_call && scoped_call_name == "pkg::do_thing", "scoped task call missing")
+			scoped_arg_name, _, _, scoped_arg_is_call := main.sv_expr_call(&ctx.ast, block.stmts[3])
+			testing.expect(t, scoped_arg_is_call && scoped_arg_name == "pkg::check", "scoped call with arguments missing")
+			method_name, _, _, method_is_call := main.sv_expr_call(&ctx.ast, block.stmts[4])
+			testing.expect(t, method_is_call && method_name == "dummy.push_back", "method call missing")
+			method_assign, is_method_assign := main.sv_stmt_assign(&ctx.ast, block.stmts[5])
 			testing.expect(t, is_method_assign, "method call assignment missing")
 			if is_method_assign {
-				pop_call, is_pop := method_assign.rhs.(^main.SVCall)
-				testing.expect(t, is_pop && pop_call.name == "dummy.pop_front", "method call on assignment RHS missing")
+				pop_name, _, _, is_pop := main.sv_expr_call(&ctx.ast, method_assign.rhs)
+				testing.expect(t, is_pop && pop_name == "dummy.pop_front", "method call on assignment RHS missing")
 			}
 		}
 	}
 
-	final := sv_proc(t, module, .FINAL)
-	testing.expect(t, final != nil, "final block missing")
+	final_id, _ := sv_proc(t, &ctx, module, .FINAL)
+	testing.expect(t, final_id != main.SV_NONE, "final block missing")
 
-	latch := sv_proc(t, module, .ALWAYS_LATCH)
-	testing.expect(t, latch != nil, "always_latch missing")
+	latch_id, _ := sv_proc(t, &ctx, module, .ALWAYS_LATCH)
+	testing.expect(t, latch_id != main.SV_NONE, "always_latch missing")
 
 	// the bare `always @*` process and the event `iff` guard
 	found_any_event := false
 	found_event_iff := false
-	for item in module.items {
-		proc_node, is_proc := item.(^main.SVProc)
+	for item in sv_items(&ctx, module) {
+		if sv_kind(&ctx, item) != .Item_Proc { continue }
+		proc_node, is_proc := main.sv_item_proc(&ctx.ast, item)
 		if !is_proc || proc_node.kind != .ALWAYS { continue }
 		if proc_node.any_event { found_any_event = true }
 		for event in proc_node.events {
-			if event.iff != nil { found_event_iff = true }
+			if main.sv_event(&ctx.ast, event).iff != main.SV_NONE { found_event_iff = true }
 		}
 	}
 	testing.expect(t, found_any_event, "always @* missing")
@@ -1286,48 +1374,51 @@ test_sv_subroutines_and_packages :: proc(t: ^testing.T) {
 	)
 	sv_test_parse(&ctx, source)
 
-	testing.expect_value(t, len(ctx.ast.imports), 1)
-	testing.expect_value(t, ctx.ast.imports[0].package_name, "pkg0")
-	testing.expect_value(t, ctx.ast.imports[0].name, "*")
+	unit_imports := main.sv_unit_imports(&ctx.ast)
+	testing.expect_value(t, len(unit_imports), 1)
+	testing.expect_value(t, main.sv_import(&ctx.ast, unit_imports[0]).package_name, "pkg0")
+	testing.expect_value(t, main.sv_import(&ctx.ast, unit_imports[0]).name, "*")
 	testing.expect_value(t, len(ctx.ast.packages), 1)
-	testing.expect_value(t, len(ctx.ast.items), 3) // top_t, TOPP, top_f
+	testing.expect_value(t, len(main.sv_children(&ctx.ast, ctx.ast.items)), 3) // top_t, TOPP, top_f
 
-	pkg := ctx.ast.package_hash_map["pkg0"]
-	testing.expect(t, pkg != nil, "package not found")
-	if pkg != nil {
-		testing.expect_value(t, len(pkg.imports), 1)
-		testing.expect_value(t, pkg.imports[0].package_name, "pkg1")
-		testing.expect_value(t, len(pkg.items), 4) // param, typedef, function, task
+	pkg_index, pkg_found := ctx.ast.package_hash_map["pkg0"]
+	testing.expect(t, pkg_found, "package not found")
+	if pkg_found {
+		pkg := main.sv_package(&ctx.ast, pkg_index)
+		pkg_imports := ctx.ast.imports[pkg.imports.start:pkg.imports.start + pkg.imports.len]
+		testing.expect_value(t, len(pkg_imports), 1)
+		testing.expect_value(t, main.sv_import(&ctx.ast, pkg_imports[0]).package_name, "pkg1")
+		testing.expect_value(t, len(main.sv_children(&ctx.ast, pkg.items)), 4) // param, typedef, function, task
 	}
 
 	subs := sv_module(t, &ctx, "subs")
-	subs_functions := make([dynamic]^main.SVSubroutine, context.temp_allocator)
-	for item in subs.items {
-		#partial switch v in item {
-		case ^main.SVSubroutine: append(&subs_functions, v)
-		}
+	subs_functions := make([dynamic]u32, context.temp_allocator)
+	for item in sv_items(&ctx, subs) {
+		if sv_kind(&ctx, item) == .Item_Subroutine { append(&subs_functions, item) }
 	}
 	testing.expect_value(t, len(subs_functions), 4)
 
-	add_one := subs_functions[0]
+	add_one, _ := main.sv_item_subroutine(&ctx.ast, subs_functions[0])
 	testing.expect_value(t, add_one.name, "add_one")
 	testing.expect_value(t, add_one.is_automatic, true)
 	testing.expect_value(t, len(add_one.ports), 2)
-	testing.expect(t, add_one.ports[1].default_value != nil, "tf port default missing")
-	testing.expect_value(t, len(add_one.body.decls), 2) // local typedef + variable
+	testing.expect(t, main.sv_tf_port(&ctx.ast, add_one.ports[1]).default_value != main.SV_NONE, "tf port default missing")
+	add_body, _ := main.sv_stmt_block(&ctx.ast, add_one.body)
+	testing.expect_value(t, len(add_body.decls), 2) // local typedef + variable
 
-	no_value := subs_functions[1]
-	testing.expect_value(t, no_value.return_data.var_type, main.SVVarType.VOID)
+	no_value, _ := main.sv_item_subroutine(&ctx.ast, subs_functions[1])
+	testing.expect_value(t, main.sv_data_type(&ctx.ast, no_value.return_data).var_type, main.SVVarType.VOID)
 
-	legacy := subs_functions[2]
-	testing.expect_value(t, legacy.is_automatic, false)
-	testing.expect_value(t, len(legacy.ports), 1) // legacy tf port declaration
+	legacy_sub, _ := main.sv_item_subroutine(&ctx.ast, subs_functions[2])
+	testing.expect_value(t, legacy_sub.is_automatic, false)
+	testing.expect_value(t, len(legacy_sub.ports), 1) // legacy tf port declaration
 
-	clear := subs_functions[3]
+	clear, _ := main.sv_item_subroutine(&ctx.ast, subs_functions[3])
 	testing.expect_value(t, clear.is_task, true)
-	testing.expect_value(t, len(clear.body.stmts), 1) // for loop
-	testing.expect_value(t, len(clear.body.imports), 1)
-	testing.expect_value(t, clear.body.imports[0].package_name, "pkg1")
+	clear_body, _ := main.sv_stmt_block(&ctx.ast, clear.body)
+	testing.expect_value(t, len(clear_body.stmts), 1) // for loop
+	testing.expect_value(t, len(clear_body.imports), 1)
+	testing.expect_value(t, main.sv_import(&ctx.ast, clear_body.imports[0]).package_name, "pkg1")
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1365,47 +1456,56 @@ test_sv_interfaces :: proc(t: ^testing.T) {
 	)
 	sv_test_parse(&ctx, source)
 
-	iface := ctx.ast.interface_hash_map["bus_if"]
-	testing.expect(t, iface != nil, "interface not found")
-	if iface != nil {
+	iface_index, iface_found := ctx.ast.interface_hash_map["bus_if"]
+	testing.expect(t, iface_found, "interface not found")
+	if iface_found {
+		iface := main.sv_interface(&ctx.ast, iface_index)
 		testing.expect_value(t, iface.name, "bus_if")
-		testing.expect_value(t, len(iface.params), 1)
-		testing.expect_value(t, len(iface.ports), 1)
-		testing.expect_value(t, len(iface.imports), 1)
-		testing.expect_value(t, len(iface.modports), 2)
-		testing.expect_value(t, iface.modports[0].name, "master")
-		testing.expect_value(t, len(iface.modports[0].ports), 3)
-		testing.expect_value(t, iface.modports[0].ports[0].dir, main.SVPortDir.OUTPUT)
+		testing.expect_value(t, iface.params.len, 1)
+		iface_ports := main.sv_interface_ports(&ctx.ast, iface)
+		testing.expect_value(t, len(iface_ports), 1)
+		iface_imports := ctx.ast.imports[iface.imports.start:iface.imports.start + iface.imports.len]
+		testing.expect_value(t, len(iface_imports), 1)
+		modports := main.sv_interface_modports(&ctx.ast, iface)
+		testing.expect_value(t, len(modports), 2)
+		master := main.sv_modport(&ctx.ast, modports[0])
+		testing.expect_value(t, master.name, "master")
+		testing.expect_value(t, len(master.ports), 3)
+		testing.expect_value(t, main.sv_modport_port(&ctx.ast, master.ports[0]).dir, main.SVPortDir.OUTPUT)
 	}
 
-	legacy := ctx.ast.interface_hash_map["legacy_if"]
-	testing.expect(t, legacy != nil, "legacy interface not found")
-	if legacy != nil {
-		testing.expect_value(t, len(legacy.ports), 2)
-		testing.expect_value(t, legacy.ports[0].dir, main.SVPortDir.INPUT)
-		testing.expect_value(t, legacy.ports[1].dir, main.SVPortDir.OUTPUT)
+	legacy_index, legacy_found := ctx.ast.interface_hash_map["legacy_if"]
+	testing.expect(t, legacy_found, "legacy interface not found")
+	if legacy_found {
+		legacy := main.sv_interface(&ctx.ast, legacy_index)
+		legacy_ports := main.sv_interface_ports(&ctx.ast, legacy)
+		testing.expect_value(t, len(legacy_ports), 2)
+		testing.expect_value(t, main.sv_port(&ctx.ast, legacy_ports[0]).dir, main.SVPortDir.INPUT)
+		testing.expect_value(t, main.sv_port(&ctx.ast, legacy_ports[1]).dir, main.SVPortDir.OUTPUT)
 	}
 
 	uses := sv_module(t, &ctx, "uses")
-	testing.expect_value(t, len(uses.ports), 2)
-	master := sv_find_port(t, uses, "m")
+	testing.expect_value(t, len(sv_ports(&ctx, uses)), 2)
+	master := sv_find_port(t, &ctx, uses, "m")
 	testing.expect_value(t, master.iface_name, "bus_if")
 	testing.expect_value(t, master.modport, "master")
 
-	instances := make([dynamic]^main.SVInstance, context.temp_allocator)
-	for item in uses.items {
-		#partial switch v in item {
-		case ^main.SVInstance: append(&instances, v)
-		}
+	instances := make([dynamic]u32, context.temp_allocator)
+	for item in sv_items(&ctx, uses) {
+		if sv_kind(&ctx, item) == .Item_Instance { append(&instances, item) }
 	}
 	testing.expect_value(t, len(instances), 2)
-	testing.expect_value(t, instances[0].cell_name, "bus_if")
-	testing.expect_value(t, instances[1].cell_name, "bus_if")
+	inst0, _ := main.sv_item_instance(&ctx.ast, instances[0])
+	inst1, _ := main.sv_item_instance(&ctx.ast, instances[1])
+	testing.expect_value(t, inst0.cell_name, "bus_if")
+	testing.expect_value(t, inst1.cell_name, "bus_if")
 
 	generic := sv_module(t, &ctx, "generic_if")
-	testing.expect_value(t, len(generic.ports), 1)
-	testing.expect_value(t, generic.ports[0].iface_name, "interface")
-	testing.expect_value(t, generic.ports[0].name, "d")
+	generic_ports := sv_ports(&ctx, generic)
+	testing.expect_value(t, len(generic_ports), 1)
+	generic_port := main.sv_port(&ctx.ast, generic_ports[0])
+	testing.expect_value(t, generic_port.iface_name, "interface")
+	testing.expect_value(t, generic_port.name, "d")
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1472,64 +1572,63 @@ test_sv_macros_and_directives :: proc(t: ^testing.T) {
 	)
 	module := sv_single_module(t, &ctx, source)
 
-	w := sv_param_expr(t, module, "W")
-	testing.expect_value(t, sv_number(t, w^).value, u64(8))
+	w, _ := sv_param_expr(t, &ctx, module, "W")
+	testing.expect_value(t, sv_number(t, &ctx, w).value, u64(8))
 
-	m := sv_param_expr(t, module, "M")
-	sv_ternary(t, m^) // `MAX expands to a ternary
+	m, _ := sv_param_expr(t, &ctx, module, "M")
+	_, _, _ = sv_ternary(t, &ctx, m) // `MAX expands to a ternary
 
-	s := sv_param_expr(t, module, "S")
-	greeting, is_string := s^.(main.SVStringLit)
+	s, _ := sv_param_expr(t, &ctx, module, "S")
+	greeting, is_string := main.sv_expr_string(&ctx.ast, s)
 	testing.expect(t, is_string, "expected an expanded string literal")
 	if is_string {
-		testing.expect_value(t, string(greeting), "hello world")
+		testing.expect_value(t, greeting, "hello world")
 	}
 
-	j := sv_param_expr(t, module, "J")
-	joined, is_ident := j^.(string)
+	j, _ := sv_param_expr(t, &ctx, module, "J")
+	joined, is_ident := main.sv_expr_ident(&ctx.ast, j)
 	testing.expect(t, is_ident && joined == "foobar", "token pasting failed")
 
-	line := sv_param_expr(t, module, "L")
-	testing.expect(t, sv_number(t, line^).value > 0, "`__LINE__ should be numeric")
+	line, _ := sv_param_expr(t, &ctx, module, "L")
+	testing.expect(t, sv_number(t, &ctx, line).value > 0, "`__LINE__ should be numeric")
 
-	prefixed := sv_param_expr(t, module, "P")
-	testing.expect_value(t, sv_number(t, prefixed^).value, u64(99))
+	prefixed, _ := sv_param_expr(t, &ctx, module, "P")
+	testing.expect_value(t, sv_number(t, &ctx, prefixed).value, u64(99))
 
-	file := sv_param_expr(t, module, "F")
-	_, file_is_string := file^.(main.SVStringLit)
+	file, _ := sv_param_expr(t, &ctx, module, "F")
+	_, file_is_string := main.sv_expr_string(&ctx.ast, file)
 	testing.expect(t, file_is_string, "`__FILE__ should be a string literal")
 
-	mode := sv_param_expr(t, module, "MODE")
-	testing.expect_value(t, sv_number(t, mode^).value, u64(2))
+	mode, _ := sv_param_expr(t, &ctx, module, "MODE")
+	testing.expect_value(t, sv_number(t, &ctx, mode).value, u64(2))
 
-	multi := sv_param_expr(t, module, "M2")
-	sv_binary(t, multi^, .ADD) // continuation lines joined
+	multi, _ := sv_param_expr(t, &ctx, module, "M2")
+	_, _ = sv_binary(t, &ctx, multi, .ADD) // continuation lines joined
 
-	comment_line := sv_param_expr(t, module, "M3")
-	sv_binary(t, comment_line^, .ADD) // `//` comment + continuation
+	comment_line, _ := sv_param_expr(t, &ctx, module, "M3")
+	_, _ = sv_binary(t, &ctx, comment_line, .ADD) // `//` comment + continuation
 
-	comment_block := sv_param_expr(t, module, "M4")
-	sv_binary(t, comment_block^, .ADD) // block comment removed
+	comment_block, _ := sv_param_expr(t, &ctx, module, "M4")
+	_, _ = sv_binary(t, &ctx, comment_block, .ADD) // block comment removed
 
-	comment_string := sv_param_expr(t, module, "M5")
-	if comment_string != nil {
-		text, is_text := comment_string^.(main.SVStringLit)
-		testing.expect(t, is_text && strings.contains(string(text), "//"), "comment markers inside strings must be preserved")
+	comment_string, comment_found := sv_param_expr(t, &ctx, module, "M5")
+	if comment_found {
+		text, is_text := main.sv_expr_string(&ctx.ast, comment_string)
+		testing.expect(t, is_text && strings.contains(text, "//"), "comment markers inside strings must be preserved")
 	}
 
-	def := sv_param_expr(t, module, "D")
-	sv_binary(t, def^, .ADD) // macro parameter default
+	def, _ := sv_param_expr(t, &ctx, module, "D")
+	_, _ = sv_binary(t, &ctx, def, .ADD) // macro parameter default
 
 	_, removed_defined := ctx.ast.defines["REMOVED"]
 	testing.expect(t, !removed_defined, "`undef must remove the macro")
 
 	wire_found := false
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVNetDecl:
-			for declarator in v.declarators {
-				if declarator.name == "combined" { wire_found = true }
-			}
+	for item in sv_items(&ctx, module) {
+		if sv_kind(&ctx, item) != .Item_NetDecl { continue }
+		decl, _ := main.sv_item_net_decl(&ctx.ast, item)
+		for declarator_id in decl.declarators {
+			if main.sv_declarator(&ctx.ast, declarator_id).name == "combined" { wire_found = true }
 		}
 	}
 	testing.expect(t, wire_found, "token-pasted wire name not found")
@@ -1554,40 +1653,30 @@ test_sv_include_resolution :: proc(t: ^testing.T) {
 	defer os.remove_all(tmp_root)
 
 	main_path := fmt.tprintf("%s/main.sv", tmp_root)
-	ensure(os.write_entire_file(main_path, sv_src(
-		"`include \"defs.svh\"",
-		"module included;",
-		"`include \"items.svh\"",
-		"endmodule",
-	)) == nil)
-	ensure(os.write_entire_file(fmt.tprintf("%s/defs.svh", tmp_root), sv_src(
-		"`define CONFIG_FILE \"sub/extra.svh\"",
-		"`include `CONFIG_FILE",
-		"`include \"header.svh\"",
-	)) == nil)
-	ensure(os.write_entire_file(fmt.tprintf("%s/items.svh", tmp_root), sv_src(
-		"wire from_include;",
-	)) == nil)
-	ensure(os.write_entire_file(fmt.tprintf("%s/sub/extra.svh", tmp_root), sv_src(
-		"`define EXTRA_SEEN 1",
-	)) == nil)
-	ensure(os.write_entire_file(fmt.tprintf("%s/include_dir/header.svh", tmp_root), sv_src(
-		"`define HEADER_SEEN 1",
-	)) == nil)
+	ensure(os.write_entire_file(main_path, sv_src("`include \"defs.svh\"", "module included;", "`include \"items.svh\"", "endmodule")) == nil)
+	ensure(
+		os.write_entire_file(
+			fmt.tprintf("%s/defs.svh", tmp_root),
+			sv_src("`define CONFIG_FILE \"sub/extra.svh\"", "`include `CONFIG_FILE", "`include \"header.svh\""),
+		) ==
+		nil,
+	)
+	ensure(os.write_entire_file(fmt.tprintf("%s/items.svh", tmp_root), sv_src("wire from_include;")) == nil)
+	ensure(os.write_entire_file(fmt.tprintf("%s/sub/extra.svh", tmp_root), sv_src("`define EXTRA_SEEN 1")) == nil)
+	ensure(os.write_entire_file(fmt.tprintf("%s/include_dir/header.svh", tmp_root), sv_src("`define HEADER_SEEN 1")) == nil)
 
 	append(&ctx.ast.include_dirs, fmt.tprintf("%s/include_dir", tmp_root))
 	main.system_verilog_parse_to_ast(main_path, &ctx.ast, ctx.alloc)
 
 	module := sv_module(t, &ctx, "included")
-	testing.expect(t, module != nil, "module from included file missing")
+	testing.expect(t, module.name == "included", "module from included file missing")
 
 	found_wire := false
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVNetDecl:
-			for declarator in v.declarators {
-				if declarator.name == "from_include" { found_wire = true }
-			}
+	for item in sv_items(&ctx, module) {
+		if sv_kind(&ctx, item) != .Item_NetDecl { continue }
+		decl, _ := main.sv_item_net_decl(&ctx.ast, item)
+		for declarator_id in decl.declarators {
+			if main.sv_declarator(&ctx.ast, declarator_id).name == "from_include" { found_wire = true }
 		}
 	}
 	testing.expect(t, found_wire, "`include inside a module body failed")
@@ -1641,27 +1730,32 @@ test_sv_alias_defparam_explicit_ports :: proc(t: ^testing.T) {
 	sv_test_parse(&ctx, source)
 
 	module := sv_module(t, &ctx, "alias_defparam")
-	testing.expect_value(t, len(module.ports), 3)
-	p_port := module.ports[1]
+	module_ports := sv_ports(&ctx, module)
+	testing.expect_value(t, len(module_ports), 3)
+	p_port := main.sv_port(&ctx.ast, module_ports[1])
 	testing.expect_value(t, p_port.name, "P")
-	testing.expect(t, p_port.expr != nil, "explicit port expression missing")
-	testing.expect_value(t, module.ports[2].name, "")
-	testing.expect(t, module.ports[2].expr != nil, "concatenated port expression missing")
+	testing.expect(t, p_port.expr != main.SV_NONE, "explicit port expression missing")
+	last_port := main.sv_port(&ctx.ast, module_ports[2])
+	testing.expect_value(t, last_port.name, "")
+	testing.expect(t, last_port.expr != main.SV_NONE, "concatenated port expression missing")
 
 	alias_count := 0
 	defparam_count := 0
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVAlias:
+	for item in sv_items(&ctx, module) {
+		#partial switch sv_kind(&ctx, item) {
+		case .Item_Alias:
 			alias_count += 1
-			testing.expect_value(t, len(v.names), 2)
-		case ^main.SVDefparam:
+			alias_names := main.sv_children(&ctx.ast, main.sv_node(&ctx.ast, item).span)
+			testing.expect_value(t, len(alias_names), 2)
+		case .Item_Defparam:
 			defparam_count += 1
-			testing.expect_value(t, len(v.pairs), 2)
-			lhs := sv_select(t, v.pairs[0].lhs)
-			if lhs != nil {
-				testing.expect_value(t, len(lhs.parts), 1)
-				testing.expect_value(t, lhs.parts[0].member, "par")
+			pairs := main.sv_children(&ctx.ast, main.sv_node(&ctx.ast, item).span)
+			testing.expect_value(t, len(pairs), 2)
+			pair := main.sv_assign_pair(&ctx.ast, pairs[0])
+			_, parts, ok := sv_select(t, &ctx, pair.lhs)
+			if ok {
+				testing.expect_value(t, len(parts), 1)
+				testing.expect_value(t, main.sv_select_part(&ctx.ast, parts[0]).member, "par")
 			}
 		}
 	}
@@ -1669,16 +1763,18 @@ test_sv_alias_defparam_explicit_ports :: proc(t: ^testing.T) {
 	testing.expect_value(t, defparam_count, 1)
 
 	explicit := sv_module(t, &ctx, "ansi_explicit")
-	testing.expect_value(t, len(explicit.ports), 2)
-	p1 := sv_find_port(t, explicit, "P1")
+	testing.expect_value(t, len(sv_ports(&ctx, explicit)), 2)
+	p1 := sv_find_port(t, &ctx, explicit, "P1")
 	testing.expect_value(t, p1.dir, main.SVPortDir.OUTPUT)
-	testing.expect(t, p1.expr != nil, "ANSI explicit port expression missing")
-	p2 := sv_find_port(t, explicit, "P2")
+	testing.expect(t, p1.expr != main.SV_NONE, "ANSI explicit port expression missing")
+	p2 := sv_find_port(t, &ctx, explicit, "P2")
 	testing.expect_value(t, p2.dir, main.SVPortDir.INPUT)
-	testing.expect(t, p2.expr != nil, "ANSI explicit input port expression missing")
+	testing.expect(t, p2.expr != main.SV_NONE, "ANSI explicit input port expression missing")
 
-	testing.expect(t, sv_module(t, &ctx, "skips") != nil, "module with skipped constructs missing")
-	testing.expect(t, ctx.ast.package_hash_map["skip_pkg"] != nil, "package with covergroup missing")
+	skips_index, skips_found := ctx.ast.module_hash_map["skips"]
+	testing.expect(t, skips_found, "module with skipped constructs missing")
+	_, skip_pkg_found := ctx.ast.package_hash_map["skip_pkg"]
+	testing.expect(t, skip_pkg_found, "package with covergroup missing")
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1713,54 +1809,57 @@ test_sv_assertions_and_elab_tasks :: proc(t: ^testing.T) {
 	)
 	module := sv_single_module(t, &ctx, source)
 
-	assertions := make([dynamic]^main.SVAssert, context.temp_allocator)
-	calls := make([dynamic]^main.SVCall, context.temp_allocator)
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVAssert: append(&assertions, v)
-		case ^main.SVCall: append(&calls, v)
+	assertions := make([dynamic]u32, context.temp_allocator)
+	calls := make([dynamic]u32, context.temp_allocator)
+	for item in sv_items(&ctx, module) {
+		#partial switch sv_kind(&ctx, item) {
+		case .Stmt_Assert: append(&assertions, item)
+		case .Expr_Call: append(&calls, item)
 		}
 	}
 	testing.expect_value(t, len(assertions), 3)
-	testing.expect(t, assertions[0].is_property, "first module assertion should be a property")
-	testing.expect_value(t, assertions[0].kind, main.SVAssertKind.ASSERT)
-	testing.expect(t, len(assertions[0].property_text) > 0, "property text missing")
-	testing.expect(t, assertions[0].else_body != nil, "assertion else action missing")
-	testing.expect_value(t, assertions[1].kind, main.SVAssertKind.ASSUME)
-	testing.expect_value(t, assertions[2].kind, main.SVAssertKind.COVER)
+	first_assertion, _ := main.sv_stmt_assert(&ctx.ast, assertions[0])
+	testing.expect(t, first_assertion.is_property, "first module assertion should be a property")
+	testing.expect_value(t, first_assertion.kind, main.SVAssertKind.ASSERT)
+	testing.expect(t, len(first_assertion.property_text) > 0, "property text missing")
+	testing.expect(t, first_assertion.else_body != main.SV_NONE, "assertion else action missing")
+	second_assertion, _ := main.sv_stmt_assert(&ctx.ast, assertions[1])
+	testing.expect_value(t, second_assertion.kind, main.SVAssertKind.ASSUME)
+	third_assertion, _ := main.sv_stmt_assert(&ctx.ast, assertions[2])
+	testing.expect_value(t, third_assertion.kind, main.SVAssertKind.COVER)
 
 	testing.expect_value(t, len(calls), 1)
-	testing.expect_value(t, calls[0].name, "$warning")
+	warning_name, _, _, _ := main.sv_expr_call(&ctx.ast, calls[0])
+	testing.expect_value(t, warning_name, "$warning")
 
 	// `if (1) $fatal(...)` is a generate-if containing an elaboration task
 	found_elab_if := false
-	for item in module.items {
-		#partial switch v in item {
-		case ^main.SVGenIf:
-			found_elab_if = true
-			if v.then_blk != nil && len(v.then_blk.items) == 1 {
-				#partial switch inner in v.then_blk.items[0] {
-				case ^main.SVCall: testing.expect_value(t, inner.name, "$fatal")
-				}
-			}
+	for item in sv_items(&ctx, module) {
+		if sv_kind(&ctx, item) != .Item_GenIf { continue }
+		found_elab_if = true
+		gen_if, _ := main.sv_item_gen_if(&ctx.ast, item)
+		then_blk, then_ok := main.sv_gen_block(&ctx.ast, gen_if.then_blk)
+		if then_ok && len(then_blk.items) == 1 {
+			fatal_name, _, _, fatal_is_call := main.sv_expr_call(&ctx.ast, then_blk.items[0])
+			if fatal_is_call { testing.expect_value(t, fatal_name, "$fatal") }
 		}
 	}
 	testing.expect(t, found_elab_if, "generate-if with $fatal missing")
 
 	// immediate assertions inside the clocked block
-	ff := sv_proc(t, module, .ALWAYS_FF)
-	if ff != nil {
-		block := sv_block(t, ff.body)
-		if block != nil {
+	ff_id, ff := sv_proc(t, &ctx, module, .ALWAYS_FF)
+	if ff_id != main.SV_NONE {
+		block, block_ok := sv_block(t, &ctx, ff.body)
+		if block_ok {
 			testing.expect_value(t, len(block.stmts), 3)
-			first, ok := block.stmts[0].(^main.SVAssert)
+			first, ok := main.sv_stmt_assert(&ctx.ast, block.stmts[0])
 			testing.expect(t, ok && !first.is_property, "immediate assert missing")
 			if ok {
-				testing.expect(t, first.else_body != nil, "immediate assert else body missing")
+				testing.expect(t, first.else_body != main.SV_NONE, "immediate assert else body missing")
 			}
-			two, ok2 := block.stmts[1].(^main.SVAssert)
+			two, ok2 := main.sv_stmt_assert(&ctx.ast, block.stmts[1])
 			testing.expect(t, ok2 && !two.is_property, "assert final missing")
-			three, ok3 := block.stmts[2].(^main.SVAssert)
+			three, ok3 := main.sv_stmt_assert(&ctx.ast, block.stmts[2])
 			testing.expect(t, ok3 && !three.is_property, "deferred assert #0 missing")
 		}
 	}
@@ -1826,10 +1925,10 @@ test_sv_full_subset_smoke :: proc(t: ^testing.T) {
 	)
 	sv_test_parse(&ctx, source)
 	module := sv_module(t, &ctx, "smoke")
-	testing.expect(t, module != nil, "smoke module missing")
-	if module != nil {
-		testing.expect_value(t, len(module.params), 2)
-		testing.expect_value(t, len(module.ports), 4)
+	testing.expect(t, module.name == "smoke", "smoke module missing")
+	if module.name == "smoke" {
+		testing.expect_value(t, len(sv_params(&ctx, module)), 2)
+		testing.expect_value(t, len(sv_ports(&ctx, module)), 4)
 	}
 }
 
@@ -1881,41 +1980,45 @@ test_sv_practical_leniency :: proc(t: ^testing.T) {
 	sv_test_parse(&ctx, source)
 
 	module := sv_module(t, &ctx, "lenient")
-	testing.expect_value(t, len(module.params), 1)
-	testing.expect_value(t, len(module.ports), 3)
+	testing.expect_value(t, len(sv_params(&ctx, module)), 1)
+	testing.expect_value(t, len(sv_ports(&ctx, module)), 3)
 
-	assoc := sv_find_decl(t, module, "assoc")
-	testing.expect_value(t, len(assoc.declarators[0].unpacked_dims), 1)
+	_, assoc := sv_find_decl(t, &ctx, module, "assoc")
+	testing.expect_value(t, len(main.sv_declarator(&ctx.ast, assoc.declarators[0]).unpacked_dims), 1)
 
-	arr := sv_find_decl(t, module, "arr")
-	testing.expect_value(t, len(arr.data.packed_dims), 1)
+	_, arr := sv_find_decl(t, &ctx, module, "arr")
+	testing.expect_value(t, len(main.sv_data_type(&ctx.ast, arr.data).packed_dims), 1)
 
-	delayed := sv_find_decl(t, module, "delayed")
+	_, delayed := sv_find_decl(t, &ctx, module, "delayed")
 	testing.expect_value(t, delayed.net_type, main.SVNetType.WIRE)
 
-	legacy: ^main.SVSubroutine
-	for item in module.items {
-		if sub, ok := item.(^main.SVSubroutine); ok && sub.name == "legacy" { legacy = sub }
+	legacy_id := u32(main.SV_NONE)
+	for item in sv_items(&ctx, module) {
+		if sv_kind(&ctx, item) != .Item_Subroutine { continue }
+		sub, _ := main.sv_item_subroutine(&ctx.ast, item)
+		if sub.name == "legacy" { legacy_id = item }
 	}
-	testing.expect(t, legacy != nil, "legacy function missing")
-	if legacy != nil {
+	testing.expect(t, legacy_id != main.SV_NONE, "legacy function missing")
+	if legacy_id != main.SV_NONE {
+		legacy, _ := main.sv_item_subroutine(&ctx.ast, legacy_id)
 		testing.expect_value(t, len(legacy.ports), 2)
 	}
 
-	instance: ^main.SVInstance
-	for item in module.items {
-		if inst, ok := item.(^main.SVInstance); ok { instance = inst }
+	instance_id := u32(main.SV_NONE)
+	for item in sv_items(&ctx, module) {
+		if sv_kind(&ctx, item) == .Item_Instance { instance_id = item }
 	}
-	testing.expect(t, instance != nil, "instance missing")
-	if instance != nil {
+	testing.expect(t, instance_id != main.SV_NONE, "instance missing")
+	if instance_id != main.SV_NONE {
+		instance, _ := main.sv_item_instance(&ctx.ast, instance_id)
 		testing.expect_value(t, len(instance.port_conns), 2)
 	}
 
 	nonansi := sv_module(t, &ctx, "nonansi")
-	testing.expect_value(t, len(nonansi.ports), 2)
+	testing.expect_value(t, len(sv_ports(&ctx, nonansi)), 2)
 
 	dimports := sv_module(t, &ctx, "dimports")
-	dim_a := sv_find_port(t, dimports, "a")
+	dim_a := sv_find_port(t, &ctx, dimports, "a")
 	testing.expect_value(t, len(dim_a.unpacked_dims), 1)
 }
 
@@ -1945,7 +2048,7 @@ test_sv_comments_and_attributes :: proc(t: ^testing.T) {
 	sv_test_parse(&ctx, source, "sv_trivia.sv")
 
 	module := sv_module(t, &ctx, "trivia")
-	testing.expect_value(t, len(module.ports), 2)
+	testing.expect_value(t, len(sv_ports(&ctx, module)), 2)
 
 	testing.expect_value(t, len(ctx.ast.comments), 6)
 	testing.expect_value(t, ctx.ast.comments[0].text, "// top comment")
@@ -1998,11 +2101,86 @@ test_sv_parser_asic_subset_syntax :: proc(t: ^testing.T) {
 	testing.expect(t, ctx.ast.type_names["fwd_t"], "bare forward typedef")
 
 	forward_count := 0
-	for item in ctx.ast.items {
-		#partial switch v in item {
-		case ^main.SVTypeDecl:
-			if v.is_forward { forward_count += 1 }
-		}
+	for item in main.sv_children(&ctx.ast, ctx.ast.items) {
+		if sv_kind(&ctx, item) != .Item_TypeDecl { continue }
+		decl, _ := main.sv_item_type_decl(&ctx.ast, item)
+		if decl.is_forward { forward_count += 1 }
 	}
 	testing.expect_value(t, forward_count, 4)
+}
+
+// ---------------------------------------------------------------------------------------
+// Flat store: nodes crossing the fixed-size chunk boundary stay addressable
+// ---------------------------------------------------------------------------------------
+
+@(test)
+test_sv_flat_chunk_boundaries :: proc(t: ^testing.T) {
+	ctx: SVTestContext
+	sv_test_begin(&ctx)
+	defer virtual.arena_destroy(&ctx.arena)
+
+	b := strings.builder_make(context.temp_allocator)
+	strings.write_string(&b, "module many;\n")
+	for i in 0 ..< 2500 {
+		fmt.sbprintf(&b, "  wire w%d;\n", i)
+	}
+	strings.write_string(&b, "  assign tail = w2499;\nendmodule\n")
+	sv_test_parse(&ctx, strings.to_string(b))
+
+	testing.expectf(t, int(ctx.ast.node_count) > main.SV_CHUNK_SIZE, "expected more than %d nodes, got %d", main.SV_CHUNK_SIZE, ctx.ast.node_count)
+
+	module := sv_module(t, &ctx, "many")
+	_, last_decl := sv_find_decl(t, &ctx, module, "w2499")
+	testing.expect_value(t, last_decl.net_type, main.SVNetType.WIRE)
+	testing.expect_value(t, main.sv_declarator(&ctx.ast, last_decl.declarators[0]).name, "w2499")
+
+	rhs, found := sv_assign_rhs(t, &ctx, module, "tail")
+	testing.expect(t, found, "continuous assign across the chunk boundary missing")
+	if found {
+		name, is_ident := main.sv_expr_ident(&ctx.ast, rhs)
+		testing.expect(t, is_ident && name == "w2499", "identifier payload across the chunk boundary")
+	}
+}
+
+// Long child lists spill out of the parser's per-depth inline slots. The
+// overflow must be reset when that depth is reused, otherwise the next list at
+// the same depth reads stale entries from the previous one.
+@(test)
+test_sv_list_scratch_reuse :: proc(t: ^testing.T) {
+	ctx: SVTestContext
+	sv_test_begin(&ctx)
+	defer virtual.arena_destroy(&ctx.arena)
+
+	source := sv_src(
+		"module m;",
+		"  logic [7:0] a, y0, y1;",
+		"  assign y0 = {a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[0]};",
+		"  assign y1 = {a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[0], a[1]};",
+		"endmodule",
+	)
+	module := sv_single_module(t, &ctx, source)
+
+	cases := [?]struct {
+		name: string,
+		bit:  u32,
+	}{{"y0", 0}, {"y1", 1}}
+	for c in cases {
+		rhs, ok := sv_assign_rhs(t, &ctx, module, c.name)
+		if !ok { continue }
+		parts, count, concat_ok := main.sv_expr_concat(&ctx.ast, rhs)
+		testing.expectf(t, concat_ok, "%s: expected a concatenation", c.name)
+		if !concat_ok { continue }
+		testing.expectf(t, len(parts) == 9, "%s: expected 9 part ids, got %d", c.name, len(parts))
+		if len(parts) != 9 { continue }
+		// The ninth entry is the first one in the overflow buffer; a stale
+		// overflow would surface an entry from the previous concatenation here.
+		_, select_parts, select_ok := sv_select(t, &ctx, parts[8])
+		testing.expectf(t, select_ok && len(select_parts) == 1, "%s: ninth part should be a bit select", c.name)
+		if select_ok && len(select_parts) == 1 {
+			part := main.sv_select_part(&ctx.ast, select_parts[0])
+			testing.expect_value(t, part.kind, main.SVSelectKind.BIT)
+			num := sv_number(t, &ctx, part.first)
+			testing.expectf(t, num.value == u64(c.bit), "%s: expected bit %d", c.name, c.bit)
+		}
+	}
 }
