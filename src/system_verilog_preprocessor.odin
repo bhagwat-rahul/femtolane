@@ -52,7 +52,10 @@ svpp_push_include :: proc(pp: ^SVPreprocessor, path: string) {
 	data, err := os.read_entire_file_from_path(path, pp.allocator)
 	ensure(err == nil, fmt.tprint("SystemVerilog include read error: ", err, " ", path))
 	file_id := svpp_add_file(pp, data, path)
-	frame := SVPPFrame{tokenizer = svt_init(data, file_id), path = path}
+	frame := SVPPFrame {
+		tokenizer = svt_init(data, file_id),
+		path      = path,
+	}
 	frame.tokenizer.comment_sink = &pp.ast.comments
 	frame.tokenizer.path = path
 	append(&pp.sources, frame)
@@ -67,7 +70,10 @@ svpp_push_text :: proc(pp: ^SVPreprocessor, text: string, path: string, line: u3
 	data := transmute([]byte)text
 	append(&pp.source_data, SVSource{data = data, line_base = line, path = path})
 	file_id := u16(len(pp.source_data) - 1)
-	frame := SVPPFrame{tokenizer = svt_init(data, file_id), path = path}
+	frame := SVPPFrame {
+		tokenizer = svt_init(data, file_id),
+		path      = path,
+	}
 	frame.tokenizer.comment_sink = &pp.ast.comments
 	frame.tokenizer.path = path
 	frame.tokenizer.line = line
@@ -270,13 +276,12 @@ svpp_scan_macro_args :: proc(pp: ^SVPreprocessor) -> [dynamic]string {
 		case '}': brace_depth -= 1
 		case '[': bracket_depth += 1
 		case ']': bracket_depth -= 1
-		case ',':
-			if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 {
-				append(&args, strings.trim_space(string(l.src[arg_start:l.idx])))
-				svt_advance(l)
-				arg_start = l.idx
-				continue
-			}
+		case ',': if paren_depth == 0 && brace_depth == 0 && bracket_depth == 0 {
+					append(&args, strings.trim_space(string(l.src[arg_start:l.idx])))
+					svt_advance(l)
+					arg_start = l.idx
+					continue
+				}
 		}
 		svt_advance(l)
 	}
@@ -314,15 +319,13 @@ svpp_expand_text :: proc(pp: ^SVPreprocessor, def: SVDefine, args: [dynamic]stri
 			// Inline the built-in file/line macros. This preserves implicit token pasting
 			// such as `__foo`__LINE__`.
 			line_end := i + 1 + len("__LINE__")
-			if strings.has_prefix(body[i + 1:], "__LINE__") &&
-			   (line_end >= len(body) || !svt_is_ident_char(body[line_end])) {
+			if strings.has_prefix(body[i + 1:], "__LINE__") && (line_end >= len(body) || !svt_is_ident_char(body[line_end])) {
 				strings.write_string(&b, fmt.aprintf("%d", line, allocator = pp.allocator))
 				i = line_end
 				continue
 			}
 			file_end := i + 1 + len("__FILE__")
-			if strings.has_prefix(body[i + 1:], "__FILE__") &&
-			   (file_end >= len(body) || !svt_is_ident_char(body[file_end])) {
+			if strings.has_prefix(body[i + 1:], "__FILE__") && (file_end >= len(body) || !svt_is_ident_char(body[file_end])) {
 				strings.write_byte(&b, '"')
 				for c in path {
 					if c == '\\' || c == '"' { strings.write_byte(&b, '\\') }
@@ -402,7 +405,7 @@ svpp_expand_macro :: proc(pp: ^SVPreprocessor, name: string, tok: SVToken) {
 		args = svpp_scan_macro_args(pp)
 	}
 	line := pp.sources[len(pp.sources) - 1].tokenizer.line
-	text := svpp_expand_text(pp, def, args, line, pp.sources[len(pp.sources)-1].path)
+	text := svpp_expand_text(pp, def, args, line, pp.sources[len(pp.sources) - 1].path)
 	svpp_push_text(pp, text, pp.sources[len(pp.sources) - 1].path, line)
 }
 
@@ -442,18 +445,15 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 	active := svpp_active(pp)
 
 	switch name {
-	case "define":
-		if active { svpp_scan_define(pp) } else { svpp_skip_define_line(svpp_cur_tokenizer(pp)) }
-	case "undef":
-		if active {
-			l := svpp_cur_tokenizer(pp)
-			svt_skip_blank(l)
-			macro := svt_scan_ident(l)
-			if len(macro) > 0 { delete_key(&pp.ast.defines, macro) }
-			svt_skip_to_line_end(l)
-		} else { svt_skip_to_line_end(svpp_cur_tokenizer(pp)) }
-	case "undefineall":
-		if active { clear(&pp.ast.defines) }
+	case "define": if active { svpp_scan_define(pp) } else { svpp_skip_define_line(svpp_cur_tokenizer(pp)) }
+	case "undef": if active {
+				l := svpp_cur_tokenizer(pp)
+				svt_skip_blank(l)
+				macro := svt_scan_ident(l)
+				if len(macro) > 0 { delete_key(&pp.ast.defines, macro) }
+				svt_skip_to_line_end(l)
+			} else { svt_skip_to_line_end(svpp_cur_tokenizer(pp)) }
+	case "undefineall": if active { clear(&pp.ast.defines) }
 	case "ifdef", "ifndef":
 		l := svpp_cur_tokenizer(pp)
 		svt_skip_blank(l)
@@ -505,10 +505,23 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 		}
 		path := svpp_resolve_include(pp, include_path, pp.sources[len(pp.sources) - 1].path)
 		svpp_push_include(pp, path)
-	case "timescale", "default_nettype", "celldefine", "endcelldefine", "pragma",
-	     "resetall", "line", "begin_keywords", "end_keywords", "nounconnected_drive",
-	     "unconnected_drive", "default_decay_time", "default_trireg_strength",
-	     "delay_mode_distributed", "delay_mode_path", "delay_mode_unit", "delay_mode_zero":
+	case "timescale",
+		 "default_nettype",
+		 "celldefine",
+		 "endcelldefine",
+		 "pragma",
+		 "resetall",
+		 "line",
+		 "begin_keywords",
+		 "end_keywords",
+		 "nounconnected_drive",
+		 "unconnected_drive",
+		 "default_decay_time",
+		 "default_trireg_strength",
+		 "delay_mode_distributed",
+		 "delay_mode_path",
+		 "delay_mode_unit",
+		 "delay_mode_zero":
 		svt_skip_to_line_end(svpp_cur_tokenizer(pp))
 	case:
 		// `__FILE__ and `__LINE__ are built-ins, not entries in the define table.
@@ -549,7 +562,10 @@ svpp_preprocess :: proc(pp: ^SVPreprocessor, data: []byte, filepath: string) -> 
 		non_zero_reserve(&pp.tokens, len(data) / 8 + 64)
 	}
 	file_id := svpp_add_file(pp, data, filepath)
-	frame := SVPPFrame{tokenizer = svt_init(data, file_id), path = filepath}
+	frame := SVPPFrame {
+		tokenizer = svt_init(data, file_id),
+		path      = filepath,
+	}
 	frame.tokenizer.comment_sink = &pp.ast.comments
 	frame.tokenizer.path = filepath
 	append(&pp.sources, frame)

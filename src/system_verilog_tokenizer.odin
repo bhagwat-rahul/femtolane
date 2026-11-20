@@ -18,32 +18,94 @@ literal lossless.
 package main
 
 import "base:intrinsics"
-import "core:fmt"
 import "base:runtime"
+import "core:fmt"
 import "core:simd"
 import "core:strconv"
 import "core:strings"
 
 SVTokenKind :: enum u8 {
-	Invalid, EOF,
-
-	Ident, EscapedIdent, SystemIdent, Number, String,
+	Invalid,
+	EOF,
+	Ident,
+	EscapedIdent,
+	SystemIdent,
+	Number,
+	String,
 	Directive, // `name (compiler directive or macro invocation)
 	Backtick, // lone ` (macro token pasting)
-
-	LParen, RParen, LBracket, RBracket, LBrace, RBrace, Comma, Semicolon,
-	Colon, ColonColon, Dot, DotStar, Hash, At, Tick, Question,
-
+	LParen,
+	RParen,
+	LBracket,
+	RBracket,
+	LBrace,
+	RBrace,
+	Comma,
+	Semicolon,
+	Colon,
+	ColonColon,
+	Dot,
+	DotStar,
+	Hash,
+	At,
+	Tick,
+	Question,
 	AttrStart, // (*
 	AttrEnd, // *)
-
-	Assign, Plus, Minus, Star, Slash, Percent, Pow, Amp,
-	Pipe, Caret, Tilde, Bang, Lt, Gt, Le, Ge,
-	EqEq, NotEq, CaseEq, CaseNeq, WildEq, WildNeq, Shl, Shr,
-	Ashl, Ashr, AmpAmp, PipePipe, Inc, Dec, PlusEq, MinusEq,
-	StarEq, SlashEq, PercentEq, AmpEq, PipeEq, CaretEq, ShlEq, ShrEq,
-	AshlEq, AshrEq, PlusColon, MinusColon, Arrow, FatArrow, StarGt, PipeArrow,
-	PipeFatArrow, HashHash, TildeAmp, TildePipe, CaretTilde, TildeCaret,
+	Assign,
+	Plus,
+	Minus,
+	Star,
+	Slash,
+	Percent,
+	Pow,
+	Amp,
+	Pipe,
+	Caret,
+	Tilde,
+	Bang,
+	Lt,
+	Gt,
+	Le,
+	Ge,
+	EqEq,
+	NotEq,
+	CaseEq,
+	CaseNeq,
+	WildEq,
+	WildNeq,
+	Shl,
+	Shr,
+	Ashl,
+	Ashr,
+	AmpAmp,
+	PipePipe,
+	Inc,
+	Dec,
+	PlusEq,
+	MinusEq,
+	StarEq,
+	SlashEq,
+	PercentEq,
+	AmpEq,
+	PipeEq,
+	CaretEq,
+	ShlEq,
+	ShrEq,
+	AshlEq,
+	AshrEq,
+	PlusColon,
+	MinusColon,
+	Arrow,
+	FatArrow,
+	StarGt,
+	PipeArrow,
+	PipeFatArrow,
+	HashHash,
+	TildeAmp,
+	TildePipe,
+	CaretTilde,
+	TildeCaret,
 }
 
 SVToken :: struct #packed {
@@ -90,16 +152,18 @@ svt_is_space :: #force_inline proc(c: byte) -> bool { return c == ' ' || c == '\
 svt_is_newline :: #force_inline proc(c: byte) -> bool { return c == '\n' || c == '\r' }
 svt_is_digit :: #force_inline proc "contextless" (c: byte) -> bool { return c >= '0' && c <= '9' }
 svt_is_ident_start :: #force_inline proc "contextless" (c: byte) -> bool { return c == '_' || (c | 0x20) >= 'a' && (c | 0x20) <= 'z' }
-svt_is_ident_char :: #force_inline proc "contextless" (c: byte) -> bool { return c == '_' || c == '$' || (c | 0x20) >= 'a' && (c | 0x20) <= 'z' || (c >= '0' && c <= '9') }
+svt_is_ident_char :: #force_inline proc "contextless" (c: byte) -> bool {return(
+		c == '_' ||
+		c == '$' ||
+		(c | 0x20) >= 'a' && (c | 0x20) <= 'z' ||
+		(c >= '0' && c <= '9') \
+	)}
 
 svt_ident_char_lut: [256]bool
 svt_simple_token_lut: [256]SVTokenKind
 
 SV_IDENT_LANES :: 16
-sv_simd_lower: simd.u8x16 = {
-	0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-	0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-}
+sv_simd_lower: simd.u8x16 = {0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20}
 sv_simd_a: simd.u8x16 = {'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a', 'a'}
 sv_simd_z: simd.u8x16 = {'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z', 'z'}
 sv_simd_0: simd.u8x16 = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'}
@@ -123,16 +187,20 @@ svt_lut_init :: proc "contextless" () {
 	svt_simple_token_lut['@'] = .At
 	svt_simple_token_lut['?'] = .Question
 }
-svt_is_base_char :: #force_inline proc(c: byte) -> bool { return c == 'b' || c == 'B' || c == 'o' || c == 'O' || c == 'd' || c == 'D' || c == 'h' || c == 'H' }
+svt_is_base_char :: #force_inline proc(c: byte) -> bool {return(
+		c == 'b' ||
+		c == 'B' ||
+		c == 'o' ||
+		c == 'O' ||
+		c == 'd' ||
+		c == 'D' ||
+		c == 'h' ||
+		c == 'H' \
+	)}
 
 svt_record_comment :: #force_inline proc(l: ^SVTokenizer, start, end: int, line: u32, is_block: bool) {
 	if l.comment_sink == nil { return }
-	append(l.comment_sink, SVComment{
-		text = string(l.src[start:end]),
-		path = l.path,
-		line = line,
-		is_block = is_block,
-	})
+	append(l.comment_sink, SVComment{text = string(l.src[start:end]), path = l.path, line = line, is_block = is_block})
 }
 
 svt_skip_comment :: #force_no_inline proc(l: ^SVTokenizer, start: int) -> int {
@@ -167,43 +235,41 @@ svt_skip_comment :: #force_no_inline proc(l: ^SVTokenizer, start: int) -> int {
 
 svt_skip_trivia :: #force_inline proc(l: ^SVTokenizer) {
 	#no_bounds_check {
-	src := l.src
-	n := len(src)
-	i := l.idx
-	for i < n {
-		c := src[i]
-		switch {
-		case c == ' ' || c == '\t' || c == '\v' || c == '\f':
-			i += 1
-			// Indentation is usually a run of spaces. Check eight at a time and
-			// locate the first non-space with the standard per-byte zero mask.
-			for i + 8 <= n && src[i] == ' ' {
-				v := intrinsics.unaligned_load((^u64)(&src[i]))
-				x := v ~ u64(0x2020202020202020)
-				t := ((x & 0x7f7f7f7f7f7f7f7f) + 0x7f7f7f7f7f7f7f7f)
-				nz := (t | x) & 0x8080808080808080
-				if nz == 0 {
-					i += 8
-					continue
+		src := l.src
+		n := len(src)
+		i := l.idx
+		for i < n {
+			c := src[i]
+			switch {
+			case c == ' ' || c == '\t' || c == '\v' || c == '\f':
+				i += 1
+				// Indentation is usually a run of spaces. Check eight at a time and
+				// locate the first non-space with the standard per-byte zero mask.
+				for i + 8 <= n && src[i] == ' ' {
+					v := intrinsics.unaligned_load((^u64)(&src[i]))
+					x := v ~ u64(0x2020202020202020)
+					t := ((x & 0x7f7f7f7f7f7f7f7f) + 0x7f7f7f7f7f7f7f7f)
+					nz := (t | x) & 0x8080808080808080
+					if nz == 0 {
+						i += 8
+						continue
+					}
+					i += int(intrinsics.count_trailing_zeros(nz)) >> 3
+					break
 				}
-				i += int(intrinsics.count_trailing_zeros(nz)) >> 3
-				break
+				for i < n && (src[i] == ' ' || src[i] == '\t' || src[i] == '\v' || src[i] == '\f') { i += 1 }
+			case c == '\r': // CRLF/CL counts as one line: only '\n' increments the line counter.
+					i += 1
+			case c == '\n':
+				l.line += 1
+				i += 1
+			case c == '/' && i + 1 < n && (src[i + 1] == '/' || src[i + 1] == '*'): i = svt_skip_comment(l, i)
+			case:
+				l.idx = i
+				return
 			}
-			for i < n && (src[i] == ' ' || src[i] == '\t' || src[i] == '\v' || src[i] == '\f') { i += 1 }
-		case c == '\r':
-			// CRLF/CL counts as one line: only '\n' increments the line counter.
-			i += 1
-		case c == '\n':
-			l.line += 1
-			i += 1
-		case c == '/' && i + 1 < n && (src[i + 1] == '/' || src[i + 1] == '*'):
-			i = svt_skip_comment(l, i)
-		case:
-			l.idx = i
-			return
 		}
-	}
-	l.idx = i
+		l.idx = i
 
 	}}
 
@@ -225,30 +291,30 @@ svt_scan_escaped_ident :: proc(l: ^SVTokenizer) -> string {
 
 svt_scan_ident :: #force_inline proc(l: ^SVTokenizer) -> string {
 	#no_bounds_check {
-	src := l.src
-	n := len(src)
-	start := l.idx
-	i := start
-	when simd.HAS_HARDWARE_SIMD {
-		for i + SV_IDENT_LANES <= n {
-			#no_bounds_check v := intrinsics.unaligned_load((^simd.u8x16)(&src[i]))
-			lower := v | sv_simd_lower
-			is_alpha := simd.lanes_ge(lower, sv_simd_a) & simd.lanes_le(lower, sv_simd_z)
-			is_digit := simd.lanes_ge(v, sv_simd_0) & simd.lanes_le(v, sv_simd_9)
-			is_us := simd.lanes_eq(v, sv_simd_us) | simd.lanes_eq(v, sv_simd_dollar)
-			bits := transmute(u16)(simd.extract_msbs(is_alpha | is_digit | is_us))
-			if bits == 0xFFFF {
-				i += SV_IDENT_LANES
-				continue
+		src := l.src
+		n := len(src)
+		start := l.idx
+		i := start
+		when simd.HAS_HARDWARE_SIMD {
+			for i + SV_IDENT_LANES <= n {
+				#no_bounds_check v := intrinsics.unaligned_load((^simd.u8x16)(&src[i]))
+				lower := v | sv_simd_lower
+				is_alpha := simd.lanes_ge(lower, sv_simd_a) & simd.lanes_le(lower, sv_simd_z)
+				is_digit := simd.lanes_ge(v, sv_simd_0) & simd.lanes_le(v, sv_simd_9)
+				is_us := simd.lanes_eq(v, sv_simd_us) | simd.lanes_eq(v, sv_simd_dollar)
+				bits := transmute(u16)(simd.extract_msbs(is_alpha | is_digit | is_us))
+				if bits == 0xFFFF {
+					i += SV_IDENT_LANES
+					continue
+				}
+				i += int(intrinsics.count_trailing_zeros(~bits))
+				l.idx = i
+				return string(src[start:i])
 			}
-			i += int(intrinsics.count_trailing_zeros(~bits))
-			l.idx = i
-			return string(src[start:i])
 		}
-	}
-	for i < n && svt_ident_char_lut[src[i]] { i += 1 }
-	l.idx = i
-	return string(src[start:i])
+		for i < n && svt_ident_char_lut[src[i]] { i += 1 }
+		l.idx = i
+		return string(src[start:i])
 
 	}}
 
@@ -312,73 +378,72 @@ svt_scan_based_body :: #force_inline proc(l: ^SVTokenizer, start, i_in: int) -> 
 // Raw text is preserved; decoding happens when the token becomes an SVNumber.
 svt_scan_number :: #force_inline proc(l: ^SVTokenizer) -> string {
 	#no_bounds_check {
-	src := l.src
-	n := len(src)
-	start := l.idx
-	i := start
-	if src[i] == '\'' {
-		// Unsized based literal ('hFF) or unbased literal ('0/'1/'x/'z).
-		i += 1
-		if i < n && (src[i] == 's' || src[i] == 'S') { i += 1 }
-		if i < n && svt_is_base_char(src[i]) {
+		src := l.src
+		n := len(src)
+		start := l.idx
+		i := start
+		if src[i] == '\'' {
+			// Unsized based literal ('hFF) or unbased literal ('0/'1/'x/'z).
 			i += 1
-			return svt_scan_based_body(l, start, i)
+			if i < n && (src[i] == 's' || src[i] == 'S') { i += 1 }
+			if i < n && svt_is_base_char(src[i]) {
+				i += 1
+				return svt_scan_based_body(l, start, i)
+			}
+			if i < n {
+				c := src[i]
+				if c == '0' || c == '1' || c == 'x' || c == 'X' || c == 'z' || c == 'Z' || c == '?' { i += 1 }
+			}
+			l.idx = i
+			return string(src[start:i])
 		}
-		if i < n {
-			c := src[i]
-			if c == '0' || c == '1' || c == 'x' || c == 'X' || c == 'z' || c == 'Z' || c == '?' { i += 1 }
+
+		// Fast path: a plain decimal integer followed by a byte that cannot extend the
+		// literal. This is the common case for indices, replication counts and delays.
+		for i < n && svt_is_digit(src[i]) { i += 1 }
+		if i >= n || (src[i] != '_' && src[i] != '\'' && src[i] != '.' && src[i] != 'e' && src[i] != 'E' && !svt_is_ident_char(src[i])) {
+			l.idx = i
+			return string(src[start:i])
+		}
+		i = start
+		for i < n && (svt_is_digit(src[i]) || src[i] == '_') { i += 1 }
+		if i + 1 < n && src[i] == '.' && svt_is_digit(src[i + 1]) {
+			i += 1
+			for i < n && (svt_is_digit(src[i]) || src[i] == '_') { i += 1 }
+		}
+		if i + 1 < n &&
+		   (src[i] == 'e' || src[i] == 'E') &&
+		   (svt_is_digit(src[i + 1]) || (i + 2 < n && (src[i + 1] == '+' || src[i + 1] == '-') && svt_is_digit(src[i + 2]))) {
+			i += 1
+			if i < n && (src[i] == '+' || src[i] == '-') { i += 1 }
+			for i < n && (svt_is_digit(src[i]) || src[i] == '_') { i += 1 }
+		}
+
+		// Sized based literal: 12'hFF, 8'sd10. A macro-expanded size is handled by the
+		// parser by joining adjacent number tokens.
+		if i + 1 < n && src[i] == '\'' {
+			if (src[i + 1] == 's' || src[i + 1] == 'S') && i + 2 < n && svt_is_base_char(src[i + 2]) {
+				i += 3 // ' s base
+				return svt_scan_based_body(l, start, i)
+			}
+			if svt_is_base_char(src[i + 1]) {
+				i += 2 // ' base
+				return svt_scan_based_body(l, start, i)
+			}
+		}
+
+		// Optional time unit suffix (s, ms, us, ns, ps, fs), no whitespace between.
+		unit_start := i
+		for i < n && svt_ident_char_lut[src[i]] { i += 1 }
+		unit := string(src[unit_start:i])
+		if len(unit) == 0 { l.idx = i; return string(src[start:i]) }
+		switch unit {
+		case "s", "ms", "us", "ns", "ps", "fs":
+		// keep it in the token
+		case: i = unit_start
 		}
 		l.idx = i
 		return string(src[start:i])
-	}
-
-	// Fast path: a plain decimal integer followed by a byte that cannot extend the
-	// literal. This is the common case for indices, replication counts and delays.
-	for i < n && svt_is_digit(src[i]) { i += 1 }
-	if i >= n || (src[i] != '_' && src[i] != '\'' && src[i] != '.' && src[i] != 'e' && src[i] != 'E' && !svt_is_ident_char(src[i])) {
-		l.idx = i
-		return string(src[start:i])
-	}
-	i = start
-	for i < n && (svt_is_digit(src[i]) || src[i] == '_') { i += 1 }
-	if i + 1 < n && src[i] == '.' && svt_is_digit(src[i + 1]) {
-		i += 1
-		for i < n && (svt_is_digit(src[i]) || src[i] == '_') { i += 1 }
-	}
-	if i + 1 < n && (src[i] == 'e' || src[i] == 'E') &&
-	   (svt_is_digit(src[i + 1]) ||
-	    (i + 2 < n && (src[i + 1] == '+' || src[i + 1] == '-') && svt_is_digit(src[i + 2]))) {
-		i += 1
-		if i < n && (src[i] == '+' || src[i] == '-') { i += 1 }
-		for i < n && (svt_is_digit(src[i]) || src[i] == '_') { i += 1 }
-	}
-
-	// Sized based literal: 12'hFF, 8'sd10. A macro-expanded size is handled by the
-	// parser by joining adjacent number tokens.
-	if i + 1 < n && src[i] == '\'' {
-		if (src[i + 1] == 's' || src[i + 1] == 'S') && i + 2 < n && svt_is_base_char(src[i + 2]) {
-			i += 3 // ' s base
-			return svt_scan_based_body(l, start, i)
-		}
-		if svt_is_base_char(src[i + 1]) {
-			i += 2 // ' base
-			return svt_scan_based_body(l, start, i)
-		}
-	}
-
-	// Optional time unit suffix (s, ms, us, ns, ps, fs), no whitespace between.
-	unit_start := i
-	for i < n && svt_ident_char_lut[src[i]] { i += 1 }
-	unit := string(src[unit_start:i])
-	if len(unit) == 0 { l.idx = i; return string(src[start:i]) }
-	switch unit {
-	case "s", "ms", "us", "ns", "ps", "fs":
-	// keep it in the token
-	case:
-		i = unit_start
-	}
-	l.idx = i
-	return string(src[start:i])
 
 	}}
 
@@ -450,8 +515,13 @@ svt_next :: #force_inline proc(l: ^SVTokenizer) -> SVToken {
 	case c == '\'':
 		if svt_is_base_char(svt_peek(l, 1)) ||
 		   ((svt_peek(l, 1) == 's' || svt_peek(l, 1) == 'S') && svt_is_base_char(svt_peek(l, 2))) ||
-		   svt_is_digit(svt_peek(l, 1)) || svt_peek(l, 1) == '0' || svt_peek(l, 1) == '1' ||
-		   svt_peek(l, 1) == 'x' || svt_peek(l, 1) == 'X' || svt_peek(l, 1) == 'z' || svt_peek(l, 1) == 'Z' {
+		   svt_is_digit(svt_peek(l, 1)) ||
+		   svt_peek(l, 1) == '0' ||
+		   svt_peek(l, 1) == '1' ||
+		   svt_peek(l, 1) == 'x' ||
+		   svt_peek(l, 1) == 'X' ||
+		   svt_peek(l, 1) == 'z' ||
+		   svt_peek(l, 1) == 'Z' {
 			text := svt_scan_number(l)
 			svt_check_token_len(l, text)
 			return SVToken{off = u32(start), len = u16(len(text)), file = l.file_id, kind = .Number}
@@ -464,8 +534,7 @@ svt_next :: #force_inline proc(l: ^SVTokenizer) -> SVToken {
 		if len(text) > 0xFFFF { svt_error(l, "string literal too long") }
 		quote_len := 3 if triple else 1
 		return SVToken{off = u32(start + quote_len), len = u16(len(text)), file = l.file_id, kind = .String}
-	case c == '`':
-		return svt_scan_directive(l)
+	case c == '`': return svt_scan_directive(l)
 	}
 
 	// Operators and punctuation.
@@ -621,8 +690,7 @@ sv_keyword_spelling :: proc "contextless" (name: string) -> string {
 			if i > 0 { prev = name[i - 1] }
 			next: byte
 			if i + 1 < len(name) { next = name[i + 1] }
-			if i > 0 && (prev >= 'a' && prev <= 'z' || prev >= '0' && prev <= '9' ||
-			   (prev >= 'A' && prev <= 'Z' && next >= 'a' && next <= 'z')) {
+			if i > 0 && (prev >= 'a' && prev <= 'z' || prev >= '0' && prev <= '9' || (prev >= 'A' && prev <= 'Z' && next >= 'a' && next <= 'z')) {
 				sv_keyword_name_buf[sv_keyword_name_off] = '_'
 				sv_keyword_name_off += 1
 			}
@@ -651,7 +719,11 @@ sv_keyword_lut_init :: proc "contextless" () {
 		h := sv_keyword_hash(spelling)
 		idx := int(h) & SVKeyword_LUT_Mask
 		for sv_keyword_lut[idx].name != "" { idx = (idx + 1) & SVKeyword_LUT_Mask }
-		sv_keyword_lut[idx] = SVKeyword_LUT_Entry{hash = h, keyword = kw, name = spelling}
+		sv_keyword_lut[idx] = SVKeyword_LUT_Entry {
+			hash    = h,
+			keyword = kw,
+			name    = spelling,
+		}
 		c := spelling[0]
 		if c >= 'a' && c <= 'z' {
 			sv_keyword_lens[c - 'a'] |= 1 << uint(len(spelling))
@@ -687,37 +759,254 @@ sv_keyword_name :: proc(kw: SVKeyword) -> string {
 // ---------------------------------------------------------------------------------------
 
 SVKeyword :: enum u8 {
-	None, AcceptOn, Alias, Always, AlwaysComb, AlwaysFf, AlwaysLatch, And,
-	Assert, Assign, Assume, Automatic, Before, Begin, Bind, Bins,
-	Binsof, Bit, Break, Buf, Bufif0, Bufif1, Byte, Case,
-	Casex, Casez, Cell, Chandle, Checker, Class, Clocking, Cmos,
-	Config, Const, Constraint, Context, Continue, Cover, Covergroup, Coverpoint,
-	Cross, Deassign, Default, Defparam, Design, Disable, Dist, Do,
-	Edge, Else, End, Endcase, Endchecker, Endclass, Endclocking, Endconfig,
-	Endfunction, Endgenerate, Endgroup, Endinterface, Endmodule, Endpackage, Endprimitive, Endprogram,
-	Endproperty, Endspecify, Endsequence, Endtable, Endtask, Enum, Event, Eventually,
-	Expect, Export, Extends, Extern, Final, FirstMatch, For, Force,
-	Foreach, Forever, Fork, Forkjoin, Function, Generate, Genvar, Global,
-	Highz0, Highz1, If, Iff, Ifnone, IgnoreBins, IllegalBins, Implements,
-	Implies, Import, Incdir, Include, Initial, Inout, Input, Inside,
-	Instance, Int, Integer, Interconnect, Interface, Intersect, Join, JoinAny,
-	JoinNone, Large, Let, Liblist, Library, Local, Localparam, Logic,
-	Longint, Macromodule, Matches, Medium, Modport, Module, Nand, Negedge,
-	Nettype, New, Nexttime, Nmos, Nor, Noshowcancelled, Not, Notif0,
-	Notif1, Null, Or, Output, Package, Packed, Parameter, Pmos,
-	Posedge, Primitive, Priority, Program, Property, Protected, Pull0, Pull1,
-	Pulldown, Pullup, PulsestyleOndetect, PulsestyleOnevent, Pure, Rand, Randc, Randcase,
-	Randsequence, Rcmos, Real, Realtime, Ref, Reg, RejectOn, Release,
-	Repeat, Restrict, Return, Rnmos, Rpmos, Rtran, Rtranif0, Rtranif1,
-	SAlways, SEventually, SNexttime, SUntil, SUntilWith, Scalared, Sequence, Shortint,
-	Shortreal, Showcancelled, Signed, Small, Soft, Solve, Specify, Specparam,
-	Static, String, Strong, Strong0, Strong1, Struct, Super, Supply0,
-	Supply1, SyncAcceptOn, SyncRejectOn, Table, Tagged, Task, This, Throughout,
-	Time, Timeprecision, Timeunit, Tran, Tranif0, Tranif1, Tri, Tri0,
-	Tri1, Triand, Trior, Trireg, Type, Typedef, Union, Unique,
-	Unique0, Unsigned, Until, UntilWith, Untyped, Use, Uwire, Var,
-	Vectored, Virtual, Void, Wait, WaitOrder, Wand, Weak, Weak0,
-	Weak1, While, Wildcard, Wire, With, Within, Wor, Xnor,
+	None,
+	AcceptOn,
+	Alias,
+	Always,
+	AlwaysComb,
+	AlwaysFf,
+	AlwaysLatch,
+	And,
+	Assert,
+	Assign,
+	Assume,
+	Automatic,
+	Before,
+	Begin,
+	Bind,
+	Bins,
+	Binsof,
+	Bit,
+	Break,
+	Buf,
+	Bufif0,
+	Bufif1,
+	Byte,
+	Case,
+	Casex,
+	Casez,
+	Cell,
+	Chandle,
+	Checker,
+	Class,
+	Clocking,
+	Cmos,
+	Config,
+	Const,
+	Constraint,
+	Context,
+	Continue,
+	Cover,
+	Covergroup,
+	Coverpoint,
+	Cross,
+	Deassign,
+	Default,
+	Defparam,
+	Design,
+	Disable,
+	Dist,
+	Do,
+	Edge,
+	Else,
+	End,
+	Endcase,
+	Endchecker,
+	Endclass,
+	Endclocking,
+	Endconfig,
+	Endfunction,
+	Endgenerate,
+	Endgroup,
+	Endinterface,
+	Endmodule,
+	Endpackage,
+	Endprimitive,
+	Endprogram,
+	Endproperty,
+	Endspecify,
+	Endsequence,
+	Endtable,
+	Endtask,
+	Enum,
+	Event,
+	Eventually,
+	Expect,
+	Export,
+	Extends,
+	Extern,
+	Final,
+	FirstMatch,
+	For,
+	Force,
+	Foreach,
+	Forever,
+	Fork,
+	Forkjoin,
+	Function,
+	Generate,
+	Genvar,
+	Global,
+	Highz0,
+	Highz1,
+	If,
+	Iff,
+	Ifnone,
+	IgnoreBins,
+	IllegalBins,
+	Implements,
+	Implies,
+	Import,
+	Incdir,
+	Include,
+	Initial,
+	Inout,
+	Input,
+	Inside,
+	Instance,
+	Int,
+	Integer,
+	Interconnect,
+	Interface,
+	Intersect,
+	Join,
+	JoinAny,
+	JoinNone,
+	Large,
+	Let,
+	Liblist,
+	Library,
+	Local,
+	Localparam,
+	Logic,
+	Longint,
+	Macromodule,
+	Matches,
+	Medium,
+	Modport,
+	Module,
+	Nand,
+	Negedge,
+	Nettype,
+	New,
+	Nexttime,
+	Nmos,
+	Nor,
+	Noshowcancelled,
+	Not,
+	Notif0,
+	Notif1,
+	Null,
+	Or,
+	Output,
+	Package,
+	Packed,
+	Parameter,
+	Pmos,
+	Posedge,
+	Primitive,
+	Priority,
+	Program,
+	Property,
+	Protected,
+	Pull0,
+	Pull1,
+	Pulldown,
+	Pullup,
+	PulsestyleOndetect,
+	PulsestyleOnevent,
+	Pure,
+	Rand,
+	Randc,
+	Randcase,
+	Randsequence,
+	Rcmos,
+	Real,
+	Realtime,
+	Ref,
+	Reg,
+	RejectOn,
+	Release,
+	Repeat,
+	Restrict,
+	Return,
+	Rnmos,
+	Rpmos,
+	Rtran,
+	Rtranif0,
+	Rtranif1,
+	SAlways,
+	SEventually,
+	SNexttime,
+	SUntil,
+	SUntilWith,
+	Scalared,
+	Sequence,
+	Shortint,
+	Shortreal,
+	Showcancelled,
+	Signed,
+	Small,
+	Soft,
+	Solve,
+	Specify,
+	Specparam,
+	Static,
+	String,
+	Strong,
+	Strong0,
+	Strong1,
+	Struct,
+	Super,
+	Supply0,
+	Supply1,
+	SyncAcceptOn,
+	SyncRejectOn,
+	Table,
+	Tagged,
+	Task,
+	This,
+	Throughout,
+	Time,
+	Timeprecision,
+	Timeunit,
+	Tran,
+	Tranif0,
+	Tranif1,
+	Tri,
+	Tri0,
+	Tri1,
+	Triand,
+	Trior,
+	Trireg,
+	Type,
+	Typedef,
+	Union,
+	Unique,
+	Unique0,
+	Unsigned,
+	Until,
+	UntilWith,
+	Untyped,
+	Use,
+	Uwire,
+	Var,
+	Vectored,
+	Virtual,
+	Void,
+	Wait,
+	WaitOrder,
+	Wand,
+	Weak,
+	Weak0,
+	Weak1,
+	While,
+	Wildcard,
+	Wire,
+	With,
+	Within,
+	Wor,
+	Xnor,
 	Xor,
 }
 
