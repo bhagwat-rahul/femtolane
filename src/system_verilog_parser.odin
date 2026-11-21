@@ -30,7 +30,6 @@ SVParser2 :: struct {
 	iface:          u32, // index into ast.interfaces, SV_NONE when outside an interface
 	port_map:       map[string]u32, // port name -> port node id for the open module/interface
 	port_map_ready: bool,
-	filepath:       string,
 
 	// Child-list scratch storage, one slot per open nesting depth. Short lists
 	// stay entirely inline; only lists over SV_LIST_INLINE spill to the overflow
@@ -1631,13 +1630,12 @@ svp_parse_number_slow :: proc(p: ^SVParser2) -> u32 {
 // Entry point
 // ---------------------------------------------------------------------------------------
 
-svp_parse_tokens :: proc(ast: ^SystemVerilogAST, toks: []SVToken, sources: []SVSource, filepath: string, allocator: mem.Allocator) {
+svp_parse_tokens :: proc(ast: ^SystemVerilogAST, toks: []SVToken, sources: []SVSource, allocator: mem.Allocator) {
 	p := SVParser2 {
 		toks      = toks,
 		sources   = sources,
 		ast       = ast,
 		allocator = allocator,
-		filepath  = filepath,
 		module    = SV_NONE,
 		iface     = SV_NONE,
 	}
@@ -1835,7 +1833,6 @@ svp_parse_module :: proc(p: ^SVParser2) -> u32 {
 	append(&p.ast.modules, SVModule{})
 	name := svp_expect_ident(p)
 	p.ast.modules[module_index].name = name
-	p.ast.modules[module_index].source_path = p.filepath
 	p.module = module_index
 	for svp_kw_at(p, .Import) { svp_add_imports(p, .Module, module_index) }
 	if svp_at(p, .Hash) {
@@ -2286,27 +2283,18 @@ svp_parse_port_declaration :: proc(p: ^SVParser2, dir: SVPortDir) -> u32 {
 			port, found := p.port_map[dname]
 			if !found {
 				port = svp_port_new(p)
-				pn := svn(p, port)
-				pn.b = svp_str(p, dname)
-				pn.flags |= u16(dir) & SVF_DIR_MASK
-				pn.flags |= (u16(net_type) << SVF_NET_SHIFT) & SVF_NET_MASK
-				if given_data { pn.a = data }
-				pn.span = dn.span
-				extra := svp_port_extra(p, port)
-				extra.default_value = dn.b
-				svp_port_set_extra(p, port, extra)
 				p.port_map[dname] = port
-			} else {
-				pn := svn(p, port)
-				pn.flags &~= (SVF_DIR_MASK | SVF_NET_MASK)
-				pn.flags |= u16(dir) & SVF_DIR_MASK
-				pn.flags |= (u16(net_type) << SVF_NET_SHIFT) & SVF_NET_MASK
-				if given_data { pn.a = data }
-				pn.span = dn.span
-				extra := svp_port_extra(p, port)
-				extra.default_value = dn.b
-				svp_port_set_extra(p, port, extra)
 			}
+			pn := svn(p, port)
+			if found { pn.flags &~= (SVF_DIR_MASK | SVF_NET_MASK) }
+			if !found { pn.b = svp_str(p, dname) }
+			pn.flags |= u16(dir) & SVF_DIR_MASK
+			pn.flags |= (u16(net_type) << SVF_NET_SHIFT) & SVF_NET_MASK
+			if given_data { pn.a = data }
+			pn.span = dn.span
+			extra := svp_port_extra(p, port)
+			extra.default_value = dn.b
+			svp_port_set_extra(p, port, extra)
 		}
 	}
 	node := svp_node(p, .Item_PortDecl)
@@ -3845,7 +3833,7 @@ svp_parse_source_to_ast :: proc(data: []byte, filepath: string, ast: ^SystemVeri
 	}
 	pp := svpp_init(ast, allocator)
 	toks := svpp_preprocess(&pp, data, filepath)
-	svp_parse_tokens(ast, toks, pp.source_data[:], filepath, allocator)
+	svp_parse_tokens(ast, toks, pp.source_data[:], allocator)
 }
 
 svp_parse_gen_block_after_begin :: proc(p: ^SVParser2, label: string) -> u32 {

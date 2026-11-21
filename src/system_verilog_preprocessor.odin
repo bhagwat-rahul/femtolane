@@ -16,7 +16,6 @@ import "core:strings"
 
 SVPPFrame :: struct {
 	tokenizer: SVTokenizer,
-	path:      string,
 }
 
 SVCond :: struct {
@@ -43,43 +42,29 @@ svpp_active :: #force_inline proc(pp: ^SVPreprocessor) -> bool {
 	return len(pp.cond_stack) == 0 || pp.cond_stack[len(pp.cond_stack) - 1].active
 }
 
-svpp_add_file :: proc(pp: ^SVPreprocessor, data: []byte, path: string) -> u16 {
-	append(&pp.source_data, SVSource{data = data, line_base = 1, path = path})
-	return u16(len(pp.source_data) - 1)
+svpp_push_frame :: proc(pp: ^SVPreprocessor, data: []byte, path: string, line: u32, limit: int, too_deep: string) {
+	append(&pp.source_data, SVSource{data = data, line_base = line, path = path})
+	file_id := u16(len(pp.source_data) - 1)
+	frame := SVPPFrame{tokenizer = svt_init(data, file_id)}
+	frame.tokenizer.comment_sink = &pp.ast.comments
+	frame.tokenizer.path = path
+	frame.tokenizer.line = line
+	append(&pp.sources, frame)
+	// Includes and macro expansion share the frame stack; cap it for safety.
+	pp.total_depth += 1
+	ensure(pp.total_depth < limit, too_deep)
 }
 
 svpp_push_include :: proc(pp: ^SVPreprocessor, path: string) {
 	data, err := os.read_entire_file_from_path(path, pp.allocator)
 	ensure(err == nil, fmt.tprint("SystemVerilog include read error: ", err, " ", path))
-	file_id := svpp_add_file(pp, data, path)
-	frame := SVPPFrame {
-		tokenizer = svt_init(data, file_id),
-		path      = path,
-	}
-	frame.tokenizer.comment_sink = &pp.ast.comments
-	frame.tokenizer.path = path
-	append(&pp.sources, frame)
-	// Includes can be nested arbitrarily through the same frame stack; cap it for safety.
-	pp.total_depth += 1
-	ensure(pp.total_depth < 512, "SystemVerilog include nesting too deep")
+	svpp_push_frame(pp, data, path, 1, 512, "SystemVerilog include nesting too deep")
 }
 
 svpp_push_text :: proc(pp: ^SVPreprocessor, text: string, path: string, line: u32) {
 	// All callers hand us arena-owned text (builder output, fmt output, or a stored
 	// macro body), so retain a byte view instead of copying it again.
-	data := transmute([]byte)text
-	append(&pp.source_data, SVSource{data = data, line_base = line, path = path})
-	file_id := u16(len(pp.source_data) - 1)
-	frame := SVPPFrame {
-		tokenizer = svt_init(data, file_id),
-		path      = path,
-	}
-	frame.tokenizer.comment_sink = &pp.ast.comments
-	frame.tokenizer.path = path
-	frame.tokenizer.line = line
-	append(&pp.sources, frame)
-	pp.total_depth += 1
-	ensure(pp.total_depth < 4096, "SystemVerilog macro expansion nesting too deep")
+	svpp_push_frame(pp, transmute([]byte)text, path, line, 4096, "SystemVerilog macro expansion nesting too deep")
 }
 
 svpp_cur_tokenizer :: #force_inline proc(pp: ^SVPreprocessor) -> ^SVTokenizer {
@@ -405,8 +390,8 @@ svpp_expand_macro :: proc(pp: ^SVPreprocessor, name: string, tok: SVToken) {
 		args = svpp_scan_macro_args(pp)
 	}
 	line := pp.sources[len(pp.sources) - 1].tokenizer.line
-	text := svpp_expand_text(pp, def, args, line, pp.sources[len(pp.sources) - 1].path)
-	svpp_push_text(pp, text, pp.sources[len(pp.sources) - 1].path, line)
+	text := svpp_expand_text(pp, def, args, line, pp.sources[len(pp.sources) - 1].tokenizer.path)
+	svpp_push_text(pp, text, pp.sources[len(pp.sources) - 1].tokenizer.path, line)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -503,7 +488,7 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 			if svt_peek(l) != '"' { svpp_error(pp, "expected a quoted path after `include") }
 			include_path = svt_scan_string(l)
 		}
-		path := svpp_resolve_include(pp, include_path, pp.sources[len(pp.sources) - 1].path)
+		path := svpp_resolve_include(pp, include_path, pp.sources[len(pp.sources) - 1].tokenizer.path)
 		svpp_push_include(pp, path)
 	case "timescale",
 		 "default_nettype",
@@ -526,7 +511,7 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 	case:
 		// `__FILE__ and `__LINE__ are built-ins, not entries in the define table.
 		if name == "__FILE__" {
-			path := pp.sources[len(pp.sources) - 1].path
+			path := pp.sources[len(pp.sources) - 1].tokenizer.path
 			b := strings.builder_make(pp.allocator)
 			strings.write_byte(&b, '"')
 			for c in path {
@@ -538,7 +523,7 @@ svpp_handle_directive :: proc(pp: ^SVPreprocessor, tok: SVToken) {
 			return
 		}
 		if name == "__LINE__" {
-			svpp_push_text(pp, fmt.aprintf("%d", cur.line, allocator = pp.allocator), pp.sources[len(pp.sources) - 1].path, cur.line)
+			svpp_push_text(pp, fmt.aprintf("%d", cur.line, allocator = pp.allocator), pp.sources[len(pp.sources) - 1].tokenizer.path, cur.line)
 			return
 		}
 		if !active { return }
@@ -561,14 +546,7 @@ svpp_preprocess :: proc(pp: ^SVPreprocessor, data: []byte, filepath: string) -> 
 	if len(pp.tokens) == 0 {
 		non_zero_reserve(&pp.tokens, len(data) / 8 + 64)
 	}
-	file_id := svpp_add_file(pp, data, filepath)
-	frame := SVPPFrame {
-		tokenizer = svt_init(data, file_id),
-		path      = filepath,
-	}
-	frame.tokenizer.comment_sink = &pp.ast.comments
-	frame.tokenizer.path = filepath
-	append(&pp.sources, frame)
+	svpp_push_frame(pp, data, filepath, 1, 4096, "SystemVerilog source nesting too deep")
 	for len(pp.sources) > 0 {
 		top := &pp.sources[len(pp.sources) - 1]
 		t := svt_next(&top.tokenizer)

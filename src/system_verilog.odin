@@ -254,7 +254,6 @@ SVPortExtra :: struct {
 
 SVModule :: struct {
 	name:           string,
-	source_path:    string,
 	is_ansi:        bool,
 	wildcard_ports: bool, // module m (.*);
 	imports:        SVSpan, // into ast.imports
@@ -492,8 +491,6 @@ SVBinOp :: enum u8 {
 
 @(private)
 SVF_NUMBER_BASE_MASK :: u16(0x3)
-@(private)
-SVF_NUMBER_BASE_SHIFT :: u16(0)
 @(private)
 SVF_NUMBER_SIGNED :: u16(0x4)
 @(private)
@@ -1434,17 +1431,6 @@ sv_item_type_decl :: proc(ast: ^SystemVerilogAST, id: u32) -> (decl: SVTypeDeclV
 		true
 }
 
-SVPortDeclView :: struct {
-	dir:  SVPortDir,
-	decl: u32, // Item_NetDecl
-}
-
-sv_item_port_decl :: proc(ast: ^SystemVerilogAST, id: u32) -> (decl: SVPortDeclView, ok: bool) {
-	n := sv_node(ast, id)
-	if n.kind != .Item_PortDecl { return {}, false }
-	return SVPortDeclView{dir = SVPortDir(n.a), decl = n.b}, true
-}
-
 SVInstanceView :: struct {
 	cell_name:       string,
 	is_gate:         bool, // gate primitive (and/or/buf/...): delays are legal, name optional
@@ -1523,15 +1509,6 @@ sv_item_gen_case :: proc(ast: ^SystemVerilogAST, id: u32) -> (stmt: SVGenCaseVie
 	n := sv_node(ast, id)
 	if n.kind != .Item_GenCase { return {}, false }
 	return SVGenCaseView{kind = SVCaseKind(n.a), subject = n.b, items = sv_children(ast, n.span)}, true
-}
-
-sv_item_genvar_names :: proc(ast: ^SystemVerilogAST, id: u32) -> []string {
-	n := sv_node(ast, id)
-	if n.kind != .Item_GenvarDecl { return nil }
-	kids := sv_children(ast, n.span)
-	names := make([]string, len(kids), context.temp_allocator)
-	for kid, i in kids { names[i] = sv_text_of(ast, kid) }
-	return names
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1634,11 +1611,4 @@ system_verilog_parse_source_to_ast :: proc(source: string, filepath: string, ast
 	data := make([]byte, len(source), allocator)
 	copy(data, source)
 	svp_parse_source_to_ast(data, filepath, ast, allocator)
-}
-
-// Frontend entry point kept from the original stub: parses RTL into the AST. The lowering
-// stages (bit-blast -> elaborate always blocks -> techmap) operate on this AST next.
-system_verilog_to_gate_netlist :: proc(filepath: string, ast: ^SystemVerilogAST, allocator: mem.Allocator) {
-	// TODO(rahul): lower ast into NetlistHyperGraph once the parse stage is validated.
-	system_verilog_parse_to_ast(filepath, ast, allocator)
 }

@@ -21,8 +21,6 @@ import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import "core:simd"
-import "core:strconv"
-import "core:strings"
 
 SVTokenKind :: enum u8 {
 	Invalid,
