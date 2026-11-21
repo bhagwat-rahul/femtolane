@@ -50,7 +50,7 @@ lexer_peek :: #force_inline proc(l: ^Lexer, offset: int = 0) -> byte { return l.
 
 lexer_advance :: #force_inline proc(l: ^Lexer, advance_by: int = 1) {
 	lexer_ensure(l = l, condition = l.idx + advance_by <= len(l.src), err_msg = "Unexpected EOF")
-	for _ in 0 ..< advance_by { if l.src[l.idx] == NEWLINE { l.newlines += 1 }	}
+	for _ in 0 ..< advance_by { if l.src[l.idx] == NEWLINE { l.newlines += 1 } }
 	l.idx += advance_by
 }
 
