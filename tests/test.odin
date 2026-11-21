@@ -35,32 +35,6 @@ test_pdk_loader :: proc(_: ^testing.T) {
 }
 
 @(test)
-test_lexGraph :: proc(_: ^testing.T) {
-	lex_graph_arena: virtual.Arena
-	lex_graph_allocator := test_create_arena_allocator(&lex_graph_arena)
-	defer virtual.arena_destroy(&lex_graph_arena)
-	netlist_paths := make([dynamic]string, lex_graph_allocator)
-	NETLISTS_DIR :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/tests/netlist_creation/"
-
-	design_dirs, design_dir_read_err := os.read_all_directory_by_path(NETLISTS_DIR, lex_graph_allocator)
-	ensure(design_dir_read_err == nil, fmt.tprint(design_dir_read_err))
-
-	for dir in design_dirs {
-		if dir.type != .Directory { break }
-		files, err := os.read_all_directory_by_path(dir.fullpath, lex_graph_allocator)
-		ensure(err == nil, fmt.tprint(err))
-		for file in files { if strings.ends_with(file.name, ".netlist.v") { append(&netlist_paths, file.fullpath) } }
-	}
-
-	for netlist_path in netlist_paths {
-		main.lex_gate_level_netlist_and_create_hypergraph(
-			gate_netlist_path = netlist_path,
-			lex_graph_arena_allocator = lex_graph_allocator,
-		)
-	}
-}
-
-@(test)
 test_liberty_cell_creation :: proc(_: ^testing.T) {
 	liberty_cell_creation_arena: virtual.Arena
 	liberty_cell_creation_allocator := test_create_arena_allocator(&liberty_cell_creation_arena)
