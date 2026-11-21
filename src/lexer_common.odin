@@ -24,6 +24,8 @@ COLON :: ':'
 DOT :: '.'
 SINGLE_QUOTE :: '\''
 DOUBLE_QUOTE :: '"'
+BACKTICK :: '`'
+TILDE :: '~'
 
 Lexer :: struct {
 	src:      []byte,
