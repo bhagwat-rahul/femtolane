@@ -19,7 +19,6 @@ package main
 import "core:fmt"
 import "core:mem"
 import "core:os"
-import "core:strconv"
 import "core:strings"
 import "core:time"
 
@@ -218,7 +217,7 @@ time_mode :: proc(response_path: string) {
 			t1 := time.tick_now()
 			tokens += len(toks)
 			after_pp := arena.offset
-			svp_parse_tokens(&ast, toks, pp.source_data[:], f.path, allocator)
+			svp_parse_tokens(&ast, toks, pp.source_data[:], allocator)
 			t2 := time.tick_now()
 			pp_time += time.tick_diff(t0, t1)
 			parse_time += time.tick_diff(t1, t2)
@@ -278,11 +277,6 @@ lex_mode :: proc(response_path: string) {
 	lines, response := response_lines(response_path)
 	defer delete(lines)
 	defer delete(response, context.allocator)
-
-	arena: mem.Arena
-	mem.arena_init(&arena, make([]byte, 1 << 33))
-	defer mem.arena_free_all(&arena)
-	allocator := mem.arena_allocator(&arena)
 
 	files: [dynamic]SVFile
 	defer delete(files)

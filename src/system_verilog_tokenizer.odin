@@ -765,6 +765,11 @@ sv_keyword_name :: proc(kw: SVKeyword) -> string {
 // ---------------------------------------------------------------------------------------
 // The keyword table (IEEE 1800-2023 Annex B), generated from the language keyword list.
 // Kept in enum('s) numerical order so it can double as a name table.
+//
+// Keep the full reserved-word set even for constructs the parser does not
+// implement. `svp_is_ident` accepts only `kw == .None`, so this table is what
+// makes an unsupported reserved word fail as a keyword instead of being accepted
+// as a user identifier or type name.
 // ---------------------------------------------------------------------------------------
 
 SVKeyword :: enum u8 {

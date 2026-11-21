@@ -3213,13 +3213,84 @@ svp_parse_assignment_or_call_expr :: proc(p: ^SVParser2, prefix: u32) -> u32 {
 	return assign
 }
 
+// Classifies one item inside a statement block or a function/task body. Keeping
+// the declaration-vs-statement decision in one place avoids the two parsers
+// drifting apart; ports_depth >= 0 enables legacy task/function port declarations.
+svp_parse_block_item :: proc(p: ^SVParser2, block: u32, d_decls, d_stmts: int, ports_depth: int) {
+	t := svp_peek(p)
+	if t.kw == .Import {
+		sp := svp_parse_import_list(p)
+		n := svn(p, block)
+		if n.c == 0 { n.b = sp.start }
+		n.c += sp.len
+		return
+	}
+	if t.kw == .Typedef {
+		svp_list_add(p, d_decls, svp_parse_typedef(p))
+		return
+	}
+	if t.kw == .Parameter || t.kw == .Localparam {
+		svp_bump(p)
+		decl := svp_parse_param_decl_after_keyword(p, t.kw == .Localparam, false)
+		_ = svp_expect(p, .Semicolon)
+		svp_list_add(p, d_decls, decl)
+		return
+	}
+	if ports_depth >= 0 {
+		if d, ok := svp_port_dir(t.kw); ok {
+			// Legacy task/function port declaration.
+			svp_bump(p)
+			data := u32(SV_NONE)
+			if svp_starts_tf_type(p) { data = svp_parse_type(p, true) }
+			for {
+				port := svp_node(p, .Aux_TFPort)
+				pn := svn(p, port)
+				pn.a = SV_NONE
+				pn.c = SV_NONE
+				pn.flags = u16(d) & SVF_DIR_MASK
+				if data != SV_NONE { pn.a = data }
+				name := svp_expect_ident(p)
+				pn.b = svp_str(p, name)
+				dd := svp_list_open(p)
+				for svp_at(p, .LBracket) {
+					svp_list_add(p, dd, svp_parse_range(p))
+				}
+				pn.span = svp_list_close(p, dd)
+				svp_list_add(p, ports_depth, port)
+				if !svp_accept(p, .Comma) { break }
+			}
+			_ = svp_expect(p, .Semicolon)
+			return
+		}
+	}
+	if svp_is_decl_kw(t.kw) || t.kind == .LBracket {
+		svp_list_add(p, d_decls, svp_parse_net_decl(p))
+		return
+	}
+	if svp_is_ident(t) && svp_at(p, .ColonColon, 1) && (svp_is_ident(svp_peek(p, 3)) || svp_at(p, .LBracket, 3)) {
+		scope := svp_expect_ident(p)
+		_ = svp_expect(p, .ColonColon)
+		member := svp_expect_ident(p)
+		data := svp_type_from_name(p, scope, member)
+		svp_list_add(p, d_decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
+		return
+	}
+	if svp_is_ident(t) && (svp_is_ident(svp_peek(p, 1)) || (svp_at(p, .LBracket, 1) && svp_ident_dims_then_ident(p))) {
+		name := svp_expect_ident(p)
+		data := svp_type_from_name(p, "", name)
+		svp_list_add(p, d_decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
+		return
+	}
+	svp_list_add(p, d_stmts, svp_parse_statement(p))
+}
+
 svp_parse_block :: proc(p: ^SVParser2) -> u32 {
 	_ = svp_expect_kw(p, .Begin)
 	block := svp_node(p, .Stmt_Block)
 	bn := svn(p, block)
 	bn.a = SV_NONE
 	if svp_accept(p, .Colon) {
-		svn(p, block).a = svp_str(p, svp_expect_ident(p))
+		bn.a = svp_str(p, svp_expect_ident(p))
 	}
 	base := p.list_depth
 	d_decls := svp_list_open(p)
@@ -3232,44 +3303,7 @@ svp_parse_block :: proc(p: ^SVParser2) -> u32 {
 			break
 		}
 		if svp_accept(p, .Semicolon) { continue }
-		t := svp_peek(p)
-		if t.kw == .Import {
-			sp := svp_parse_import_list(p)
-			n := svn(p, block)
-			if n.c == 0 { n.b = sp.start }
-			n.c += sp.len
-			continue
-		}
-		if t.kw == .Typedef {
-			svp_list_add(p, d_decls, svp_parse_typedef(p))
-			continue
-		}
-		if t.kw == .Parameter || t.kw == .Localparam {
-			svp_bump(p)
-			decl := svp_parse_param_decl_after_keyword(p, t.kw == .Localparam, false)
-			_ = svp_expect(p, .Semicolon)
-			svp_list_add(p, d_decls, decl)
-			continue
-		}
-		if svp_is_decl_kw(t.kw) || t.kind == .LBracket {
-			svp_list_add(p, d_decls, svp_parse_net_decl(p))
-			continue
-		}
-		if svp_is_ident(t) && svp_at(p, .ColonColon, 1) && (svp_is_ident(svp_peek(p, 3)) || svp_at(p, .LBracket, 3)) {
-			scope := svp_expect_ident(p)
-			_ = svp_expect(p, .ColonColon)
-			member := svp_expect_ident(p)
-			data := svp_type_from_name(p, scope, member)
-			svp_list_add(p, d_decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
-			continue
-		}
-		if svp_is_ident(t) && (svp_is_ident(svp_peek(p, 1)) || (svp_at(p, .LBracket, 1) && svp_ident_dims_then_ident(p))) {
-			name := svp_expect_ident(p)
-			data := svp_type_from_name(p, "", name)
-			svp_list_add(p, d_decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
-			continue
-		}
-		svp_list_add(p, d_stmts, svp_parse_statement(p))
+		svp_parse_block_item(p, block, d_decls, d_stmts, -1)
 	}
 	svp_list_discard(p, base)
 	decls := svp_list_commit(p, d_decls)
@@ -3746,68 +3780,7 @@ svp_parse_subroutine_body :: proc(p: ^SVParser2, ports_depth: int) -> u32 {
 	d_stmts := svp_list_open(p)
 	for !svp_at_eof(p) && !svp_kw_at(p, .Endfunction) && !svp_kw_at(p, .Endtask) {
 		svp_skip_attributes(p)
-		t := svp_peek(p)
-		if t.kw == .Import {
-			sp := svp_parse_import_list(p)
-			n := svn(p, block)
-			if n.c == 0 { n.b = sp.start }
-			n.c += sp.len
-			continue
-		}
-		if t.kw == .Typedef {
-			svp_list_add(p, d_decls, svp_parse_typedef(p))
-			continue
-		}
-		if t.kw == .Parameter || t.kw == .Localparam {
-			svp_bump(p)
-			decl := svp_parse_param_decl_after_keyword(p, t.kw == .Localparam, false)
-			_ = svp_expect(p, .Semicolon)
-			svp_list_add(p, d_decls, decl)
-			continue
-		}
-		if d, ok := svp_port_dir(t.kw); ok {
-			// Legacy task/function port declaration.
-			svp_bump(p)
-			data := u32(SV_NONE)
-			if svp_starts_tf_type(p) { data = svp_parse_type(p, true) }
-			for {
-				port := svp_node(p, .Aux_TFPort)
-				svn(p, port).a = SV_NONE
-				svn(p, port).c = SV_NONE
-				svn(p, port).flags = u16(d) & SVF_DIR_MASK
-				if data != SV_NONE { svn(p, port).a = data }
-				name := svp_expect_ident(p)
-				svn(p, port).b = svp_str(p, name)
-				dd := svp_list_open(p)
-				for svp_at(p, .LBracket) {
-					svp_list_add(p, dd, svp_parse_range(p))
-				}
-				svn(p, port).span = svp_list_close(p, dd)
-				svp_list_add(p, ports_depth, port)
-				if !svp_accept(p, .Comma) { break }
-			}
-			_ = svp_expect(p, .Semicolon)
-			continue
-		}
-		if svp_is_decl_kw(t.kw) || t.kind == .LBracket {
-			svp_list_add(p, d_decls, svp_parse_net_decl(p))
-			continue
-		}
-		if svp_is_ident(t) && svp_at(p, .ColonColon, 1) && (svp_is_ident(svp_peek(p, 3)) || svp_at(p, .LBracket, 3)) {
-			scope := svp_expect_ident(p)
-			_ = svp_expect(p, .ColonColon)
-			member := svp_expect_ident(p)
-			data := svp_type_from_name(p, scope, member)
-			svp_list_add(p, d_decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
-			continue
-		}
-		if svp_is_ident(t) && (svp_is_ident(svp_peek(p, 1)) || (svp_at(p, .LBracket, 1) && svp_ident_dims_then_ident(p))) {
-			name := svp_expect_ident(p)
-			data := svp_type_from_name(p, "", name)
-			svp_list_add(p, d_decls, svp_parse_net_decl_after_keyword(p, .NONE, data))
-			continue
-		}
-		svp_list_add(p, d_stmts, svp_parse_statement(p))
+		svp_parse_block_item(p, block, d_decls, d_stmts, ports_depth)
 	}
 	decls := svp_list_commit(p, d_decls)
 	stmts := svp_list_commit(p, d_stmts)
@@ -3838,9 +3811,10 @@ svp_parse_source_to_ast :: proc(data: []byte, filepath: string, ast: ^SystemVeri
 
 svp_parse_gen_block_after_begin :: proc(p: ^SVParser2, label: string) -> u32 {
 	block := svp_node(p, .Stmt_Block)
-	svn(p, block).a = svp_str(p, label)
+	bn := svn(p, block)
+	bn.a = svp_str(p, label)
 	if svp_accept(p, .Colon) {
-		svn(p, block).a = svp_str(p, svp_expect_ident(p))
+		bn.a = svp_str(p, svp_expect_ident(p))
 	}
 	d := svp_list_open(p)
 	for !svp_at_eof(p) && !svp_kw_at(p, .End) {
