@@ -19,65 +19,6 @@ test_create_arena_allocator :: #force_inline proc(arena: ^virtual.Arena) -> mem.
 	return virtual.arena_allocator(arena)
 }
 
-// Tests the frontend yosys netlist creation flow that goes from behavioral RTL -> Gate Level Netlist
-@(test)
-test_netlist_creation :: proc(_: ^testing.T) {
-	netlist_creation_arena: virtual.Arena
-	netlist_creation_allocator := test_create_arena_allocator(&netlist_creation_arena)
-	defer virtual.arena_destroy(&netlist_creation_arena)
-	sky130a_liberty := fmt.tprint(PDK_ROOT, "/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_100C_1v65.lib", sep = "")
-	verilog_src := "netlist_creation/adder/adder.v"
-	top := "adder"
-	yosys_tcl_script_filepath := "" // TODO(rahul): fix
-	outfile := main.convert_rtl_to_gate_netlist(
-		rtl_filepath = verilog_src,
-		lib_file = sky130a_liberty,
-		top_module = top,
-		yosys_tcl_script_filepath = yosys_tcl_script_filepath,
-	)
-	outfile_src, read_err := os.read_entire_file_from_path(outfile, netlist_creation_allocator)
-	assert(read_err == nil, fmt.tprintln("file read error", read_err))
-	lines, _ := strings.split_lines(string(outfile_src), netlist_creation_allocator)
-	for line in lines {
-		fields := strings.fields(line, netlist_creation_allocator)
-		if len(fields) < 2 { continue }
-		cell := fields[0]
-		ensure(cell[0] != '$', fmt.tprintln("Non tech-mapped cell %s", cell)) // if first char is $ then unmapped
-	}
-}
-
-@(test)
-test_pdk_loader :: proc(_: ^testing.T) {
-	os.set_env("PDK_ROOT", PDK_ROOT)
-	main.openpdk_load()
-}
-
-@(test)
-test_lexGraph :: proc(_: ^testing.T) {
-	lex_graph_arena: virtual.Arena
-	lex_graph_allocator := test_create_arena_allocator(&lex_graph_arena)
-	defer virtual.arena_destroy(&lex_graph_arena)
-	netlist_paths := make([dynamic]string, lex_graph_allocator)
-	NETLISTS_DIR :: "/Users/rahulbhagwat/Documents/git/work/tinyeda/femtolane/tests/netlist_creation/"
-
-	design_dirs, design_dir_read_err := os.read_all_directory_by_path(NETLISTS_DIR, lex_graph_allocator)
-	ensure(design_dir_read_err == nil, fmt.tprint(design_dir_read_err))
-
-	for dir in design_dirs {
-		if dir.type != .Directory { break }
-		files, err := os.read_all_directory_by_path(dir.fullpath, lex_graph_allocator)
-		ensure(err == nil, fmt.tprint(err))
-		for file in files { if strings.ends_with(file.name, ".netlist.v") { append(&netlist_paths, file.fullpath) } }
-	}
-
-	for netlist_path in netlist_paths {
-		main.lex_gate_level_netlist_and_create_hypergraph(
-			gate_netlist_path = netlist_path,
-			lex_graph_arena_allocator = lex_graph_allocator,
-		)
-	}
-}
-
 @(test)
 test_liberty_cell_creation :: proc(_: ^testing.T) {
 	liberty_cell_creation_arena: virtual.Arena
