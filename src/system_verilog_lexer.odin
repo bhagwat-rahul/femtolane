@@ -30,6 +30,8 @@ system_verilog_lexer :: proc(filepath: string, allocator: mem.Allocator) {
 	for l.idx < len(l.src) {
 		ident := sv_scan_ident(&l)
 		switch ident {
+		case "`": // sv_compiler_directive
+		case "//", "/*": // sv_comment (single and multiline)
 		case "module": // begin module
 		case "endmodule": // end current module
 		case: lexer_panic(&l, fmt.tprint("Unknown ident", ident))
