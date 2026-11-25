@@ -39,15 +39,13 @@ system_verilog_lexer :: proc(filepath: string, allocator: mem.Allocator) {
 
 	// TODO(rahul): init sv ident tables to handle backticks and comment symbols appropriately
 	for l.idx < len(l.src) {
-		lexer_skip_newlines_and_whitespaces(&l)
-		// TODO(rahul): switch on byte and scan ident if none of preproc compiler dir, whitespace, comment, etc.
-		ident := lexer_scan_ident(&l)
-		switch ident {
-		case "`": sv_scan_compiler_directive(&l)
-		case "/": sv_handle_comments(&l)
-		case "module": // begin module
-		case "endmodule": // end current module
-		case: lexer_panic(&l, fmt.tprint("Unknown ident", ident))
+		byte := l.src[l.idx]
+		// TODO(rahul): ensure that slash is comment not div, handle $ in ident tables etc. this byte switch needs bugfixes and is only for quick prototyping atm
+		switch byte {
+		case WHITESPACE, NEWLINE, NEWLINE_CARRIAGE_RETURN, WHITESPACE_TAB: lexer_skip_newlines_and_whitespaces(&l)
+		case BACKTICK: sv_scan_compiler_directive(&l)
+		case SLASH: sv_handle_comments(&l)
+		case: sv_lexer_handle_ident(&l)
 		}
 	}
 
@@ -67,6 +65,7 @@ sv_handle_comments :: #force_inline proc(l: ^Lexer) {
 }
 
 sv_scan_compiler_directive :: proc(l: ^Lexer) {
+	lexer_consume(l, BACKTICK)
 	directive := lexer_scan_ident(l)
 	switch directive {
 	case "__FILE__": // expand to filename
@@ -83,6 +82,18 @@ sv_scan_compiler_directive :: proc(l: ^Lexer) {
 	case "resetall": // all compiler dir's set to default vals
 	case "timescale": // set timescale (timescale time_unit/time_precision eg `timescale 1ns / 1ps)
 	case: lexer_panic(l, fmt.tprint("Unkown compiler directive", directive))
+	}
+}
+
+sv_lexer_handle_ident :: proc(l: ^Lexer) {
+	ident := lexer_scan_ident(l)
+	switch ident {
+	case "module":
+	case "endmodule":
+	case "wire":
+	case "reg":
+	case "logic":
+	case: lexer_panic(l, fmt.tprint("Unhandled identifier", ident))
 	}
 }
 
