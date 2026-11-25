@@ -4,6 +4,18 @@ import "core:fmt"
 import "core:mem"
 import "core:os"
 
+SystemVerilogDatabase :: struct {
+	current_module: ^SVModule,
+	module:         [dynamic]SVModule,
+}
+
+SVModule :: struct {
+	name:       string,
+	interfaces: [dynamic]SVInterface,
+}
+
+SVInterface :: struct {}
+
 system_verilog_lexer :: proc(filepath: string, allocator: mem.Allocator) {
 	data, err := os.read_entire_file_from_path(filepath, allocator)
 	ensure(err == nil, fmt.tprint("Error reading system verilog file", err))
@@ -18,7 +30,8 @@ system_verilog_lexer :: proc(filepath: string, allocator: mem.Allocator) {
 	for l.idx < len(l.src) {
 		ident := sv_scan_ident(&l)
 		switch ident {
-		case "": // some other case
+		case "module": // begin module
+		case "endmodule": // end current module
 		case: lexer_panic(&l, fmt.tprint("Unknown ident", ident))
 		}
 	}
