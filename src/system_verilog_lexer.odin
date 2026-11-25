@@ -59,31 +59,22 @@ sv_handle_comments :: #force_inline proc(l: ^Lexer) {
 }
 
 sv_scan_compiler_directive :: proc(l: ^Lexer) {
-	ident := sv_scan_ident(l)
-	switch ident {
-	case "__FILE__":
-	case "__LINE__":
-	case "begin_keywords":
-	case "celldefine":
-	case "default_nettype":
-	case "define": // define something
-	case "else":
-	case "elsif":
-	case "end_keywords":
-	case "endcelldefine":
-	case "endif":
-	case "ifdef":
-	case "ifndef":
-	case "include":
-	case "line":
-	case "nounconnected_drive":
-	case "pragma":
-	case "resetall":
-	case "timescale": // set timescale
-	case "unconnected_drive":
-	case "undef":
-	case "undefineall":
-	case "case":
+	directive := sv_scan_ident(l)
+	switch directive {
+	case "__FILE__": // expand to filename
+	case "__LINE__": // expand to line in file
+	case "begin_keywords", "end_keywords": // specify which version of verilog the module/construct following this supports, model as enum
+	case "celldefine", "endcelldefine": // tag a module as cell module (resetall includes effects of endcelldefine and celldefine/endcelldefine maybe used independently)
+	case "default_nettype": // what net created for implicit declarations (`default nettype_none/uwire, etc.)
+	case "define", "undef", "undefineall": // define something & friends, unaffected by `resetall
+	case "ifdef", "else", "elsif", "endif", "ifndef": // conditionally include something
+	case "include": // insert entire contents of source file into another file during compilation
+	case "line": // linenum
+	case "unconnected_drive", "nounconnected_drive": // all unconnected ports between these directives pulled up or down instead of defaults
+	case "pragma": // alters source, pragma expression syntax
+	case "resetall": // all compiler dir's set to default vals
+	case "timescale": // set timescale (timescale time_unit/time_precision eg `timescale 1ns / 1ps)
+	case: lexer_panic(l, fmt.tprint("Unkown compiler directive", directive))
 	}
 }
 
