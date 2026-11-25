@@ -6,8 +6,11 @@ import "core:os"
 
 SystemVerilogDatabase :: struct {
 	current_module: ^SVModule,
-	module:         [dynamic]SVModule,
+	modules:        [dynamic]SVModule,
+	timescale:      SVTimeScales,
 }
+
+SVTimeScales :: enum {}
 
 SVModule :: struct {
 	name:       string,
