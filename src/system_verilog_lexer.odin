@@ -1,3 +1,10 @@
+/*
+Due to system verilog's C like nature we need to preprocess it as well since it can have includes, def's etc.
+So the flow is preprocess -> lex -> parse -> elaborate -> lower to world level IR -> bitbang (lower to bit level IR) -> lower to graph (XMG, MIG, AIG)
+Each IR may have different optimization opportunities, and some places may have opt opportunities for different objectives and different parts of the flow
+Therefore we are writing this ourselves instead of using slang to discover all the opt opportunities in the preproc through elaborate layer
+*/
+
 package main
 
 import "core:fmt"
