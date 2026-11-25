@@ -30,7 +30,7 @@ system_verilog_lexer :: proc(filepath: string, allocator: mem.Allocator) {
 	for l.idx < len(l.src) {
 		ident := sv_scan_ident(&l)
 		switch ident {
-		case "`": // sv_compiler_directive
+		case "`": sv_scan_compiler_directive(&l)
 		case "//", "/*": // sv_comment (single and multiline)
 		case "module": // begin module
 		case "endmodule": // end current module
@@ -38,6 +38,15 @@ system_verilog_lexer :: proc(filepath: string, allocator: mem.Allocator) {
 		}
 	}
 
+}
+
+sv_scan_compiler_directive :: proc(l: ^Lexer) {
+	ident := sv_scan_ident(l)
+	switch ident {
+	case "define":
+	case "timescale":
+	case "":
+	}
 }
 
 sv_scan_ident :: proc(l: ^Lexer) -> (ident: string) {
