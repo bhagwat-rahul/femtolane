@@ -46,9 +46,29 @@ system_verilog_lexer :: proc(filepath: string, allocator: mem.Allocator) {
 sv_scan_compiler_directive :: proc(l: ^Lexer) {
 	ident := sv_scan_ident(l)
 	switch ident {
-	case "define":
-	case "timescale":
-	case "":
+	case "__FILE__":
+	case "__LINE__":
+	case "begin_keywords":
+	case "celldefine":
+	case "default_nettype":
+	case "define": // define something
+	case "else":
+	case "elsif":
+	case "end_keywords":
+	case "endcelldefine":
+	case "endif":
+	case "ifdef":
+	case "ifndef":
+	case "include":
+	case "line":
+	case "nounconnected_drive":
+	case "pragma":
+	case "resetall":
+	case "timescale": // set timescale
+	case "unconnected_drive":
+	case "undef":
+	case "undefineall":
+	case "case":
 	}
 }
 
