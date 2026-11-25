@@ -33,7 +33,8 @@ system_verilog_lexer :: proc(filepath: string, allocator: mem.Allocator) {
 	// TODO(rahul): init sv ident tables to handle backticks and comment symbols appropriately
 	for l.idx < len(l.src) {
 		lexer_skip_newlines_and_whitespaces(&l)
-		ident := sv_scan_ident(&l)
+		// TODO(rahul): switch on byte and scan ident if none of preproc compiler dir, whitespace, comment, etc.
+		ident := lexer_scan_ident(&l)
 		switch ident {
 		case "`": sv_scan_compiler_directive(&l)
 		case "/": sv_handle_comments(&l)
@@ -59,7 +60,7 @@ sv_handle_comments :: #force_inline proc(l: ^Lexer) {
 }
 
 sv_scan_compiler_directive :: proc(l: ^Lexer) {
-	directive := sv_scan_ident(l)
+	directive := lexer_scan_ident(l)
 	switch directive {
 	case "__FILE__": // expand to filename
 	case "__LINE__": // expand to line in file
@@ -76,10 +77,6 @@ sv_scan_compiler_directive :: proc(l: ^Lexer) {
 	case "timescale": // set timescale (timescale time_unit/time_precision eg `timescale 1ns / 1ps)
 	case: lexer_panic(l, fmt.tprint("Unkown compiler directive", directive))
 	}
-}
-
-sv_scan_ident :: proc(l: ^Lexer) -> (ident: string) {
-	return ident
 }
 
 sv_lex_number_literal :: proc() {  }
