@@ -1,7 +1,7 @@
 /*
 Due to system verilog's C like nature we need to preprocess it as well since it can have includes, def's etc.
-So the flow is preprocess -> lex -> parse -> elaborate -> lower to world level IR -> bitbang (lower to bit level IR) -> lower to graph (XMG, MIG, AIG)
-Each IR may have different optimization opportunities, and some places may have opt opportunities for different objectives and different parts of the flow
+So the flow is (fused preprocess + lex) -> parse -> elaborate -> lower to world level IR -> bitbang (lower to bit level IR) -> lower to graph (XMG, MIG, AIG)
+Each IR may have different optimization opportunities, and some places may have opt opportunities for different objectives and different parts of the flow. Fusing preproc/lex is fine since there aren't really and opt opportunities there and sv pre-proc is pretty thin anyway so let's go fast there
 Therefore we are writing this ourselves instead of using slang to discover all the opt opportunities in the preproc through elaborate layer
 */
 
